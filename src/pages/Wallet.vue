@@ -1,0 +1,265 @@
+<script setup>
+import { ref, reactive } from 'vue';
+import { v4 as uuid } from 'uuid';
+import { useExpensesStore } from '@/store/expensesStore';
+import { useParticipantsStore } from '@/store/participantsStore';
+import { Plus, Trash2, ReceiptText, X, Wallet2, Users } from 'lucide-vue-next';
+import PayCard from '../components/PayCard.vue';
+
+const expense = useExpensesStore();
+const participants = useParticipantsStore();
+const drawerVisible = ref(false);
+
+const form = reactive({
+  amount: '',
+  description: '',
+  payerId: '',
+  splitWithIds: [],
+});
+const editMethod = (data) => {
+  Object.assign(form, data);
+  drawerVisible.value = true;
+};
+
+const submitExpense = () => {
+  if (!form.amount || !form.description || !form.payerId) return;
+  if (form.id) {
+    expense.patch(form.id, {
+      amount: parseFloat(form.amount),
+      description: form.description,
+      payerId: form.payerId,
+      splitWithIds: [...form.splitWithIds],
+    });
+  } else {
+    expense.add({
+      id: uuid(),
+      amount: parseFloat(form.amount),
+      description: form.description,
+      payerId: form.payerId,
+      splitWithIds: [...form.splitWithIds],
+    });
+  }
+
+  drawerVisible.value = false;
+};
+const onClose = () => {
+  Object.assign(form, {
+    id: null,
+    amount: '',
+    description: '',
+    payerId: '',
+    splitWithIds: [],
+  });
+};
+</script>
+
+<template>
+  <div class="space-y-8">
+    <div
+      class="bg-gradient-to-br from-slate-800 to-slate-900 rounded-[32px] p-8 text-white shadow-2xl relative overflow-hidden group"
+    >
+      <div class="relative z-10">
+        <div class="flex items-center gap-2 mb-2 opacity-60">
+          <Wallet2 :size="14" />
+          <p class="text-[10px] font-black uppercase tracking-[0.2em]">
+            旅行總支出
+          </p>
+        </div>
+        <div class="flex items-baseline gap-2">
+          <span class="text-xl font-bold text-orange-400">₩</span>
+          <h2 class="text-4xl font-black tracking-tight">
+            {{ expense.totalSpent.toLocaleString() }}
+          </h2>
+        </div>
+
+        <el-button
+          class="w-full !rounded-[20px] !h-14 mt-8 !text-lg !font-black !bg-orange-500 !border-none !text-white shadow-xl shadow-orange-900/20 active:scale-95 transition-transform"
+          @click="drawerVisible = true"
+        >
+          <Plus :size="20" class="mr-2 stroke-[3px]" />
+          新增行程開支
+        </el-button>
+      </div>
+      <ReceiptText
+        :size="120"
+        class="absolute -bottom-6 -right-6 opacity-10 rotate-12 group-hover:scale-110 transition-transform duration-700"
+      />
+    </div>
+
+    <div class="space-y-4">
+      <div class="flex justify-between items-end mb-4">
+        <h3 class="font-black text-slate-800 text-xl tracking-tight">
+          費用明細
+        </h3>
+        <span
+          class="text-[10px] font-black text-slate-400 uppercase tracking-widest"
+          >{{ expense.expenses.length }} 筆記錄</span
+        >
+      </div>
+
+      <div
+        v-if="expense.expenses.length === 0"
+        class="flex flex-col items-center py-20 text-slate-300"
+      >
+        <ReceiptText :size="48" class="opacity-20 mb-2" />
+        <p class="italic font-medium">尚未有任何開銷紀錄</p>
+      </div>
+
+      <PayCard
+        v-for="exp in expense.expenses"
+        :key="exp.id"
+        :item="exp"
+        @edit="editMethod"
+      >
+      </PayCard>
+    </div>
+
+    <el-drawer
+      v-model="drawerVisible"
+      direction="btt"
+      size="auto"
+      :with-header="false"
+      :append-to-body="true"
+      class="custom-drawer"
+      @close="onClose"
+    >
+      <div class="p-4">
+        <div class="flex justify-between items-center mb-8">
+          <h2 class="text-2xl font-black text-slate-800">
+            {{ form.id ? '編輯' : '新增' }}這筆開支
+          </h2>
+          <button
+            @click="drawerVisible = false"
+            class="p-2 bg-slate-100 rounded-full text-slate-400"
+          >
+            <X :size="20" />
+          </button>
+        </div>
+
+        <el-form label-position="top" class="custom-form">
+          <el-form-item>
+            <template #label
+              ><span class="label-custom">支出金額 (₩)</span></template
+            >
+            <el-input
+              v-model="form.amount"
+              type="number"
+              placeholder="0"
+              class="custom-input"
+            />
+          </el-form-item>
+
+          <el-form-item>
+            <template #label
+              ><span class="label-custom">支出內容</span></template
+            >
+            <el-input
+              v-model="form.description"
+              placeholder="例如：漢拿山炒飯"
+              class="custom-input"
+            />
+          </el-form-item>
+
+          <div class="grid grid-cols-2 gap-4">
+            <el-form-item>
+              <template #label
+                ><span class="label-custom tracking-tighter"
+                  >誰先墊錢？</span
+                ></template
+              >
+              <el-select
+                v-model="form.payerId"
+                class="w-full custom-select"
+                placeholder="選擇付款人"
+              >
+                <el-option
+                  v-for="p in participants.participants"
+                  :key="p.id"
+                  :label="p.name"
+                  :value="p.id"
+                />
+              </el-select>
+            </el-form-item>
+
+            <el-form-item>
+              <template #label
+                ><span class="label-custom tracking-tighter"
+                  >參與人數</span
+                ></template
+              >
+              <div
+                class="h-12 bg-slate-50 rounded-2xl flex items-center px-4 gap-2 text-slate-500"
+              >
+                <Users :size="16" />
+                <span class="text-sm font-bold"
+                  >{{ form.splitWithIds.length }} 人</span
+                >
+              </div>
+            </el-form-item>
+          </div>
+
+          <el-form-item>
+            <template #label
+              ><span class="label-custom">要跟誰分這筆錢？</span></template
+            >
+            <el-checkbox-group
+              v-model="form.splitWithIds"
+              class="flex flex-wrap gap-2"
+            >
+              <el-checkbox
+                v-for="p in participants.participants"
+                :key="p.id"
+                :label="p.id"
+                class="custom-checkbox"
+                border
+                >{{ p.name }}</el-checkbox
+              >
+            </el-checkbox-group>
+          </el-form-item>
+        </el-form>
+
+        <div class="mt-8">
+          <el-button
+            type="primary"
+            @click="submitExpense"
+            class="w-full !h-16 !rounded-[24px] !bg-orange-500 !border-none !text-xl !font-black shadow-xl shadow-orange-100"
+            >{{ form.id ? '更新' : '儲存' }}這筆開支</el-button
+          >
+        </div>
+      </div>
+    </el-drawer>
+  </div>
+</template>
+
+<style>
+/* Drawer 樣式調整 */
+.custom-drawer.el-drawer {
+  border-radius: 40px 40px 0 0 !important;
+}
+
+.label-custom {
+  @apply text-xs font-black text-slate-400 uppercase tracking-widest ml-1;
+}
+
+/* 讓 Input 變可愛 */
+.custom-input .el-input__wrapper {
+  @apply !rounded-2xl !bg-slate-50 !shadow-none !border-2 !border-transparent transition-all;
+  height: 56px;
+}
+.custom-input .el-input__wrapper.is-focus {
+  @apply !border-orange-500 !bg-white;
+}
+
+/* 選擇框樣式 */
+.custom-select .el-input__wrapper {
+  @apply !rounded-2xl !bg-slate-50 !shadow-none !h-[48px];
+}
+
+/* 複選框按鈕化 */
+.custom-checkbox.el-checkbox {
+  @apply !rounded-xl !mr-0 !mb-0 !border-slate-100 !bg-slate-50 transition-all;
+}
+.custom-checkbox.is-checked {
+  @apply !bg-orange-50 !border-orange-500;
+}
+</style>

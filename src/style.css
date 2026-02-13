@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+    /* 濟州橘核心色 */
+    --primary-orange: #FF8C00;
+    --primary-orange-light: #FFF4E6;
+    --primary-orange-dark: #E67E00;
+
+    /* 輔助色 */
+    --jeju-green: #22C55E; /* 橘子葉子的綠 */
+    --slate-body: #F8FAFC;
+    --el-color-primary: var(--primary-orange) !important;
+
+    background-color: var(--primary-orange-light);
+}
