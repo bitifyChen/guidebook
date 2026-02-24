@@ -42,6 +42,5 @@ body {
   width: 100%;
   overflow-x: hidden;
   overflow-y: auto;
-  background: #eef2fa;
 }
 </style>
