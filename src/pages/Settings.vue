@@ -52,19 +52,5 @@ const addPerson = () => {
         </div>
       </div>
     </div>
-
-    <div
-      class="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 text-center"
-    >
-      <Heart :size="32" class="text-red-400 mx-auto mb-2" />
-      <p class="text-sm text-slate-600 font-medium">
-        祝您在濟州島有個愉快的旅程！
-      </p>
-      <p
-        class="text-[10px] text-slate-300 mt-4 uppercase font-bold tracking-widest"
-      >
-        Jeju App v1.2.0
-      </p>
-    </div>
   </div>
 </template>

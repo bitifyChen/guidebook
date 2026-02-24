@@ -1,24 +1,29 @@
 import { defineStore } from 'pinia';
-import itineraryData from '@/data/itinerary.json';
-import itineraryConfig from '@/data/itineraryConfig.json';
+import { getItinerary, getDayConfigs } from '@/api/itinerary';
 
 export const useTravelStore = defineStore('travel', {
   state: () => ({
-    // 這裡未來會對接 Firebase
-    config: itineraryConfig,
-    itinerary: itineraryData,
+    // 初始化為空，等待 init 填充
+    config: [],
+    itinerary: [],
     selectedDay: 1,
+    isLoading: false,
   }),
 
   getters: {
     // 取得當前選擇日期的配置 (包含當天起始時間)
-    currentDayConfig: (state) =>
-      state.config.find((c) => c.day === state.selectedDay) || state.config[0],
+    currentDayConfig: (state) => {
+      if (state.config.length === 0)
+        return { day: state.selectedDay, start: '09:00' };
+      return (
+        state.config.find((c) => c.day === state.selectedDay) || state.config[0]
+      );
+    },
 
-    // 核心邏輯：計算動態時間鏈
+    // 核心邏輯：計算動態時間鏈 (邏輯不變，增加空資料判斷)
     dailyItinerary: (state) => {
       const dayConfig = state.config.find((c) => c.day === state.selectedDay);
-      if (!dayConfig) return [];
+      if (!dayConfig || state.itinerary.length === 0) return [];
 
       // 1. 取得起始時間種子 (例如 "07:00")
       let [hours, minutes] = dayConfig.start.split(':').map(Number);
@@ -31,12 +36,10 @@ export const useTravelStore = defineStore('travel', {
 
       // 3. 開始累加計算
       return rawDayItems.map((item) => {
-        // --- 計算抵達/開始時間 ---
         const startH = Math.floor(rollingMinutes / 60);
         const startM = rollingMinutes % 60;
         const computedStartTime = `${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}`;
 
-        // --- 計算在該點結束時間 (開始 + 停留 + 延遲) ---
         const totalStay = (item.duration || 0) + (item.delay || 0);
         rollingMinutes += totalStay;
 
@@ -44,10 +47,8 @@ export const useTravelStore = defineStore('travel', {
         const endM = rollingMinutes % 60;
         const computedEndTime = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
 
-        // --- 為下一站做準備 (加上車程時間) ---
         rollingMinutes += item.nextDrive?.time || 0;
 
-        // 回傳帶有計算後時間的物件
         return {
           ...item,
           startTime: computedStartTime,
@@ -56,29 +57,55 @@ export const useTravelStore = defineStore('travel', {
       });
     },
 
-    totalDays: (state) => state.config.length,
+    totalDays: (state) => state.config.length || 5,
   },
 
   actions: {
+    // --- 核心：從 Firebase 初始化資料 ---
+    async init() {
+      this.isLoading = true;
+      try {
+        // 同時抓取景點和配置
+        const [itineraryRes, configRes] = await Promise.all([
+          getItinerary(),
+          getDayConfigs(),
+        ]);
+
+        if (itineraryRes.status === 200) {
+          this.itinerary = itineraryRes.data;
+        }
+
+        if (configRes.status === 200) {
+          // 因為 getDayConfigs 回傳的是陣列，我們要找到 ID 為 'dayConfigs' 的那一個
+          const target = configRes.data.find((doc) => doc.id === 'dayConfigs');
+          if (target && target.list) {
+            this.config = target.list;
+          }
+        }
+      } catch (error) {
+        console.error('初始化失敗:', error);
+      } finally {
+        this.isLoading = false;
+      }
+    },
+
     setSelectedDay(day) {
       this.selectedDay = day;
     },
 
-    // Admin Page 會用到的：更新特定行程的延遲時間
-    updateDelay(itemId, newDelay) {
+    // 更新本地 state (當 Admin 修改成功後，可以手動更新 store 避免重新 fetch)
+    updateLocalItem(itemId, params) {
       const index = this.itinerary.findIndex((item) => item.id === itemId);
       if (index !== -1) {
-        this.itinerary[index].delay = newDelay;
+        this.itinerary[index] = { ...this.itinerary[index], ...params };
       }
     },
 
-    // 這裡未來改為從 Firebase 獲取最新資料
-    setItinerary(newData) {
-      this.itinerary = newData;
-    },
-
-    setConfig(newConfig) {
-      this.config = newConfig;
+    updateLocalConfig(day, newStart) {
+      const index = this.config.findIndex((c) => c.day === day);
+      if (index !== -1) {
+        this.config[index].start = newStart;
+      }
     },
   },
 });

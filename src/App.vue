@@ -1,5 +1,8 @@
 <script setup>
-import { computed } from 'vue';
+import { onMounted, computed } from 'vue';
+import { useTravelStore } from '@/store/travelStore';
+import { useExpensesStore } from '@/store/expensesStore';
+
 import { useRoute } from 'vue-router';
 import DefaultLayout from './layouts/default.vue';
 import EmptyLayout from './layouts/empty.vue';
@@ -17,6 +20,14 @@ const currentLayout = computed(() => {
       return DefaultLayout; // Fallback to default layout
   }
 });
+
+const travelStore = useTravelStore();
+const expensesStore = useExpensesStore();
+
+onMounted(() => {
+  travelStore.init();
+  expensesStore.init();
+});
 </script>
 
 <template>
@@ -26,12 +37,11 @@ const currentLayout = computed(() => {
 </template>
 
 <style>
-  html,
-  body {
-    width: 100%;
-    overflow-x: hidden;
-    overflow-y: auto;
-    background:#eef2fa;
-  }
-
+html,
+body {
+  width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: #eef2fa;
+}
 </style>

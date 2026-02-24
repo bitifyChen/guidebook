@@ -2,11 +2,15 @@
 import { ref, reactive } from 'vue';
 import { v4 as uuid } from 'uuid';
 import { useExpensesStore } from '@/store/expensesStore';
+import {
+  postWalletItem,
+  patchWalletItem,
+  deleteWalletItem,
+} from '@/api/wallet';
 import { useParticipantsStore } from '@/store/participantsStore';
 import { Plus, Trash2, ReceiptText, X, Wallet2, Users } from 'lucide-vue-next';
-import PayCard from '../components/PayCard.vue';
 
-const expense = useExpensesStore();
+const expensesStore = useExpensesStore();
 const participants = useParticipantsStore();
 const drawerVisible = ref(false);
 
@@ -22,26 +26,51 @@ const editMethod = (data) => {
 };
 
 const submitExpense = () => {
-  if (!form.amount || !form.description || !form.payerId) return;
+  if (!form.amount || !form.description || !form.payerId)
+    return alert('請填寫完整的開支資訊！');
   if (form.id) {
-    expense.patch(form.id, {
+    patchWalletItem(form.id, {
       amount: parseFloat(form.amount),
       description: form.description,
       payerId: form.payerId,
       splitWithIds: [...form.splitWithIds],
-    });
+    })
+      .then((res) => {
+        console.log('更新成功', res);
+      })
+      .finally(() => {
+        expensesStore.init(); // 重新抓取最新的開支列表
+      });
   } else {
-    expense.add({
-      id: uuid(),
+    postWalletItem({
       amount: parseFloat(form.amount),
       description: form.description,
       payerId: form.payerId,
       splitWithIds: [...form.splitWithIds],
-    });
+    })
+      .then((res) => {
+        console.log('新增成功', res);
+      })
+      .finally(() => {
+        expensesStore.init(); // 重新抓取最新的開支列表
+      });
   }
-
   drawerVisible.value = false;
 };
+const deleteExpense = () => {
+  if (!form.id) return;
+  if (confirm('確定要刪除這筆開支嗎？')) {
+    deleteWalletItem(form.id)
+      .then((res) => {
+        console.log('刪除成功', res);
+      })
+      .finally(() => {
+        expensesStore.init(); // 重新抓取最新的開支列表
+      });
+    drawerVisible.value = false;
+  }
+};
+
 const onClose = () => {
   Object.assign(form, {
     id: null,
@@ -68,7 +97,7 @@ const onClose = () => {
         <div class="flex items-baseline gap-2">
           <span class="text-xl font-bold text-orange-400">₩</span>
           <h2 class="text-4xl font-black tracking-tight">
-            {{ expense.totalSpent.toLocaleString() }}
+            {{ expensesStore.totalSpent.toLocaleString() }}
           </h2>
         </div>
 
@@ -93,12 +122,12 @@ const onClose = () => {
         </h3>
         <span
           class="text-[10px] font-black text-slate-400 uppercase tracking-widest"
-          >{{ expense.expenses.length }} 筆記錄</span
+          >{{ expensesStore.expenses.length }} 筆記錄</span
         >
       </div>
 
       <div
-        v-if="expense.expenses.length === 0"
+        v-if="expensesStore.expenses.length === 0"
         class="flex flex-col items-center py-20 text-slate-300"
       >
         <ReceiptText :size="48" class="opacity-20 mb-2" />
@@ -106,7 +135,7 @@ const onClose = () => {
       </div>
 
       <PayCard
-        v-for="exp in expense.expenses"
+        v-for="exp in expensesStore.expenses"
         :key="exp.id"
         :item="exp"
         @edit="editMethod"
@@ -218,7 +247,14 @@ const onClose = () => {
           </el-form-item>
         </el-form>
 
-        <div class="mt-8">
+        <div class="mt-8 flex gap-4">
+          <el-button
+            v-if="form.id"
+            type="primary"
+            @click="deleteExpense"
+            class="w-full !h-16 !rounded-[24px] !bg-red-500 !border-none !text-xl !font-black shadow-xl shadow-red-100 !ml-0"
+            >刪除這筆開支</el-button
+          >
           <el-button
             type="primary"
             @click="submitExpense"
