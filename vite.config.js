@@ -2,12 +2,12 @@ import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import Layouts from 'vite-plugin-vue-meta-layouts';
-import Pages from 'vite-plugin-pages'
-import MetaLayouts from 'vite-plugin-vue-meta-layouts'
+import Pages from 'vite-plugin-pages';
+import MetaLayouts from 'vite-plugin-vue-meta-layouts';
 import AutoImport from 'unplugin-auto-import/vite';
 import Components from 'unplugin-vue-components/vite';
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers';
-import {DirResolverHelper} from 'vite-auto-import-resolvers'
+import { DirResolverHelper } from 'vite-auto-import-resolvers';
 import { VitePWA } from 'vite-plugin-pwa';
 
 // https://vitejs.dev/config/
@@ -16,6 +16,7 @@ export default defineConfig(({ mode }) => {
   // Set the third parameter to '' to load all env regardless of the `VITE_` prefix.
   const env = loadEnv(mode, process.cwd(), '');
   return {
+    base: '/guidebook/',
     plugins: [
       vue(),
       MetaLayouts(),
@@ -25,7 +26,7 @@ export default defineConfig(({ mode }) => {
         dirs: ['src/components'],
         extensions: ['vue'],
         dts: 'src/components.d.ts',
-        resolvers: [ElementPlusResolver()]
+        resolvers: [ElementPlusResolver()],
       }),
       VitePWA({
         registerType: 'prompt',
@@ -54,11 +55,12 @@ export default defineConfig(({ mode }) => {
         workbox: {
           maximumFileSizeToCacheInBytes: 4000000,
           clientsClaim: true,
-        }}),
+        },
+      }),
     ],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, './src'),
+        '@': fileURLToPath(new URL('./src', import.meta.url)),
       },
     },
     server: {

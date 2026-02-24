@@ -23,7 +23,6 @@ jobs:
       - name: Build project
         env:
           VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
-          VITE_GS_API_PRICE_KEY: ${{ secrets.VITE_GS_API_PRICE_KEY }}
         run: npm run build
 
       - name: Upload production-ready build files
