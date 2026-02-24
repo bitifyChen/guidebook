@@ -34,6 +34,10 @@
 6.  **清理：**
     - 移除了過時的文件 (`src/ItineraryView.vue`)。
     - 清理了 `index.html`，使其成為 Vite 應用程式的簡單入口點。
+7.  **即時行程提示功能：**
+    - **動態時間計算**：在 `travelStore.js` 中新增了 `allItineraries` getter，統一計算所有日期的行程起訖時間。
+    - **目前/下一個行程提示**：在首頁 (`index.vue`) 實作了基於 `currentTime` 的自動過濾邏輯，動態顯示「目前進行中」與「下一個即將開始」的行程。
+    - **自動更新機制**：使用 `setInterval` 每分鐘自動更新 `currentTime`，確保提示訊息的即時性。
 
 現在，專案可以使用 `npm run build` 進行可靠建構，並使用 `npm run dev` 進行開發服務。
 

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { getItinerary, getDayConfigs } from '@/api/itinerary';
-
+import dayjs from 'dayjs';
 export const useTravelStore = defineStore('travel', {
   state: () => ({
     // 初始化為空，等待 init 填充
@@ -35,26 +35,30 @@ export const useTravelStore = defineStore('travel', {
         .sort((a, b) => a.order - b.order);
 
       // 3. 開始累加計算
-      return rawDayItems.map((item) => {
-        const startH = Math.floor(rollingMinutes / 60);
-        const startM = rollingMinutes % 60;
-        const computedStartTime = `${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}`;
+      return rawDayItems
+        .map((item) => {
+          const startH = Math.floor(rollingMinutes / 60);
+          const startM = rollingMinutes % 60;
+          const computedStartTime = `${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}`;
 
-        const totalStay = (item.duration || 0) + (item.delay || 0);
-        rollingMinutes += totalStay;
+          const totalStay = (item.duration || 0) + (item.delay || 0);
+          rollingMinutes += totalStay;
 
-        const endH = Math.floor(rollingMinutes / 60);
-        const endM = rollingMinutes % 60;
-        const computedEndTime = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
+          const endH = Math.floor(rollingMinutes / 60);
+          const endM = rollingMinutes % 60;
+          const computedEndTime = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
 
-        rollingMinutes += item.nextDrive?.time || 0;
+          rollingMinutes += item.nextDrive?.time || 0;
 
-        return {
-          ...item,
-          startTime: computedStartTime,
-          endTime: computedEndTime,
-        };
-      });
+          return {
+            ...item,
+            startTime: computedStartTime,
+            endTime: computedEndTime,
+          };
+        })
+        .sort((a, b) => {
+          return dayjs(a.startTime, 'HH:mm').diff(dayjs(b.startTime, 'HH:mm'));
+        });
     },
 
     totalDays: (state) => state.config.length || 5,
