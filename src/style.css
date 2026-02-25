@@ -14,5 +14,31 @@ body {
     --slate-body: #F8FAFC;
     --el-color-primary: var(--primary-orange) !important;
 
-    background-color: var(--primary-orange-light);
-}
+        background-color: var(--primary-orange-light);
+    }
+    
+    /* --- 移動端觸摸體驗優化 --- */
+    
+    /* 1. 移除所有點擊時產生的系統藍色高亮框 (手機網頁常見問題) */
+    * {
+        -webkit-tap-highlight-color: transparent;
+        -webkit-touch-callout: none; /* 禁用部分長按選單，視需求調整 */
+    }
+    
+    /* 2. 為具備可點擊屬性的元素提供統一的「按下」視覺反饋 */
+    .cursor-pointer:active,
+    button:active {
+        opacity: 0.7 !important;
+        transform: scale(0.98);
+        transition: all 0.05s ease;
+    }
+    
+    /* 3. 確保點擊時不會有惱人的 hover 殘留 */
+    @media (hover: none) {
+        .cursor-pointer:hover {
+            background-color: inherit !important;
+            box-shadow: none !important;
+            transform: none !important;
+        }
+    }
+    

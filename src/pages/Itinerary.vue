@@ -86,17 +86,18 @@ watch(
 
 /* --- 核心優化：解決手機點擊問題 --- */
 
-/* 3. 解決手機 Hover 殘留：當設備不支援懸停時，移除 hover 樣式 */
-@media (hover: none) {
+/* 3. 解決手機 Hover 殘留：僅在支援懸停的裝置上觸發 hover */
+@media (hover: hover) {
   .custom-tabs .el-tabs__item:hover {
-    color: inherit; /* 手機上不觸發懸停變色 */
+    color: #ff8c00;
   }
 }
 
 /* 4. 增加點擊觸感：手指按下去時有縮小回饋 */
 .custom-tabs .el-tabs__item:active {
   transform: scale(0.9); /* 按下去微縮，讓使用者知道「有按到」 */
-  opacity: 0.7;
+  opacity: 0.8;
+  transition: transform 0.05s ease;
 }
 
 /* 5. 介面優化：移除 Tab 下方的長灰線，讓風格更現代 */
