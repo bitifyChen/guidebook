@@ -8,20 +8,34 @@ const router = createRouter({
 });
 
 import { useUserStore } from '@/store/userStore';
+import { useParticipantsStore } from '@/store/participantsStore';
 
 router.beforeEach(async (to, from, next) => {
   const userStore = useUserStore();
+  const participantsStore = useParticipantsStore();
 
-  // 如果還沒初始化過 Auth 狀態，先跑一次 init
+  // 1. 確保 Firebase Auth 已就緒 (F5 重新整理時必備)
   if (!userStore.isAuthReady) {
     await userStore.initAuth();
   }
 
-  if (to.path === '/admin') {
-    if (userStore.isAdmin) {
+  // 2. 確保旅客資料已載入 (權限判斷依賴此資料)
+  if (participantsStore.participants.length === 0) {
+    await participantsStore.init();
+  }
+
+  // 3. 檢查權限 (以 /admin 開頭的路由)
+  if (to.path.startsWith('/admin')) {
+    // 排除登入頁
+    if (to.path === '/admin/login') {
+      return next();
+    }
+
+    // 檢查是否具備 Admin 或 SuperAdmin 權限
+    if (userStore.isAdmin || userStore.isSuperAdmin) {
       next();
     } else {
-      next({ name: 'AdminLoginPage' }); // 或跳到登入頁
+      next({ path: '/Settings' });
     }
   } else {
     next();

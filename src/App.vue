@@ -2,6 +2,8 @@
 import { onMounted, onUnmounted, computed } from 'vue';
 import { useTravelStore } from '@/store/travelStore';
 import { useExpensesStore } from '@/store/expensesStore';
+import { useParticipantsStore } from '@/store/participantsStore';
+import { useUserStore } from '@/store/userStore';
 import dayjs from 'dayjs';
 
 import { useRoute } from 'vue-router';
@@ -24,11 +26,15 @@ const currentLayout = computed(() => {
 
 const travelStore = useTravelStore();
 const expensesStore = useExpensesStore();
+const participantsStore = useParticipantsStore();
+const userStore = useUserStore();
 
 let timer = null;
-onMounted(() => {
+onMounted(async () => {
   travelStore.init();
   expensesStore.init();
+  participantsStore.init();
+
   // 每 30 秒更新一次全域時間
   timer = setInterval(() => {
     travelStore.setNow(dayjs());

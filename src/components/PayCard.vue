@@ -22,9 +22,14 @@ const openDetail = () => emit('edit', props.item);
   >
     <div class="flex items-center gap-4">
       <div
-        class="w-12 h-12 rounded-2xl bg-orange-50 flex flex-col items-center justify-center font-black text-orange-500 text-xs border border-orange-100"
+        class="w-12 h-12 rounded-2xl overflow-hidden bg-orange-50 flex flex-col items-center justify-center font-black text-orange-500 text-xs border border-orange-100"
       >
-        <span class="scale-125">{{ payer?.name[0] }}</span>
+        <img
+          v-if="payer?.avatar"
+          :src="payer.avatar"
+          class="w-full h-full object-cover"
+        />
+        <span v-else class="scale-125">{{ payer?.name?.[0] || '?' }}</span>
       </div>
       <div>
         <h4 class="font-black text-slate-800 text-base leading-tight">
