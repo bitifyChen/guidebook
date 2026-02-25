@@ -1,47 +1,45 @@
 <script setup>
-import { onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { useTravelStore } from '@/store/travelStore';
 import { useUserStore } from '@/store/userStore';
-import { patchItineraryItem, patchDayConfig } from '@/api/itinerary';
-import { Clock, Calendar, ChevronRight, LogOut } from 'lucide-vue-next';
+import {
+  LogOut,
+  Map,
+  Settings,
+  Bell,
+  PlusCircle,
+  ChevronRight,
+  ShieldCheck,
+} from 'lucide-vue-next';
 
 const router = useRouter();
-const travelStore = useTravelStore();
 const userStore = useUserStore();
 
-// 初始化抓取 Firebase 資料
-onMounted(() => travelStore.init());
-
-const getDayItems = (day) =>
-  travelStore.itinerary
-    .filter((i) => i.day === day)
-    .sort((a, b) => a.order - b.order);
-
-// 更新 Itinerary：確保 item.id 是隨機 ID (如 zX8y...)
-const updateItem = async (item) => {
-  try {
-    await patchItineraryItem(item.id, {
-      duration: item.duration,
-      delay: item.delay,
-    });
-    console.log(`✅ 已更新 ${item.location} 的時間設定`);
-  } catch (err) {
-    alert('更新失敗：' + err.message);
-  }
-};
-
-// 更新 Config：這裡的 conf.id 應該是 'dayConfigs'
-const updateConfig = async () => {
-  try {
-    await patchDayConfig('dayConfigs', {
-      list: travelStore.config,
-    });
-    console.log('✅ 每日起始時間已同步');
-  } catch (err) {
-    alert('Config 更新失敗');
-  }
-};
+const menuItems = [
+  {
+    title: '行程進度管理',
+    desc: '調整停留時間與延遲',
+    icon: Map,
+    color: 'text-orange-500',
+    bg: 'bg-orange-50',
+    path: '/admin/itinerary',
+  },
+  {
+    title: '每日起始時間',
+    desc: '設定每天的出發時間',
+    icon: Settings,
+    color: 'text-blue-500',
+    bg: 'bg-blue-50',
+    path: '/admin/config',
+  },
+  {
+    title: '新增行程地點',
+    desc: '快速添加新的景點',
+    icon: PlusCircle,
+    color: 'text-green-500',
+    bg: 'bg-green-50',
+    path: '/admin/item/add',
+  },
+];
 </script>
 
 <template>
@@ -50,130 +48,78 @@ const updateConfig = async () => {
       class="bg-white/80 backdrop-blur-md sticky top-0 z-30 border-b border-slate-100 p-6"
     >
       <div class="max-w-4xl mx-auto flex justify-between items-center">
-        <div>
-          <h1 class="text-xl font-black text-slate-800">Jeju Admin</h1>
-          <p
-            class="text-[10px] font-bold text-slate-400 uppercase tracking-widest"
+        <div class="flex items-center gap-3">
+          <div
+            class="w-10 h-10 bg-slate-800 rounded-2xl flex items-center justify-center text-white"
           >
-            Itinerary Management
-          </p>
+            <ShieldCheck :size="24" />
+          </div>
+          <div>
+            <h1 class="text-xl font-black text-slate-800 leading-none">
+              Admin Dashboard
+            </h1>
+            <p
+              class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1"
+            >
+              濟州小幫手管理後台
+            </p>
+          </div>
         </div>
         <button
           @click="
             userStore.logout();
             router.push('/admin/login');
           "
-          class="p-2 text-slate-300 hover:text-red-400"
+          class="w-10 h-10 bg-white rounded-2xl flex items-center justify-center text-slate-300 hover:text-red-400 shadow-sm border border-slate-100"
         >
-          <LogOut :size="20" />
+          <LogOut :size="18" />
         </button>
       </div>
     </header>
 
-    <main class="max-w-4xl mx-auto p-6 space-y-8">
-      <section
-        class="bg-white rounded-[32px] p-6 shadow-sm border border-slate-100"
+    <main class="max-w-4xl mx-auto p-6 space-y-4">
+      <div
+        v-for="item in menuItems"
+        :key="item.path"
+        @click="router.push(item.path)"
+        class="bg-white p-6 rounded-[32px] border border-slate-100 flex items-center gap-6 hover:shadow-xl hover:shadow-slate-200/50 transition-all cursor-pointer group"
       >
-        <h2
-          class="text-sm font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"
+        <div
+          :class="[
+            item.bg,
+            item.color,
+            'w-16 h-16 rounded-3xl flex items-center justify-center group-hover:scale-110 transition-transform',
+          ]"
         >
-          <Clock :size="16" /> Start Time Config
-        </h2>
-        <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <div
-            v-for="conf in travelStore.config"
-            :key="conf.day"
-            class="p-3 bg-slate-50 rounded-2xl border border-slate-100"
-          >
-            <div class="text-[10px] font-black text-slate-400 mb-1">
-              DAY {{ conf.day }}
-            </div>
-            <input
-              v-model="conf.start"
-              type="time"
-              @change="updateConfig"
-              class="bg-transparent font-mono font-black text-slate-700 w-full outline-none"
-            />
-          </div>
+          <component :is="item.icon" :size="28" />
         </div>
-      </section>
-      <div class="p-4">
-        <button
-          @click="router.push('/admin/item/add')"
-          class="w-full py-3 bg-orange-500 text-white rounded-2xl font-black shadow-lg shadow-orange-200 active:scale-95 transition-all"
+
+        <div class="flex-1">
+          <h3 class="text-lg font-black text-slate-800">{{ item.title }}</h3>
+          <p class="text-sm font-bold text-slate-400">{{ item.desc }}</p>
+        </div>
+
+        <div
+          class="w-10 h-10 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-300 group-hover:bg-slate-800 group-hover:text-white transition-all"
         >
-          添加行程
-        </button>
+          <ChevronRight :size="20" />
+        </div>
       </div>
-      <div v-for="day in travelStore.totalDays" :key="day" class="space-y-4">
-        <h3
-          class="text-lg font-black text-slate-800 px-2 flex items-center gap-2"
-        >
-          <Calendar :size="18" class="text-orange-500" /> Day {{ day }}
-        </h3>
-        <div class="grid gap-3">
-          <div
-            v-for="item in getDayItems(day)"
-            :key="item.id"
-            class="bg-white p-4 rounded-3xl border border-slate-100 flex items-center gap-4 hover:shadow-md transition-shadow cursor-pointer"
-          >
-            <div
-              class="w-10 h-10 bg-slate-100 rounded-2xl flex items-center justify-center font-black text-slate-400 text-sm"
-            >
-              {{ item.order }}
-            </div>
 
-            <div class="flex-1" @click="router.push(`/admin/item/${item.id}`)">
-              <div class="font-black text-slate-700 leading-tight">
-                {{ item.location }}
-              </div>
-              <div class="text-[10px] font-bold text-slate-400">
-                {{ item.category }}
-              </div>
-            </div>
-
-            <div class="flex gap-2 items-center">
-              <div
-                class="flex flex-col items-center bg-slate-50 rounded-xl p-1 px-2 border border-slate-100"
-              >
-                <span class="text-[8px] font-black text-slate-400">STAY</span>
-                <input
-                  v-model.number="item.duration"
-                  type="number"
-                  @change="updateItem(item)"
-                  class="w-10 bg-transparent text-center font-mono font-black text-slate-600 outline-none"
-                />
-              </div>
-              <div
-                class="flex flex-col items-center bg-orange-50 rounded-xl p-1 px-2 border border-orange-100"
-              >
-                <span class="text-[8px] font-black text-orange-400">DELAY</span>
-                <input
-                  v-model.number="item.delay"
-                  type="number"
-                  @change="updateItem(item)"
-                  class="w-10 bg-transparent text-center font-mono font-black text-orange-600 outline-none"
-                />
-              </div>
-              <button
-                @click="router.push(`/admin/item/${item.id}`)"
-                class="p-2 text-slate-300 hover:text-orange-500 transition-colors"
-              >
-                <ChevronRight :size="20" />
-              </button>
-            </div>
-          </div>
-        </div>
+      <div
+        class="mt-12 text-center p-8 bg-slate-100/50 rounded-[40px] border border-dashed border-slate-200"
+      >
+        <p class="text-xs font-bold text-slate-400 uppercase tracking-[0.2em]">
+          Management System v1.0
+        </p>
       </div>
     </main>
   </div>
 </template>
 
 <route>
-  {
-    name: "AdminPage",
-    meta: {
-      layout: "empty"
-    }
-  }
+{
+  name: "AdminPage",
+  meta: { layout: "empty" }
+}
 </route>
