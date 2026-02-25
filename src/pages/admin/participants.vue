@@ -23,7 +23,16 @@ const participantsStore = useParticipantsStore();
 const isModalOpen = ref(false);
 const isUploading = ref(false);
 const isSaving = ref(false);
-const isSyncing = ref(false);
+
+// 鎖定背景滾動
+import { watch } from 'vue';
+watch(isModalOpen, (val) => {
+  if (val) {
+    document.body.style.overflow = 'hidden';
+  } else {
+    document.body.style.overflow = '';
+  }
+});
 const copiedId = ref(null);
 const editingId = ref(null);
 const form = ref({

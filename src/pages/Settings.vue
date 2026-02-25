@@ -31,6 +31,15 @@ const isClaiming = ref(false);
 const isEditModalOpen = ref(false);
 const isUploading = ref(false);
 const isSaving = ref(false);
+
+import { watch } from 'vue';
+watch(isEditModalOpen, (val) => {
+  if (val) {
+    document.body.style.overflow = 'hidden';
+  } else {
+    document.body.style.overflow = '';
+  }
+});
 const editForm = ref({
   name: '',
   avatar: '',

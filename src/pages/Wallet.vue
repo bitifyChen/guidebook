@@ -12,6 +12,17 @@ import { Plus, Trash2, ReceiptText, X, Wallet2, Users } from 'lucide-vue-next';
 
 const expensesStore = useExpensesStore();
 const participants = useParticipantsStore();
+
+// 自定義自動聚焦指令
+const vFocus = {
+  mounted: (el) => {
+    setTimeout(() => {
+      const input = el.querySelector('input') || el;
+      input.focus();
+    }, 400);
+  },
+};
+
 const drawerVisible = ref(false);
 
 const form = reactive({
@@ -172,6 +183,8 @@ const onClose = () => {
             >
             <el-input
               v-model="form.amount"
+              v-focus
+              inputmode="decimal"
               type="number"
               placeholder="0"
               class="custom-input"
@@ -186,6 +199,7 @@ const onClose = () => {
               v-model="form.description"
               placeholder="例如：漢拿山炒飯"
               class="custom-input"
+              enterkeyhint="done"
             />
           </el-form-item>
 
@@ -267,35 +281,49 @@ const onClose = () => {
   </div>
 </template>
 
-<style>
-/* Drawer 樣式調整 */
-.custom-drawer.el-drawer {
-  border-radius: 40px 40px 0 0 !important;
-}
-
+<style scoped>
 .label-custom {
-  @apply text-xs font-black text-slate-400 uppercase tracking-widest ml-1;
+  font-size: 0.75rem; /* text-xs */
+  font-weight: 900; /* font-black */
+  color: #94a3b8; /* text-slate-400 */
+  text-transform: uppercase;
+  letter-spacing: 0.1em; /* tracking-widest */
+  margin-left: 0.25rem; /* ml-1 */
 }
 
 /* 讓 Input 變可愛 */
-.custom-input .el-input__wrapper {
-  @apply !rounded-2xl !bg-slate-50 !shadow-none !border-2 !border-transparent transition-all;
+:deep(.custom-input .el-input__wrapper) {
+  border-radius: 1rem !important; /* rounded-2xl */
+  background-color: #f8fafc !important; /* bg-slate-50 */
+  box-shadow: none !important;
+  border: 2px solid transparent !important;
+  transition: all 0.3s;
   height: 56px;
 }
-.custom-input .el-input__wrapper.is-focus {
-  @apply !border-orange-500 !bg-white;
+:deep(.custom-input .el-input__wrapper.is-focus) {
+  border-color: #ff8c00 !important; /* orange-500 */
+  background-color: #ffffff !important;
 }
 
 /* 選擇框樣式 */
-.custom-select .el-input__wrapper {
-  @apply !rounded-2xl !bg-slate-50 !shadow-none !h-[48px];
+:deep(.custom-select .el-input__wrapper) {
+  border-radius: 1rem !important;
+  background-color: #f8fafc !important;
+  box-shadow: none !important;
+  height: 48px;
 }
 
 /* 複選框按鈕化 */
 .custom-checkbox.el-checkbox {
-  @apply !rounded-xl !mr-0 !mb-0 !border-slate-100 !bg-slate-50 transition-all;
+  border-radius: 0.75rem !important;
+  margin-right: 0 !important;
+  margin-bottom: 0 !important;
+  border-color: #f1f5f9 !important;
+  background-color: #f8fafc !important;
+  transition: all 0.3s;
 }
 .custom-checkbox.is-checked {
-  @apply !bg-orange-50 !border-orange-500;
+  background-color: #fff4e6 !important;
+  border-color: #ff8c00 !important;
 }
 </style>

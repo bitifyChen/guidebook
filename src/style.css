@@ -2,43 +2,61 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  /* 濟州橘核心色 */
+  --primary-orange: #ff8c00;
+  --primary-orange-light: #fff4e6;
+  --primary-orange-dark: #e67e00;
+
+  /* 輔助色 */
+  --jeju-green: #22c55e; /* 橘子葉子的綠 */
+  --slate-body: #f8fafc;
+
+  /* Element Plus 主色覆蓋 */
+  --el-color-primary: var(--primary-orange);
+}
+
 html,
 body {
-    /* 濟州橘核心色 */
-    --primary-orange: #FF8C00;
-    --primary-orange-light: #FFF4E6;
-    --primary-orange-dark: #E67E00;
+  background-color: var(--primary-orange-light);
+  /* 禁用全站的下拉橡皮筋效果，避免干擾自定義的下拉刷新 */
+  overscroll-behavior-y: none;
+}
 
-    /* 輔助色 */
-    --jeju-green: #22C55E; /* 橘子葉子的綠 */
-    --slate-body: #F8FAFC;
-    --el-color-primary: var(--primary-orange) !important;
+/* --- 移動端觸摸體驗優化 --- */
 
-        background-color: var(--primary-orange-light);
-    }
-    
-    /* --- 移動端觸摸體驗優化 --- */
-    
-    /* 1. 移除所有點擊時產生的系統藍色高亮框 (手機網頁常見問題) */
-    * {
-        -webkit-tap-highlight-color: transparent;
-        -webkit-touch-callout: none; /* 禁用部分長按選單，視需求調整 */
-    }
-    
-    /* 2. 為具備可點擊屬性的元素提供統一的「按下」視覺反饋 */
-    .cursor-pointer:active,
-    button:active {
-        opacity: 0.7 !important;
-        transform: scale(0.98);
-        transition: all 0.05s ease;
-    }
-    
-    /* 3. 確保點擊時不會有惱人的 hover 殘留 */
-    @media (hover: none) {
-        .cursor-pointer:hover {
-            background-color: inherit !important;
-            box-shadow: none !important;
-            transform: none !important;
-        }
-    }
-    
+/* 1. 移除點擊高亮與長按選單 */
+* {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
+/* 2. 彈出層滾動鎖定優化 */
+.el-drawer__body,
+.modal-content,
+.overflow-y-auto {
+  overscroll-behavior: contain;
+}
+
+/* 修正 iOS 在鎖定背景時的穿透問題 */
+body.el-popup-parent--hidden {
+  position: fixed;
+  width: 100%;
+}
+
+/* 3. 全域點擊回饋 */
+.cursor-pointer:active,
+button:active {
+  opacity: 0.7;
+  transform: scale(0.98);
+  transition: all 0.05s ease;
+}
+
+/* 4. 解決手機 Hover 殘留 */
+@media (hover: none) {
+  .cursor-pointer:hover {
+    background-color: inherit !important;
+    box-shadow: none !important;
+    transform: none !important;
+  }
+}

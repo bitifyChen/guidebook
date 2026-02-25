@@ -127,7 +127,14 @@ const isPageActive = (item) => {
 
 const pageTitle = computed(() => route.meta?.title || '肥肥六人團');
 
+const triggerHaptic = (type = 'light') => {
+  if (!window.navigator.vibrate) return;
+  if (type === 'light') window.navigator.vibrate(10);
+  else if (type === 'medium') window.navigator.vibrate(20);
+};
+
 const navigate = (path) => {
+  triggerHaptic('light');
   router.push(path);
 };
 
