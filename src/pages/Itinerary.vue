@@ -22,12 +22,49 @@ watch(
   },
   { immediate: true }
 );
+
+// --- 左右滑動切換天數邏輯 ---
+let touchStartX = 0;
+let touchStartY = 0;
+
+const handleTouchStart = (e) => {
+  touchStartX = e.touches[0].clientX;
+  touchStartY = e.touches[0].clientY;
+};
+
+const handleTouchEnd = (e) => {
+  const touchEndX = e.changedTouches[0].clientX;
+  const touchEndY = e.changedTouches[0].clientY;
+
+  const dx = touchEndX - touchStartX;
+  const dy = touchEndY - touchStartY;
+
+  // 1. 確保是水平滑動（水平位移必須遠大於垂直位移，避免誤觸）
+  // 2. 滑動距離必須超過 80px
+  if (Math.abs(dx) > Math.abs(dy) * 2 && Math.abs(dx) > 80) {
+    if (dx > 0) {
+      // 向右滑 -> 切換到前一天
+      if (activeDay.value > 1) {
+        activeDay.value--;
+      }
+    } else {
+      // 向左滑 -> 切換到後一天
+      if (activeDay.value < days.value) {
+        activeDay.value++;
+      }
+    }
+  }
+};
 </script>
 
 <template>
-  <div>
+  <div
+    @touchstart="handleTouchStart"
+    @touchend="handleTouchEnd"
+    class="min-h-screen"
+  >
     <div
-      class="sticky top-[8px] z-30 bg-slate-900/90 backdrop-blur-md px-4 shadow-sm rounded-[28px]"
+      class="fixed top-[8px] left-[16px] right-[16px] z-30 bg-slate-900/90 backdrop-blur-md px-4 shadow-sm rounded-[28px]"
     >
       <el-tabs v-model="activeDay" class="custom-tabs">
         <el-tab-pane

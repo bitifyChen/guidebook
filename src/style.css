@@ -19,10 +19,9 @@
 html,
 body {
   background-color: var(--primary-orange-light);
-  /* 禁用全站的下拉橡皮筋效果，避免干擾自定義的下拉刷新 */
-  overscroll-behavior-y: none;
-  overflow-x: hidden; /* 防止全站橫向溢出 */
+  overflow-x: hidden;
   width: 100%;
+  min-height: 100%;
 }
 
 /* --- 移動端觸摸體驗優化 --- */

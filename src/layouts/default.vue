@@ -47,13 +47,17 @@ const handleTouchMove = (e) => {
   const touchY = e.touches[0].pageY;
   const diff = touchY - touchStartY;
 
-  if (diff > 0 && window.scrollY <= 0) {
+  // 只有在視窗最頂端且「向下滑」時才處理下拉刷新
+  if (diff > 5 && window.scrollY <= 0) {
     // 阻尼系數 0.4
     pullDistance.value = Math.pow(diff, 0.8);
-    if (pullDistance.value > 10) {
-      // 如果已經開始下拉，防止原生彈跳
-      if (e.cancelable) e.preventDefault();
+    // 如果已經開始下拉一段距離，防止原生橡皮筋/下拉彈跳
+    if (pullDistance.value > 20 && e.cancelable) {
+      e.preventDefault();
     }
+  } else if (diff < 0) {
+    // 如果是向上滑，重置狀態以確保不干擾正常滾動
+    pullDistance.value = 0;
   }
 };
 
