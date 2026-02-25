@@ -1,15 +1,27 @@
 <script setup>
-import { ref, watch } from 'vue';
+import { ref, watch, computed, onMounted } from 'vue';
 import { ElMessage } from 'element-plus';
 import ItineraryCard from '@/components/ItineraryCard.vue';
 import { useTravelStore } from '@/store/travelStore';
 
-const store = useTravelStore();
-const activeDay = ref(1);
-const days = ref(5);
-watch(activeDay, (val) => {
-  store.selectedDay = parseInt(val);
-});
+const travelStore = useTravelStore();
+const activeDay = ref(travelStore.currentDay || 1);
+const days = computed(() => travelStore.totalDays);
+const itinerary = computed(() => travelStore.dailyItinerary);
+watch(
+  () => travelStore.currentDay,
+  (newDay) => {
+    if (newDay) activeDay.value = newDay;
+  },
+  { immediate: true }
+);
+watch(
+  activeDay,
+  (val) => {
+    travelStore.setSelectedDay(parseInt(val));
+  },
+  { immediate: true }
+);
 </script>
 
 <template>
@@ -28,13 +40,15 @@ watch(activeDay, (val) => {
     </div>
     <div class="mt-6 space-y-6">
       <ItineraryCard
-        v-for="(item, idx) in store.dailyItinerary"
+        v-for="(item, idx) in itinerary"
         :key="item.id"
         :item="item"
-        :isLast="idx === store.dailyItinerary.length - 1"
+        :isNow="item.id === travelStore.currentActivity?.id"
+        :isNext="item.id === travelStore.nextActivity?.id"
+        :isLast="idx === itinerary.length - 1"
       />
       <div
-        v-if="store.dailyItinerary.length === 0"
+        v-if="itinerary.length === 0"
         class="text-center py-20 text-slate-400 italic"
       >
         本日無行程，享受悠閒時光吧！

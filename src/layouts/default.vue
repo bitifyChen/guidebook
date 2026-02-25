@@ -1,11 +1,12 @@
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   LayoutDashboard,
   CalendarDays,
   Wallet,
   Settings,
+  RefreshCw,
 } from 'lucide-vue-next';
 
 const route = useRoute();
@@ -16,9 +17,7 @@ const scrollbarRef = ref(null); // 用於操作捲動條
 watch(
   () => route.path,
   () => {
-    if (scrollbarRef.value) {
-      scrollbarRef.value.setScrollTop(0);
-    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
     isNavVisible.value = true; // 換頁時確保導航列是顯示的
   }
 );
@@ -28,7 +27,61 @@ const isNavVisible = ref(true);
 let lastScrollTop = 0;
 let scrollTimer = null; // 用於偵測停頓的定時器
 
-const handleScroll = ({ scrollTop }) => {
+// 下拉刷新邏輯
+const pullDistance = ref(0);
+const isRefreshing = ref(false);
+const pullThreshold = 80;
+let touchStartY = 0;
+
+const handleTouchStart = (e) => {
+  if (window.scrollY === 0) {
+    touchStartY = e.touches[0].pageY;
+  } else {
+    touchStartY = -1;
+  }
+};
+
+const handleTouchMove = (e) => {
+  if (touchStartY === -1 || isRefreshing.value) return;
+
+  const touchY = e.touches[0].pageY;
+  const diff = touchY - touchStartY;
+
+  if (diff > 0 && window.scrollY <= 0) {
+    // 阻尼系數 0.4
+    pullDistance.value = Math.pow(diff, 0.8);
+    if (pullDistance.value > 10) {
+      // 如果已經開始下拉，防止原生彈跳
+      if (e.cancelable) e.preventDefault();
+    }
+  }
+};
+
+const handleTouchEnd = () => {
+  if (touchStartY === -1 || isRefreshing.value) return;
+
+  if (pullDistance.value >= pullThreshold) {
+    isRefreshing.value = true;
+    // 執行刷新：重新載入頁面
+    setTimeout(() => {
+      window.location.reload();
+    }, 500);
+  } else {
+    // 平滑重置
+    const animateReset = () => {
+      if (pullDistance.value > 0) {
+        pullDistance.value = Math.max(0, pullDistance.value - 8);
+        requestAnimationFrame(animateReset);
+      }
+    };
+    animateReset();
+  }
+  touchStartY = -1;
+};
+
+const handleScroll = () => {
+  const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+
   // 1. 清除之前的定時器
   if (scrollTimer) clearTimeout(scrollTimer);
 
@@ -52,6 +105,14 @@ const handleScroll = ({ scrollTop }) => {
     isNavVisible.value = true;
   }, 1500); // 1500 毫秒 = 1.5 秒
 };
+
+onMounted(() => {
+  window.addEventListener('scroll', handleScroll, { passive: true });
+});
+
+onUnmounted(() => {
+  window.removeEventListener('scroll', handleScroll);
+});
 
 const menuItems = [
   { name: 'home', path: '/', icon: LayoutDashboard, label: '概覽' },
@@ -87,18 +148,51 @@ const indicatorStyle = computed(() => {
 
 <template>
   <div
-    class="mx-auto h-screen max-w-md flex flex-col bg-[var(--primary-orange-light)] relative overflow-hidden font-sans"
+    class="mx-auto min-h-screen max-w-md flex flex-col bg-[var(--primary-orange-light)] relative font-sans touch-pan-y pt-[env(safe-area-inset-top)]"
+    @touchstart="handleTouchStart"
+    @touchmove="handleTouchMove"
+    @touchend="handleTouchEnd"
   >
-    <main class="flex-1 overflow-hidden relative">
-      <el-scrollbar ref="scrollbarRef" @scroll="handleScroll">
-        <div class="p-4 pb-32 pt-2">
-          <slot />
-        </div>
-      </el-scrollbar>
+    <!-- 下拉刷新指示器 -->
+    <div
+      class="absolute top-0 left-0 right-0 flex justify-center pointer-events-none z-[100] transition-all duration-75"
+      :style="{
+        height: pullDistance + 'px',
+        opacity: Math.min(pullDistance / pullThreshold, 1),
+      }"
+    >
+      <div
+        class="flex items-center justify-center gap-2 text-orange-600 bg-white/90 backdrop-blur-sm rounded-full px-4 py-2 mt-2 shadow-lg"
+        :style="{
+          transform: `scale(${Math.min(pullDistance / pullThreshold, 1)}) translateY(${Math.min(pullDistance - 40, 0)}px)`,
+        }"
+      >
+        <RefreshCw
+          :size="16"
+          class="transition-transform duration-200"
+          :class="{
+            'animate-spin': isRefreshing,
+            'rotate-180': pullDistance >= pullThreshold && !isRefreshing,
+          }"
+        />
+        <span class="text-xs font-black tracking-widest">{{
+          isRefreshing
+            ? '載入中...'
+            : pullDistance >= pullThreshold
+              ? '放開刷新'
+              : '下拉刷新'
+        }}</span>
+      </div>
+    </div>
+
+    <main class="flex-1 relative">
+      <div class="p-4 pb-32 pt-2">
+        <slot />
+      </div>
     </main>
 
     <div
-      class="absolute bottom-6 left-0 right-0 px-6 z-50 transition-all duration-500 ease-in-out pointer-events-none"
+      class="fixed bottom-6 pb-[env(safe-area-inset-bottom)] left-0 right-0 px-6 z-50 transition-all duration-500 ease-in-out pointer-events-none max-w-md mx-auto"
       :class="{ 'translate-y-[120px] opacity-0': !isNavVisible }"
     >
       <nav class="relative flex justify-around py-2 px-4 pointer-events-auto">

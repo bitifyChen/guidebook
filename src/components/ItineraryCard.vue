@@ -31,6 +31,14 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  isNow: {
+    type: Boolean,
+    default: false,
+  },
+  isNext: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 const drawerVisible = ref(false);
@@ -68,6 +76,10 @@ const modules = [Pagination, Autoplay];
 
     <div
       class="bg-white rounded-3xl overflow-hidden shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-slate-50 active:scale-[0.98] transition-all duration-300"
+      :class="{
+        'border-orange-500 border-2 animate-pulse-border': isNow,
+        'border-slate-100': !isNow,
+      }"
     >
       <div class="flex flex-col">
         <div v-if="item.cover" class="relative h-32 w-full overflow-hidden">
@@ -326,6 +338,34 @@ const modules = [Pagination, Autoplay];
   &:not(.swiper-slide-active) {
     transform: scale(0.95);
     opacity: 0.8;
+  }
+}
+
+/* 現在進行中的呼吸效果 */
+@keyframes pulse-border {
+  0% {
+    box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.3);
+    border-color: #f97316;
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(249, 115, 22, 0);
+    border-color: #fb923c;
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(249, 115, 22, 0);
+    border-color: #f97316;
+  }
+}
+.animate-pulse-border {
+  animation: pulse-border 2s infinite ease-in-out;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0.5;
+  }
+  to {
+    opacity: 1;
   }
 }
 </style>

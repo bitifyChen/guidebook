@@ -34,6 +34,7 @@ export default defineConfig({
         name: '濟州小幫手',
         short_name: '濟州小幫手',
         description: '濟州小幫手',
+        display: 'standalone',
         theme_color: '#FF8C00',
         background_color: '#FF8C00', // 加到主畫面啟動時的背景色
         icons: [

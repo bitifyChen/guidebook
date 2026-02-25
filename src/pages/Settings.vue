@@ -3,12 +3,12 @@ import { ref } from 'vue';
 import { useTravelStore } from '@/store/travelStore';
 import { UserPlus, Trash2, Heart } from 'lucide-vue-next';
 
-const store = useTravelStore();
+const travelStore = useTravelStore();
 const newName = ref('');
 
 const addPerson = () => {
   if (!newName.value) return;
-  store.addParticipant(newName.value);
+  travelStore.addParticipant(newName.value);
   newName.value = '';
 };
 </script>
@@ -31,7 +31,7 @@ const addPerson = () => {
 
       <div class="space-y-3">
         <div
-          v-for="p in store.participants"
+          v-for="p in travelStore.participants"
           :key="p.id"
           class="flex items-center justify-between p-3 bg-slate-50 rounded-2xl"
         >
@@ -44,7 +44,7 @@ const addPerson = () => {
             <span class="font-medium text-slate-700">{{ p.name }}</span>
           </div>
           <button
-            @click="store.removeParticipant(p.id)"
+            @click="travelStore.removeParticipant(p.id)"
             class="text-slate-300 hover:text-red-500"
           >
             <Trash2 :size="16" />

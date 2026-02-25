@@ -4,50 +4,15 @@ import { useExpensesStore } from '@/store/expensesStore';
 import { useParticipantsStore } from '@/store/participantsStore';
 import { useTravelStore } from '@/store/travelStore';
 import dayjs from 'dayjs';
-const store = useTravelStore();
+const travelStore = useTravelStore();
 const expense = useExpensesStore();
 const participants = useParticipantsStore();
 
-const currentTime = ref(dayjs());
-let timer = null;
-
-// 使用 dayjs 判斷當前天數 (假設你有 startDate)
-const currentDay = computed(() => {
-  // 假設 store 有一個 startDate，若無請換成你的日期邏輯
-  const start = dayjs(store.travelStartDate);
-  return currentTime.value.diff(start, 'day') + 1;
-});
-
-const currentActivity = computed(() => {
-  const now = currentTime.value;
-  return store.dailyItinerary.find((item) => {
-    const start = dayjs(item.startTime, 'HH:mm');
-    const end = dayjs(item.endTime, 'HH:mm');
-    // 使用 dayjs 判斷時間區間
-    return (
-      item.day === currentDay.value && now.isAfter(start) && now.isBefore(end)
-    );
-  });
-});
-
-const nextActivity = computed(() => {
-  const now = currentTime.value;
-  // 先篩選出當天尚未開始的，再找跨天的
-  return store.dailyItinerary
-    .filter(
-      (item) =>
-        (item.day === currentDay.value &&
-          dayjs(item.startTime, 'HH:mm').isAfter(now)) ||
-        item.day > currentDay.value
-    )
-    .sort((a, b) =>
-      dayjs(a.startTime, 'HH:mm').diff(dayjs(b.startTime, 'HH:mm'))
-    )[0];
-});
+const currentActivity = computed(() => travelStore.currentActivity);
+const nextActivity = computed(() => travelStore.nextActivity);
 
 //取得濟州島天氣
 const weather = ref({});
-
 const getWeather = async () => {
   try {
     const response = await fetch(
@@ -61,15 +26,6 @@ const getWeather = async () => {
   }
 };
 
-onMounted(() => {
-  timer = setInterval(() => {
-    currentTime.value = dayjs(); // 每分鐘更新一次 dayjs 對象
-  }, 60000);
-});
-
-onUnmounted(() => {
-  if (timer) clearInterval(timer);
-});
 getWeather();
 </script>
 

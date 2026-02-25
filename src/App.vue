@@ -1,7 +1,8 @@
 <script setup>
-import { onMounted, computed } from 'vue';
+import { onMounted, onUnmounted, computed } from 'vue';
 import { useTravelStore } from '@/store/travelStore';
 import { useExpensesStore } from '@/store/expensesStore';
+import dayjs from 'dayjs';
 
 import { useRoute } from 'vue-router';
 import DefaultLayout from './layouts/default.vue';
@@ -24,9 +25,17 @@ const currentLayout = computed(() => {
 const travelStore = useTravelStore();
 const expensesStore = useExpensesStore();
 
+let timer = null;
 onMounted(() => {
   travelStore.init();
   expensesStore.init();
+  // 每 30 秒更新一次全域時間
+  timer = setInterval(() => {
+    travelStore.setNow(dayjs());
+  }, 30000);
+});
+onUnmounted(() => {
+  clearInterval(timer);
 });
 </script>
 
