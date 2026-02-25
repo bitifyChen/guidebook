@@ -180,16 +180,17 @@ const modules = [Pagination, Autoplay];
     class="itinerary-detail-drawer"
     round
   >
-    <div v-if="item" class="relative h-full flex flex-col">
+    <div v-if="item" class="relative h-full flex flex-col overflow-x-hidden">
       <button
         @click.stop="drawerVisible = false"
         class="absolute top-4 right-4 bg-black/40 backdrop-blur-xl text-white p-2 rounded-full z-10"
       >
         <X :size="20" />
       </button>
-      <div class="flex-1 p-4 pb-[100px] overflow-y-auto space-y-[20px]">
+      <div class="flex-1 p-4 pb-[100px] overflow-y-auto overflow-x-hidden space-y-[20px]">
+        <!-- 頂部圖片容器：使用 w-[calc(100%+32px)] 配合 mx-[-16px] 確保寬度精確 -->
         <div
-          class="h-[160px] mx-[-16px] mt-[-16px] overflow-hidden relative shadow-xl mb-4"
+          class="h-[160px] mx-[-16px] mt-[-16px] w-[calc(100%+32px)] overflow-hidden relative shadow-xl mb-4"
         >
           <img :src="item.cover" class="w-full h-full object-cover" />
         </div>
