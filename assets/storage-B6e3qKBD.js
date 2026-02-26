@@ -1,4 +1,4 @@
-import{k as e}from"./index-5qk_xDfl.js";/**
+import{k as e}from"./index-DMoYQ4b5.js";/**
  * @license lucide-vue-next v0.378.0 - ISC
  *
  * This source code is licensed under the ISC license.
@@ -18,4 +18,4 @@ import{k as e}from"./index-5qk_xDfl.js";/**
  *
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
- */const l=e("UserIcon",[["path",{d:"M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2",key:"975kel"}],["circle",{cx:"12",cy:"7",r:"4",key:"17ys0d"}]]),i=async s=>{const r=new FormData;r.append("image",s);try{const a=await(await fetch("https://api.imgbb.com/1/upload?key=undefined",{method:"POST",body:r})).json();if(a.success)return a.data.url;throw new Error(a.error.message||"上傳失敗")}catch(o){throw console.error("ImgBB Upload Error:",o),o}};export{n as L,d as P,l as U,p as a,i as u};
+ */const l=e("UserIcon",[["path",{d:"M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2",key:"975kel"}],["circle",{cx:"12",cy:"7",r:"4",key:"17ys0d"}]]),i=async s=>{const t="b2c8f13582d4c8d1690d82734055d420",r=new FormData;r.append("image",s);try{const a=await(await fetch(`https://api.imgbb.com/1/upload?key=${t}`,{method:"POST",body:r})).json();if(a.success)return a.data.url;throw new Error(a.error.message||"上傳失敗")}catch(o){throw console.error("ImgBB Upload Error:",o),o}};export{n as L,d as P,l as U,p as a,i as u};
