@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { getItinerary, getDayConfigs } from '@/api/itinerary';
+import { getItinerary, getDayConfigs, getGlobalVersion } from '@/api/itinerary';
 import dayjs from 'dayjs';
 export const useTravelStore = defineStore('travel', {
   state: () => ({
@@ -64,9 +64,34 @@ export const useTravelStore = defineStore('travel', {
   actions: {
     // --- 核心：從 Firebase 初始化資料 ---
     async init() {
-      this.isLoading = true;
+      const CACHE_KEY = 'jeju_travel_cache';
+      
+      // 1. 先抓取本地快取並立即呈現 (Stale-while-revalidate)
+      let localCache = null;
       try {
-        // 同時抓取景點和配置
+        const raw = localStorage.getItem(CACHE_KEY);
+        if (raw) {
+          localCache = JSON.parse(raw);
+          this.itinerary = localCache.itinerary;
+          this.config = localCache.config;
+          this.selectedDay = this.currentDay;
+        }
+      } catch (e) {
+        console.warn('Cache load failed', e);
+      }
+
+      try {
+        // 2. 抓取遠端版本號 (極小請求)
+        const remoteMeta = await getGlobalVersion();
+        
+        // 3. 如果版本一致且已有資料，就不再抓取大宗資料
+        if (localCache && localCache.timestamp === remoteMeta.lastUpdate) {
+          console.log('Using travel cache (version match)');
+          return;
+        }
+
+        // 4. 版本不一致或無快取，才抓取大宗資料
+        this.isLoading = true;
         const [itineraryRes, configRes] = await Promise.all([
           getItinerary(),
           getDayConfigs(),
@@ -77,14 +102,20 @@ export const useTravelStore = defineStore('travel', {
         }
 
         if (configRes.status === 200) {
-          // 因為 getDayConfigs 回傳的是陣列，我們要找到 ID 為 'dayConfigs' 的那一個
           const target = configRes.data.find((doc) => doc.id === 'dayConfigs');
           if (target && target.list) {
             this.config = target.list;
-            // 確保我們已經有 config 資料，然後觸發一次 currentDay 的邏輯
             this.selectedDay = this.currentDay;
           }
         }
+
+        // 5. 更新快取
+        localStorage.setItem(CACHE_KEY, JSON.stringify({
+          itinerary: this.itinerary,
+          config: this.config,
+          timestamp: remoteMeta.lastUpdate
+        }));
+        console.log('Travel data updated to version:', remoteMeta.lastUpdate);
       } catch (error) {
         console.error('初始化失敗:', error);
       } finally {

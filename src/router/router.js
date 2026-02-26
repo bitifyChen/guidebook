@@ -14,11 +14,6 @@ router.beforeEach(async (to, from, next) => {
   const userStore = useUserStore();
   const participantsStore = useParticipantsStore();
 
-  // 1. 確保 Firebase Auth 已就緒 (F5 重新整理時必備)
-  if (!userStore.isAuthReady) {
-    await userStore.initAuth();
-  }
-
   // 2. 確保旅客資料已載入 (權限判斷依賴此資料)
   if (participantsStore.participants.length === 0) {
     await participantsStore.init();
@@ -26,6 +21,10 @@ router.beforeEach(async (to, from, next) => {
 
   // 3. 檢查權限 (以 /admin 開頭的路由)
   if (to.path.startsWith('/admin')) {
+    // 1. 確保 Firebase Auth 已就緒 (F5 重新整理時必備)
+    if (!userStore.isAuthReady) {
+      await userStore.initAuth();
+    }
     // 排除登入頁
     if (to.path === '/admin/login') {
       return next();

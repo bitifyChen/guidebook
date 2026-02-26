@@ -4,6 +4,7 @@ import {
   doc,
   collection,
   setDoc,
+  getDoc,
   getDocs,
   updateDoc,
   deleteDoc,
@@ -13,6 +14,28 @@ import {
 } from 'firebase/firestore';
 
 const db = getFirestore(app);
+
+// ==========================================
+// 0. 版本號管理 (供快取控制)
+// ==========================================
+export const updateWalletVersion = async () => {
+  try {
+    const docRef = doc(db, 'metadata', 'wallet');
+    await setDoc(docRef, { lastUpdate: Date.now() }, { merge: true });
+  } catch (e) {
+    console.error('Failed to update wallet version:', e);
+  }
+};
+
+export const getWalletVersion = async () => {
+  try {
+    const docRef = doc(db, 'metadata', 'wallet');
+    const snap = await getDoc(docRef);
+    return snap.exists() ? snap.data() : { lastUpdate: 0 };
+  } catch (e) {
+    return { lastUpdate: 0 };
+  }
+};
 
 // ==========================================
 // 1. 花費管理 (Wallet)
@@ -53,7 +76,7 @@ export const postWalletItem = (params) => {
         ...params,
         updatedAt: serverTimestamp(),
       });
-
+      await updateWalletVersion();
       resolve({ status: 200, id: docRef.id });
     } catch (error) {
       reject(error);
@@ -73,6 +96,7 @@ export const patchWalletItem = (id, params) => {
         id,
         updatedAt: serverTimestamp(),
       });
+      await updateWalletVersion();
       resolve({ status: 200 });
     } catch (error) {
       reject(error);
@@ -87,6 +111,7 @@ export const deleteWalletItem = (id) => {
   return new Promise(async (resolve, reject) => {
     try {
       await deleteDoc(doc(db, 'wallet', id));
+      await updateWalletVersion();
       resolve({ status: 200 });
     } catch (error) {
       reject(error);

@@ -14,12 +14,31 @@ const nextActivity = computed(() => travelStore.nextActivity);
 //取得濟州島天氣
 const weather = ref({});
 const getWeather = async () => {
+  const CACHE_KEY = 'jeju_weather_cache';
+  const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
   try {
+    const cached = localStorage.getItem(CACHE_KEY);
+    if (cached) {
+      const { data, timestamp } = JSON.parse(cached);
+      if (Date.now() - timestamp < CACHE_TTL) {
+        console.log('Using cached weather data');
+        weather.value = data;
+        return;
+      }
+    }
+
     const response = await fetch(
       'https://api.open-meteo.com/v1/forecast?latitude=33.5097&longitude=126.5219&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,uv_index&timezone=Asia%2FSeoul'
     );
     const data = await response.json();
     weather.value = data;
+    
+    // 存入快取
+    localStorage.setItem(CACHE_KEY, JSON.stringify({
+      data,
+      timestamp: Date.now()
+    }));
   } catch (error) {
     console.error('Error fetching weather data:', error);
     weather.value = null;

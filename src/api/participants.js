@@ -4,6 +4,7 @@ import {
   doc,
   collection,
   setDoc,
+  getDoc,
   getDocs,
   updateDoc,
   deleteDoc,
@@ -18,9 +19,32 @@ const db = getFirestore(app);
 
 const COLLECTION_NAME = 'participants';
 
-/**
- * [READ] 取得所有參與者
- */
+// ==========================================
+// 0. 版本號管理 (供快取控制)
+// ==========================================
+export const updateParticipantsVersion = async () => {
+  try {
+    const docRef = doc(db, 'metadata', 'participants');
+    await setDoc(docRef, { lastUpdate: Date.now() }, { merge: true });
+  } catch (e) {
+    console.error('Failed to update participants version:', e);
+  }
+};
+
+export const getParticipantsVersion = async () => {
+  try {
+    const docRef = doc(db, 'metadata', 'participants');
+    const snap = await getDoc(docRef);
+    return snap.exists() ? snap.data() : { lastUpdate: 0 };
+  } catch (e) {
+    return { lastUpdate: 0 };
+  }
+};
+
+// ==========================================
+// 1. 參與者管理 (Participants)
+// ==========================================
+
 export const getParticipants = async () => {
   try {
     const q = query(
@@ -46,7 +70,11 @@ export const getParticipants = async () => {
  * @param {string} uid 使用者 UID (選填)
  * @param {boolean} force 是否強制重新認領
  */
-export const claimParticipantByCode = async (inviteCode, uid = null, force = false) => {
+export const claimParticipantByCode = async (
+  inviteCode,
+  uid = null,
+  force = false
+) => {
   try {
     const q = query(
       collection(db, COLLECTION_NAME),
@@ -64,10 +92,10 @@ export const claimParticipantByCode = async (inviteCode, uid = null, force = fal
 
     // 如果已被認領且沒有強制執行，則回傳需要確認的狀態
     if (participantData.isClaimed && !force) {
-      return { 
-        status: 409, 
+      return {
+        status: 409,
         message: `此邀請碼已被「${participantData.name}」認領過，是否要重新綁定到此裝置？`,
-        id: participantDoc.id 
+        id: participantDoc.id,
       };
     }
 
@@ -80,10 +108,11 @@ export const claimParticipantByCode = async (inviteCode, uid = null, force = fal
     if (uid) updateData.uid = uid;
 
     await updateDoc(docRef, updateData);
+    await updateParticipantsVersion();
 
-    return { 
-      status: 200, 
-      data: { ...participantData, id: participantDoc.id, uid } 
+    return {
+      status: 200,
+      data: { ...participantData, id: participantDoc.id, uid },
     };
   } catch (error) {
     throw error;
@@ -96,9 +125,7 @@ export const claimParticipantByCode = async (inviteCode, uid = null, force = fal
 export const postParticipant = async (params) => {
   try {
     const docRef = doc(collection(db, COLLECTION_NAME));
-    
-    // 生成隨機 6 位英數混合邀請碼
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     let inviteCode = '';
     for (let i = 0; i < 6; i++) {
       inviteCode += chars.charAt(Math.floor(Math.random() * chars.length));
@@ -110,6 +137,7 @@ export const postParticipant = async (params) => {
       createdAt: serverTimestamp(),
     };
     await setDoc(docRef, data);
+    await updateParticipantsVersion();
     return { status: 200, id: docRef.id };
   } catch (error) {
     throw error;
@@ -128,6 +156,7 @@ export const patchParticipant = (id, params) => {
         id,
         updatedAt: serverTimestamp(),
       });
+      await updateParticipantsVersion();
       resolve({ status: 200 });
     } catch (error) {
       reject(error);
@@ -141,6 +170,7 @@ export const patchParticipant = (id, params) => {
 export const deleteParticipant = async (id) => {
   try {
     await deleteDoc(doc(db, COLLECTION_NAME, id));
+    await updateParticipantsVersion();
     return { status: 200 };
   } catch (error) {
     throw error;
