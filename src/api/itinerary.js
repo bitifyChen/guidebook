@@ -11,6 +11,7 @@ import {
   query,
   orderBy,
   serverTimestamp,
+  writeBatch,
 } from 'firebase/firestore';
 
 const db = getFirestore(app);
@@ -61,7 +62,6 @@ export const getItinerary = () => {
 
 /**
  * [CREATE / UPDATE] 新增或覆蓋行程點
- * @param {string} id - 文件 ID (例如 'i1')
  * @param {Object} params - 行程內容
  */
 export const postItineraryItem = (params) => {
@@ -117,6 +117,59 @@ export const deleteItineraryItem = (id) => {
       reject(error);
     }
   });
+};
+
+/**
+ * [BULK SYNC] 大量同步行程點 (匯入功能)
+ * 邏輯：ID 匹配則更新，JSON 消失則刪除，新 ID 則新增
+ * @param {Array} newItems - 來自 JSON 的新行程陣列
+ */
+export const bulkUpdateItinerary = async (newItems) => {
+  const batch = writeBatch(db);
+  const itineraryRef = collection(db, 'itinerary');
+
+  try {
+    // 1. 取得目前資料庫所有項目
+    const { data: currentItems } = await getItinerary();
+    const currentIds = currentItems.map((item) => item.id);
+    const newIds = newItems.filter((item) => item.id).map((item) => item.id);
+
+    // 2. 處理刪除 (存在於 current 但不存在於 new)
+    const toDelete = currentItems.filter((item) => !newIds.includes(item.id));
+    toDelete.forEach((item) => {
+      const docRef = doc(db, 'itinerary', item.id);
+      batch.delete(docRef);
+    });
+
+    // 3. 處理新增與更新
+    newItems.forEach((item) => {
+      const { id, ...content } = item;
+      if (id && currentIds.includes(id)) {
+        // 更新 (排除不需要寫入的計算欄位，例如 startTime, endTime)
+        const { startTime, endTime, ...rest } = content;
+        const docRef = doc(db, 'itinerary', id);
+        batch.update(docRef, {
+          ...rest,
+          updatedAt: serverTimestamp(),
+        });
+      } else {
+        // 新增 (若無 ID 則自動生成)
+        const docRef = id ? doc(itineraryRef, id) : doc(itineraryRef);
+        batch.set(docRef, {
+          ...content,
+          updatedAt: serverTimestamp(),
+        });
+      }
+    });
+
+    // 4. 提交批次操作
+    await batch.commit();
+    await updateGlobalVersion();
+    return { status: 200, deleted: toDelete.length, updated: newItems.length };
+  } catch (error) {
+    console.error('Bulk update failed:', error);
+    throw error;
+  }
 };
 
 // ==========================================

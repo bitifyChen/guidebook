@@ -75,7 +75,7 @@ const handleTouchEnd = (e) => {
         />
       </el-tabs>
     </div>
-    <div class="mt-6 space-y-6">
+    <div class="mt-16 space-y-6">
       <ItineraryCard
         v-for="(item, idx) in itinerary"
         :key="item.id"
