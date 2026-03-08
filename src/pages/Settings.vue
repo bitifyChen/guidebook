@@ -33,11 +33,12 @@ const isUploading = ref(false);
 const isSaving = ref(false);
 
 import { watch } from 'vue';
+import { lockScroll, unlockScroll } from '@/utils/scrollLock';
 watch(isEditModalOpen, (val) => {
   if (val) {
-    document.body.style.overflow = 'hidden';
+    lockScroll();
   } else {
-    document.body.style.overflow = '';
+    unlockScroll();
   }
 });
 const editForm = ref({

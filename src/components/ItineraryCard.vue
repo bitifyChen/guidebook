@@ -43,6 +43,16 @@ const props = defineProps({
 
 const drawerVisible = ref(false);
 
+import { watch } from 'vue';
+import { lockScroll, unlockScroll } from '@/utils/scrollLock';
+watch(drawerVisible, (val) => {
+  if (val) {
+    lockScroll();
+  } else {
+    unlockScroll();
+  }
+});
+
 const openDetail = () => {
   drawerVisible.value = true;
 };
@@ -177,6 +187,7 @@ const modules = [Pagination, Autoplay];
     size="80%"
     :with-header="false"
     :append-to-body="true"
+    :lock-scroll="false"
     class="itinerary-detail-drawer"
     round
   >

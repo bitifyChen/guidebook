@@ -26,11 +26,12 @@ const isSaving = ref(false);
 
 // 鎖定背景滾動
 import { watch } from 'vue';
+import { lockScroll, unlockScroll } from '@/utils/scrollLock';
 watch(isModalOpen, (val) => {
   if (val) {
-    document.body.style.overflow = 'hidden';
+    lockScroll();
   } else {
-    document.body.style.overflow = '';
+    unlockScroll();
   }
 });
 const copiedId = ref(null);

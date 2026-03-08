@@ -39,10 +39,9 @@ body {
   overscroll-behavior: contain;
 }
 
-/* 修正 iOS 在鎖定背景時的穿透問題 */
+/* 移除 position: fixed 以防止跳到頂部，改由 JS 控制或現代屬性 */
 body.el-popup-parent--hidden {
-  position: fixed;
-  width: 100%;
+  overflow: hidden;
 }
 
 /* 3. 全域點擊回饋 */

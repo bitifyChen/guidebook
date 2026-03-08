@@ -25,6 +25,16 @@ const vFocus = {
 
 const drawerVisible = ref(false);
 
+import { watch } from 'vue';
+import { lockScroll, unlockScroll } from '@/utils/scrollLock';
+watch(drawerVisible, (val) => {
+  if (val) {
+    lockScroll();
+  } else {
+    unlockScroll();
+  }
+});
+
 const form = reactive({
   amount: '',
   description: '',
@@ -160,6 +170,7 @@ const onClose = () => {
       size="auto"
       :with-header="false"
       :append-to-body="true"
+      :lock-scroll="false"
       class="custom-drawer"
       @close="onClose"
     >
