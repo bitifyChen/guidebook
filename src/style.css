@@ -60,3 +60,63 @@ button:active {
     transform: none !important;
   }
 }
+
+/* 5. 行動端圖片預覽 (el-image-viewer) 優化 */
+.el-image-viewer__wrapper {
+  /* 使用深黑色實心背景，確保在 PWA 模式下閱讀清晰 */
+  background-color: rgba(0, 0, 0, 0.95) !important;
+  backdrop-blur: 5px; /* 稍微保留點模糊感即可，不要多 */
+}
+
+/* 遮罩層樣式 */
+.el-image-viewer__mask {
+  opacity: 1 !important;
+  background-color: transparent !important;
+}
+
+/* 在 user-scalable=no 之下，確保預覽畫布支援手勢縮放 */
+.el-image-viewer__canvas {
+  touch-action: pinch-zoom !important;
+  overflow: visible !important;
+}
+
+/* 行動端隱藏多餘的功能按鈕，改用手勢縮放 */
+/* 但保留基本的 zoom 回饋容器 */
+.el-image-viewer__actions {
+  bottom: 50px !important;
+  opacity: 0.8 !important;
+  background-color: rgba(255, 255, 255, 0.1) !important;
+  border-radius: 40px !important;
+  padding: 0 10px !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  transform: scale(0.8);
+}
+
+/* 關閉按鈕，改為更像原生 PWA 的質感 */
+.el-image-viewer__btn.el-image-viewer__close {
+  top: env(safe-area-inset-top, 20px) !important;
+  right: 20px !important;
+  width: 44px !important;
+  height: 44px !important;
+  background-color: rgba(0, 0, 0, 0.5) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  color: white !important;
+  border-radius: 50% !important;
+}
+
+/* 調整左右切換箭頭，縮小並半透明 */
+.el-image-viewer__btn.el-image-viewer__prev,
+.el-image-viewer__btn.el-image-viewer__next {
+  width: 36px !important;
+  height: 36px !important;
+  background-color: rgba(0, 0, 0, 0.3) !important;
+  opacity: 0.5;
+}
+
+/* 針對小螢幕隱藏箭頭 (直接用滑動切換即可) */
+@media (max-width: 640px) {
+  .el-image-viewer__btn.el-image-viewer__prev,
+  .el-image-viewer__btn.el-image-viewer__next {
+    display: none !important;
+  }
+}

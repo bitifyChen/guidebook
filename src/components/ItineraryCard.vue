@@ -93,14 +93,16 @@ const modules = [Pagination, Autoplay];
     >
       <div class="flex flex-col">
         <div v-if="item.cover" class="relative h-32 w-full overflow-hidden">
-          <img
+          <el-image
             :src="item.cover"
-            class="w-full h-full object-cover transition-transform duration-700"
+            fit="cover"
+            lazy
+            class="w-full h-full transition-transform duration-700"
           />
           <div
-            class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"
+            class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent pointer-events-none"
           ></div>
-          <div class="absolute bottom-3 left-4">
+          <div class="absolute bottom-3 left-4 pointer-events-none">
             <span
               class="text-[10px] font-black px-2 py-0.5 bg-orange-500 text-white rounded-lg uppercase tracking-widest shadow-lg"
             >
@@ -203,7 +205,13 @@ const modules = [Pagination, Autoplay];
         <div
           class="h-[160px] mx-[-16px] mt-[-16px] w-[calc(100%+32px)] overflow-hidden relative shadow-xl mb-4"
         >
-          <img :src="item.cover" class="w-full h-full object-cover" />
+          <el-image
+            :src="item.cover"
+            :preview-src-list="[item.cover]"
+            fit="cover"
+            lazy
+            class="w-full h-full"
+          />
         </div>
         <div class="flex justify-between items-end">
           <div>
@@ -277,7 +285,16 @@ const modules = [Pagination, Autoplay];
               <div
                 class="aspect-[4/3] rounded-[24px] overflow-hidden bg-slate-100 border border-slate-50 shadow-sm"
               >
-                <img :src="img" class="w-full h-full object-cover" />
+                <el-image
+                  :src="img"
+                  :preview-src-list="item.images"
+                  :initial-index="idx"
+                  fit="cover"
+                  lazy
+                  class="w-full h-full"
+                  :preview-teleported="true"
+                  :hide-on-click-modal="true"
+                />
               </div>
             </swiper-slide>
           </swiper>
