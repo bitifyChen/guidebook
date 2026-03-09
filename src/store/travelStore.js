@@ -33,7 +33,7 @@ export const useTravelStore = defineStore('travel', {
     currentDay: (state) => {
       const today = dayjs().format('YYYY/MM/DD');
       const configForToday = state.config.find((c) => c.date === today);
-      return configForToday ? configForToday.day : 1;
+      return configForToday ? configForToday.day : null;
     },
     //行程日期-總天數
     totalDays: (state) => state.config.length || 5,
@@ -65,7 +65,7 @@ export const useTravelStore = defineStore('travel', {
     // --- 核心：從 Firebase 初始化資料 ---
     async init() {
       const CACHE_KEY = 'jeju_travel_cache';
-      
+
       // 1. 先抓取本地快取並立即呈現 (Stale-while-revalidate)
       let localCache = null;
       try {
@@ -83,7 +83,7 @@ export const useTravelStore = defineStore('travel', {
       try {
         // 2. 抓取遠端版本號 (極小請求)
         const remoteMeta = await getGlobalVersion();
-        
+
         // 3. 如果版本一致且已有資料，就不再抓取大宗資料
         if (localCache && localCache.timestamp === remoteMeta.lastUpdate) {
           console.log('Using travel cache (version match)');
@@ -110,11 +110,14 @@ export const useTravelStore = defineStore('travel', {
         }
 
         // 5. 更新快取
-        localStorage.setItem(CACHE_KEY, JSON.stringify({
-          itinerary: this.itinerary,
-          config: this.config,
-          timestamp: remoteMeta.lastUpdate
-        }));
+        localStorage.setItem(
+          CACHE_KEY,
+          JSON.stringify({
+            itinerary: this.itinerary,
+            config: this.config,
+            timestamp: remoteMeta.lastUpdate,
+          })
+        );
         console.log('Travel data updated to version:', remoteMeta.lastUpdate);
       } catch (error) {
         console.error('初始化失敗:', error);

@@ -17,6 +17,7 @@ import {
   Pencil,
   X,
   Upload,
+  RefreshCw,
   LayoutDashboard,
 } from 'lucide-vue-next';
 
@@ -26,6 +27,23 @@ const participantsStore = useParticipantsStore();
 
 const inviteCode = ref('');
 const isClaiming = ref(false);
+const isRefreshing = ref(false);
+
+const handleForceRefresh = () => {
+  isRefreshing.value = true;
+  // 清除所有快取
+  const caches = [
+    'jeju_participants_cache',
+    'jeju_weather_cache',
+    'jeju_travel_cache', // 預留可能有的行程快取
+  ];
+  caches.forEach((key) => localStorage.removeItem(key));
+
+  // 延遲一下讓使用者看到轉圈動畫，然後重新整理
+  setTimeout(() => {
+    window.location.reload();
+  }, 800);
+};
 
 // Edit Profile State
 const isEditModalOpen = ref(false);
@@ -228,6 +246,24 @@ const handleLogout = async () => {
           <span class="font-bold text-slate-700 flex-1 text-left"
             >管理後台</span
           >
+          <ChevronRight :size="20" class="text-slate-200" />
+        </button>
+
+        <!-- Force Refresh Button -->
+        <button
+          @click="handleForceRefresh"
+          :disabled="isRefreshing"
+          class="w-full p-6 flex items-center gap-4 hover:bg-blue-50 transition-colors group border-b border-slate-50 disabled:opacity-50"
+        >
+          <div
+            class="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-blue-500 group-hover:scale-110 transition-transform"
+          >
+            <RefreshCw :size="20" :class="{ 'animate-spin': isRefreshing }" />
+          </div>
+          <div class="flex-1 text-left">
+            <span class="block font-bold text-slate-700">強制刷新資料</span>
+            <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-tighter mt-0.5">清除快取並重新載入</span>
+          </div>
           <ChevronRight :size="20" class="text-slate-200" />
         </button>
 
