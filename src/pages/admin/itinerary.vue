@@ -17,6 +17,7 @@ import {
   MapPinOff,
   Image,
   ImageOff,
+  Copy,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -25,6 +26,69 @@ const fileInput = ref(null);
 
 const localItinerary = ref([]);
 const hasChanges = ref(false);
+const isCheckingImages = ref(false);
+
+const handleCopyItem = (item, dayGroup) => {
+  const index = dayGroup.items.findIndex((i) => i.id === item.id);
+  const newItem = {
+    ...JSON.parse(JSON.stringify(item)),
+    id: `temp-${Date.now()}`, // 給予暫時 ID 以供 draggable 辨識
+    location: `${item.location} (副本)`,
+  };
+  dayGroup.items.splice(index + 1, 0, newItem);
+  hasChanges.value = true;
+};
+
+const checkImageLink = (url) => {
+  return new Promise((resolve) => {
+    const img = new window.Image();
+    img.onload = () => resolve(true);
+    img.onerror = () => resolve(false);
+    img.src = url;
+    setTimeout(() => resolve(false), 8000); // 8秒超時
+  });
+};
+
+const handleCheckImages = async () => {
+  if (isCheckingImages.value) return;
+
+  isCheckingImages.value = true;
+  const allItems = localItinerary.value.flatMap((day) => day.items);
+  let errorCount = 0;
+
+  for (const item of allItems) {
+    const urlsToCheck = [];
+    if (item.cover) urlsToCheck.push(item.cover);
+    if (item.images && item.images.length > 0) {
+      urlsToCheck.push(...item.images);
+    }
+
+    if (urlsToCheck.length === 0) continue;
+
+    travelStore.setImageStatus(item.id, 'loading');
+
+    try {
+      const results = await Promise.all(
+        urlsToCheck.map((url) => checkImageLink(url))
+      );
+      const allOk = results.every((res) => res === true);
+      travelStore.setImageStatus(item.id, allOk ? 'ok' : 'error');
+      if (!allOk) errorCount++;
+    } catch (e) {
+      travelStore.setImageStatus(item.id, 'error');
+      errorCount++;
+    }
+  }
+
+  isCheckingImages.value = false;
+  if (errorCount > 0) {
+    alert(
+      `檢查完成！發現 ${errorCount} 個行程的圖片連結異常，請點擊異常項目進行修復。`
+    );
+  } else {
+    alert('檢查完成！所有圖片連結皆正常。');
+  }
+};
 
 onMounted(async () => {
   await travelStore.init();
@@ -68,8 +132,14 @@ const handleSaveOrder = async () => {
   const flattened = [];
   localItinerary.value.forEach((dayGroup) => {
     dayGroup.items.forEach((item, index) => {
+      const saveItem = { ...item };
+      // 如果是副本（暫時 ID），移除 ID 讓 Firebase 自動生成
+      if (saveItem.id && saveItem.id.toString().startsWith('temp-')) {
+        delete saveItem.id;
+      }
+      
       flattened.push({
-        ...item,
+        ...saveItem,
         day: dayGroup.day,
         order: index + 1,
       });
@@ -183,13 +253,28 @@ const handleImport = async (event) => {
           @click="handleExport"
           class="flex-1 bg-white p-3 rounded-2xl border border-slate-100 flex items-center justify-center gap-2 font-bold text-slate-500 text-xs shadow-sm active:scale-95 transition-transform"
         >
-          <Download :size="14" /> 匯出備份
+          <Download :size="14" /> 匯出
         </button>
         <button
           @click="fileInput.click()"
           class="flex-1 bg-white p-3 rounded-2xl border border-slate-100 flex items-center justify-center gap-2 font-bold text-slate-500 text-xs shadow-sm active:scale-95 transition-transform"
         >
-          <Upload :size="14" /> 匯入同步
+          <Upload :size="14" /> 匯入
+        </button>
+        <button
+          @click="handleCheckImages"
+          :disabled="isCheckingImages"
+          class="flex-1 bg-white p-3 rounded-2xl border border-slate-100 flex items-center justify-center gap-2 font-bold text-slate-500 text-xs shadow-sm active:scale-95 transition-transform disabled:opacity-50"
+        >
+          <Image
+            :size="14"
+            :class="[
+              isCheckingImages
+                ? 'animate-spin text-slate-400'
+                : 'text-blue-500',
+            ]"
+          />
+          {{ isCheckingImages ? '檢查中...' : '圖片檢查' }}
         </button>
         <input
           type="file"
@@ -252,15 +337,33 @@ const handleImport = async (event) => {
                         : 'text-slate-300 fill-slate-100'
                     "
                   />
-                  <component
-                    :is="item?.images[0] ? Image : ImageOff"
-                    :size="12"
-                    :class="
-                      item?.images[0]
-                        ? 'text-green-500 fill-blue-50'
-                        : 'text-slate-300 fill-slate-100'
-                    "
-                  />
+                  <div class="relative flex items-center gap-1.5">
+                    <component
+                      :is="item?.images[0] ? Image : ImageOff"
+                      :size="12"
+                      :class="[
+                        item?.images[0] || item?.cover
+                          ? 'text-green-500 fill-green-50'
+                          : 'text-slate-300 fill-slate-100',
+                        travelStore.imageStatus[item.id] === 'error'
+                          ? 'text-red-500 fill-red-50 animate-pulse'
+                          : '',
+                      ]"
+                    />
+                    <!-- 狀態小點 -->
+                    <div
+                      v-if="travelStore.imageStatus[item.id]"
+                      class="absolute -top-1 -right-1 w-2 h-2 rounded-full border border-white shadow-sm"
+                      :class="{
+                        'bg-green-500':
+                          travelStore.imageStatus[item.id] === 'ok',
+                        'bg-red-500 animate-bounce':
+                          travelStore.imageStatus[item.id] === 'error',
+                        'bg-blue-400 animate-spin':
+                          travelStore.imageStatus[item.id] === 'loading',
+                      }"
+                    ></div>
+                  </div>
                   {{ item.location }}
                 </div>
                 <div class="text-[10px] font-bold text-slate-400">
@@ -293,12 +396,21 @@ const handleImport = async (event) => {
                     class="w-10 bg-transparent text-center font-mono font-black text-orange-600 outline-none"
                   />
                 </div>
-                <button
-                  @click="router.push(`/admin/item/${item.id}`)"
-                  class="p-2 text-slate-300 hover:text-orange-500"
-                >
-                  <ChevronRight :size="20" />
-                </button>
+                <div class="flex items-center gap-1 ml-2">
+                  <button
+                    @click="handleCopyItem(item, dayGroup)"
+                    class="p-2 text-slate-300 hover:text-blue-500 transition-colors"
+                    title="複製此行程"
+                  >
+                    <Copy :size="16" />
+                  </button>
+                  <button
+                    @click="router.push(`/admin/item/${item.id}`)"
+                    class="p-2 text-slate-300 hover:text-orange-500 transition-colors"
+                  >
+                    <ChevronRight :size="20" />
+                  </button>
+                </div>
               </div>
             </div>
           </template>

@@ -8,6 +8,7 @@ export const useTravelStore = defineStore('travel', {
     selectedDay: 1,
     isLoading: false,
     now: dayjs(),
+    imageStatus: {}, // { [itemId]: 'ok' | 'error' | 'loading' }
   }),
 
   getters: {
@@ -62,6 +63,12 @@ export const useTravelStore = defineStore('travel', {
   },
 
   actions: {
+    setImageStatus(itemId, status) {
+      this.imageStatus[itemId] = status;
+    },
+    clearImageStatus() {
+      this.imageStatus = {};
+    },
     // --- 核心：從 Firebase 初始化資料 ---
     async init() {
       const CACHE_KEY = 'jeju_travel_cache';

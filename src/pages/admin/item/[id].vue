@@ -188,6 +188,26 @@ const handleDelete = async () => {
                 placeholder="封面圖片 URL"
               />
             </div>
+            <!-- 封面圖即時預覽 -->
+            <div
+              v-if="currentItem.cover"
+              class="relative aspect-video rounded-2xl overflow-hidden bg-slate-100 border border-slate-100 group"
+            >
+              <img
+                :src="currentItem.cover"
+                class="w-full h-full object-cover"
+                @error="
+                  (e) => (e.target.src = 'https://placehold.co/600x400?text=Cover+Image+Error')
+                "
+              />
+              <div
+                class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+              >
+                <span class="text-white text-[10px] font-black uppercase tracking-widest"
+                  >Cover Preview</span
+                >
+              </div>
+            </div>
             <div class="flex items-center gap-3 bg-slate-50 p-3 rounded-2xl">
               <MapPin :size="18" class="text-slate-400" />
               <input
