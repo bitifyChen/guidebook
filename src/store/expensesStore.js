@@ -44,7 +44,10 @@ export const useExpensesStore = defineStore('expenses', {
         const res = await getWallet();
 
         if (res.status === 200) {
-          this.expenses = res.data;
+          // 根據日期排序，最新的在前面
+          this.expenses = res.data.sort((a, b) => {
+            return new Date(b.date || 0) - new Date(a.date || 0);
+          });
         }
 
         // 5. 更新快取

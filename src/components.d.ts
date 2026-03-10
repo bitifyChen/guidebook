@@ -17,6 +17,7 @@ declare module 'vue' {
     ElImage: typeof import('element-plus/es')['ElImage']
     ElInput: typeof import('element-plus/es')['ElInput']
     ElOption: typeof import('element-plus/es')['ElOption']
+    ElScrollbar: typeof import('element-plus/es')['ElScrollbar']
     ElSelect: typeof import('element-plus/es')['ElSelect']
     ElTabPane: typeof import('element-plus/es')['ElTabPane']
     ElTabs: typeof import('element-plus/es')['ElTabs']
@@ -24,6 +25,8 @@ declare module 'vue' {
     PayCard: typeof import('./components/PayCard.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    WalletAnalysis: typeof import('./components/WalletAnalysis.vue')['default']
+    WalletSettlement: typeof import('./components/WalletSettlement.vue')['default']
     WeatherCard: typeof import('./components/WeatherCard.vue')['default']
   }
 }

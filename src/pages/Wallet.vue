@@ -1,17 +1,52 @@
 <script setup>
-import { ref, reactive } from 'vue';
+import { ref, reactive, watch, computed } from 'vue';
 import { v4 as uuid } from 'uuid';
+import dayjs from 'dayjs';
 import { useExpensesStore } from '@/store/expensesStore';
+import { useUserStore } from '@/store/userStore';
 import {
   postWalletItem,
   patchWalletItem,
   deleteWalletItem,
 } from '@/api/wallet';
 import { useParticipantsStore } from '@/store/participantsStore';
-import { Plus, Trash2, ReceiptText, X, Wallet2, Users } from 'lucide-vue-next';
+import { lockScroll, unlockScroll } from '@/utils/scrollLock';
+import WalletAnalysis from '@/components/WalletAnalysis.vue';
+import WalletSettlement from '@/components/WalletSettlement.vue';
+import {
+  Plus,
+  Trash2,
+  ReceiptText,
+  X,
+  Wallet2,
+  Users,
+  Lock,
+  Calendar,
+  PieChart,
+  ArrowRightLeft,
+} from 'lucide-vue-next';
 
 const expensesStore = useExpensesStore();
 const participants = useParticipantsStore();
+const userStore = useUserStore();
+
+// 全選邏輯
+const isIndeterminate = computed(() => {
+  const checkedCount = form.splitWithIds.length;
+  return checkedCount > 0 && checkedCount < participants.participants.length;
+});
+
+const isAllSelected = computed({
+  get() {
+    return (
+      form.splitWithIds.length === participants.participants.length &&
+      participants.participants.length > 0
+    );
+  },
+  set(val) {
+    form.splitWithIds = val ? participants.participants.map((p) => p.id) : [];
+  },
+});
 
 // 自定義自動聚焦指令
 const vFocus = {
@@ -24,11 +59,11 @@ const vFocus = {
 };
 
 const drawerVisible = ref(false);
+const analysisVisible = ref(false);
+const settlementVisible = ref(false);
 
-import { watch } from 'vue';
-import { lockScroll, unlockScroll } from '@/utils/scrollLock';
-watch(drawerVisible, (val) => {
-  if (val) {
+watch([drawerVisible, analysisVisible, settlementVisible], ([d, a, s]) => {
+  if (d || a || s) {
     lockScroll();
   } else {
     unlockScroll();
@@ -40,22 +75,47 @@ const form = reactive({
   description: '',
   payerId: '',
   splitWithIds: [],
+  date: '',
 });
+
+const openAddDrawer = () => {
+  if (!userStore.myParticipant) return alert('請先登入後再新增開支！');
+
+  // 重置表單並設定預設付款人
+  Object.assign(form, {
+    id: null,
+    amount: '',
+    description: '',
+    payerId: userStore.myParticipant?.id || '',
+    splitWithIds: participants.participants.map((p) => p.id), // 預設全選
+    date: dayjs().format('YYYY-MM-DD'), // 預設今天
+  });
+  drawerVisible.value = true;
+};
+
 const editMethod = (data) => {
-  Object.assign(form, data);
+  if (!userStore.myParticipant) return; // 不允許編輯
+  Object.assign(form, {
+    ...data,
+    date: data.date || dayjs().format('YYYY-MM-DD'), // 相容舊資料
+  });
   drawerVisible.value = true;
 };
 
 const submitExpense = () => {
   if (!form.amount || !form.description || !form.payerId)
     return alert('請填寫完整的開支資訊！');
+
+  const payload = {
+    amount: parseFloat(form.amount),
+    description: form.description,
+    payerId: form.payerId,
+    splitWithIds: [...form.splitWithIds],
+    date: form.date || dayjs().format('YYYY-MM-DD'),
+  };
+
   if (form.id) {
-    patchWalletItem(form.id, {
-      amount: parseFloat(form.amount),
-      description: form.description,
-      payerId: form.payerId,
-      splitWithIds: [...form.splitWithIds],
-    })
+    patchWalletItem(form.id, payload)
       .then((res) => {
         console.log('更新成功', res);
       })
@@ -63,12 +123,7 @@ const submitExpense = () => {
         expensesStore.init(); // 重新抓取最新的開支列表
       });
   } else {
-    postWalletItem({
-      amount: parseFloat(form.amount),
-      description: form.description,
-      payerId: form.payerId,
-      splitWithIds: [...form.splitWithIds],
-    })
+    postWalletItem(payload)
       .then((res) => {
         console.log('新增成功', res);
       })
@@ -99,14 +154,15 @@ const onClose = () => {
     description: '',
     payerId: '',
     splitWithIds: [],
+    date: '',
   });
 };
 </script>
 
 <template>
-  <div class="space-y-8">
+  <div class="space-y-4">
     <div
-      class="bg-gradient-to-br from-slate-800 to-slate-900 rounded-[32px] p-8 text-white shadow-2xl relative overflow-hidden group"
+      class="bg-gradient-to-br from-slate-800 to-slate-900 rounded-[32px] p-[24px] text-white shadow-2xl relative overflow-hidden group"
     >
       <div class="relative z-10">
         <div class="flex items-center gap-2 mb-2 opacity-60">
@@ -123,11 +179,15 @@ const onClose = () => {
         </div>
 
         <el-button
-          class="w-full !rounded-[20px] !h-14 mt-8 !text-lg !font-black !bg-orange-500 !border-none !text-white shadow-xl shadow-orange-900/20 active:scale-95 transition-transform"
-          @click="drawerVisible = true"
+          class="w-full !rounded-[20px] !h-14 mt-8 !text-lg !font-black !bg-orange-500 !border-none !text-white shadow-xl shadow-orange-900/20 active:scale-95 transition-transform disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed"
+          @click="openAddDrawer"
         >
-          <Plus :size="20" class="mr-2 stroke-[3px]" />
-          新增行程開支
+          <component
+            :is="userStore.myParticipant ? Plus : Lock"
+            :size="20"
+            class="mr-2 stroke-[3px]"
+          />
+          {{ userStore.myParticipant ? '新增行程開支' : '請先登入以新增' }}
         </el-button>
       </div>
       <ReceiptText
@@ -136,11 +196,48 @@ const onClose = () => {
       />
     </div>
 
+    <!-- 功能入口網格 -->
+    <div class="grid grid-cols-2 gap-4">
+      <button
+        @click="analysisVisible = true"
+        class="bg-white p-4 rounded-2xl border border-slate-100 flex justify-center items-center gap-2 shadow-sm active:scale-95 transition-all group"
+      >
+        <div
+          class="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-500 group-hover:scale-110 transition-transform"
+        >
+          <PieChart :size="24" />
+        </div>
+        <span class="text-md font-bold text-slate-600">花費分析</span>
+      </button>
+      <button
+        @click="settlementVisible = true"
+        class="bg-white p-4 rounded-2xl border border-slate-100 flex justify-center items-center gap-2 shadow-sm active:scale-95 transition-all group"
+      >
+        <div
+          class="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-500 group-hover:scale-110 transition-transform"
+        >
+          <ArrowRightLeft :size="24" />
+        </div>
+        <span class="text-md font-bold text-slate-600">分帳詳情</span>
+      </button>
+    </div>
+
     <div class="space-y-4">
       <div class="flex justify-between items-end mb-4">
-        <h3 class="font-black text-slate-800 text-xl tracking-tight">
-          費用明細
-        </h3>
+        <div class="flex items-center gap-2">
+          <h3 class="font-black text-slate-800 text-xl tracking-tight">
+            費用明細
+          </h3>
+          <div
+            v-if="!userStore.myParticipant"
+            class="bg-slate-100 px-2 py-0.5 rounded-lg flex items-center gap-1"
+          >
+            <Lock :size="10" class="text-slate-400" />
+            <span class="text-[9px] font-black text-slate-400 uppercase"
+              >Read Only</span
+            >
+          </div>
+        </div>
         <span
           class="text-[10px] font-black text-slate-400 uppercase tracking-widest"
           >{{ expensesStore.expenses.length }} 筆記錄</span
@@ -159,11 +256,25 @@ const onClose = () => {
         v-for="exp in expensesStore.expenses"
         :key="exp.id"
         :item="exp"
+        :class="{ 'opacity-80': !userStore.myParticipant }"
         @edit="editMethod"
       >
       </PayCard>
     </div>
 
+    <!-- 彈出組件 -->
+    <WalletAnalysis
+      v-model:visible="analysisVisible"
+      :expenses="expensesStore.expenses"
+    />
+
+    <WalletSettlement
+      v-model:visible="settlementVisible"
+      :expenses="expensesStore.expenses"
+      :participants="participants.participants"
+    />
+
+    <!-- 新增/編輯 抽屜 -->
     <el-drawer
       v-model="drawerVisible"
       direction="btt"
@@ -214,61 +325,66 @@ const onClose = () => {
             />
           </el-form-item>
 
-          <div class="grid grid-cols-2 gap-4">
-            <el-form-item>
-              <template #label
-                ><span class="label-custom tracking-tighter"
-                  >誰先墊錢？</span
-                ></template
-              >
-              <el-select
-                v-model="form.payerId"
-                class="w-full custom-select"
-                placeholder="選擇付款人"
-              >
-                <el-option
-                  v-for="p in participants.participants"
-                  :key="p.id"
-                  :label="p.name"
-                  :value="p.id"
-                />
-              </el-select>
-            </el-form-item>
-
-            <el-form-item>
-              <template #label
-                ><span class="label-custom tracking-tighter"
-                  >參與人數</span
-                ></template
-              >
-              <div
-                class="h-12 bg-slate-50 rounded-2xl flex items-center px-4 gap-2 text-slate-500"
-              >
-                <Users :size="16" />
-                <span class="text-sm font-bold"
-                  >{{ form.splitWithIds.length }} 人</span
-                >
-              </div>
-            </el-form-item>
-          </div>
-
           <el-form-item>
             <template #label
-              ><span class="label-custom">要跟誰分這筆錢？</span></template
+              ><span class="label-custom">支出日期</span></template
             >
-            <el-checkbox-group
-              v-model="form.splitWithIds"
-              class="flex flex-wrap gap-2"
+            <el-input v-model="form.date" type="date" class="custom-input" />
+          </el-form-item>
+          <el-form-item>
+            <template #label
+              ><span class="label-custom tracking-tighter"
+                >付款人</span
+              ></template
             >
+            <el-select
+              v-model="form.payerId"
+              class="w-full custom-select"
+              placeholder="選擇付款人"
+            >
+              <el-option
+                v-for="p in participants.participants"
+                :key="p.id"
+                :label="p.name"
+                :value="p.id"
+              />
+            </el-select>
+          </el-form-item>
+
+          <el-form-item>
+            <template #label>
+              <div class="flex justify-between items-center w-full pr-2">
+                <div class="flex items-center gap-2">
+                  <span class="label-custom">要跟誰分這筆錢？</span>
+                  <span
+                    class="bg-slate-50 rounded-2xl flex items-center px-2 gap-2 text-[10px] text-slate-500"
+                  >
+                    <Users :size="10" />
+                    <span class="font-bold"
+                      >{{ form.splitWithIds.length }} 人</span
+                    >
+                  </span>
+                </div>
+              </div>
+            </template>
+            <div class="flex flex-wrap gap-2">
+              <el-checkbox
+                v-model="isAllSelected"
+                :indeterminate="isIndeterminate"
+                class="custom-checkbox !mr-0"
+                border
+                >全選</el-checkbox
+              >
               <el-checkbox
                 v-for="p in participants.participants"
                 :key="p.id"
+                v-model="form.splitWithIds"
                 :label="p.id"
-                class="custom-checkbox"
+                class="custom-checkbox !mr-0"
                 border
                 >{{ p.name }}</el-checkbox
               >
-            </el-checkbox-group>
+            </div>
           </el-form-item>
         </el-form>
 
