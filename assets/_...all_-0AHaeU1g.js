@@ -1,1 +1,0 @@
-import{b as e}from"./route-block-B_A1xBdJ.js";import{cf as c,o,c as n}from"./index-BsZN8x0N.js";const t={},p={class:"container 2xl:w-[1300px] md:w-[90%] w-[300px] sm:px-[25px] px-[15px] pt-[35px] pb-[100px] mx-auto h-[100vh] min-h-[568px] flex items-center"};function s(r,x){return o(),n("div",p," 404 ")}typeof e=="function"&&e(t);const f=c(t,[["render",s]]);export{f as default};
