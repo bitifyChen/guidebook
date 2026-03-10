@@ -4,6 +4,7 @@ import { useTravelStore } from '@/store/travelStore';
 import { useExpensesStore } from '@/store/expensesStore';
 import { useParticipantsStore } from '@/store/participantsStore';
 import { useUserStore } from '@/store/userStore';
+import IOSInstallPrompt from '@/components/IOSInstallPrompt.vue';
 import dayjs from 'dayjs';
 
 import { useRoute } from 'vue-router';
@@ -49,6 +50,7 @@ onUnmounted(() => {
   <component :is="currentLayout">
     <router-view />
   </component>
+  <IOSInstallPrompt />
 </template>
 
 <style>

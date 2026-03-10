@@ -1,10 +1,11 @@
 <script setup>
-import { ref } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useUserStore } from '@/store/userStore';
 import { useParticipantsStore } from '@/store/participantsStore';
 import { claimParticipantByCode } from '@/api/participants';
 import { uploadImage } from '@/api/storage';
+import { lockScroll, unlockScroll } from '@/utils/scrollLock';
 import {
   ShieldCheck,
   ChevronRight,
@@ -19,6 +20,7 @@ import {
   Upload,
   RefreshCw,
   LayoutDashboard,
+  Download,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -28,6 +30,34 @@ const participantsStore = useParticipantsStore();
 const inviteCode = ref('');
 const isClaiming = ref(false);
 const isRefreshing = ref(false);
+
+// PWA Install Logic
+const deferredPrompt = ref(null);
+const isStandalone = ref(false);
+
+const handleInstallClick = async () => {
+  if (deferredPrompt.value) {
+    // Android / Chrome
+    deferredPrompt.value.prompt();
+    const { outcome } = await deferredPrompt.value.userChoice;
+    if (outcome === 'accepted') deferredPrompt.value = null;
+  } else {
+    // iOS or already installed
+    // 發送事件給 IOSInstallPrompt.vue
+    window.dispatchEvent(new CustomEvent('show-ios-install-prompt'));
+  }
+};
+
+onMounted(() => {
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt.value = e;
+  });
+
+  isStandalone.value =
+    window.matchMedia('(display-mode: standalone)').matches ||
+    window.navigator.standalone;
+});
 
 const handleForceRefresh = () => {
   isRefreshing.value = true;
@@ -50,8 +80,6 @@ const isEditModalOpen = ref(false);
 const isUploading = ref(false);
 const isSaving = ref(false);
 
-import { watch } from 'vue';
-import { lockScroll, unlockScroll } from '@/utils/scrollLock';
 watch(isEditModalOpen, (val) => {
   if (val) {
     lockScroll();
@@ -262,7 +290,31 @@ const handleLogout = async () => {
           </div>
           <div class="flex-1 text-left">
             <span class="block font-bold text-slate-700">強制刷新資料</span>
-            <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-tighter mt-0.5">清除快取並重新載入</span>
+            <span
+              class="block text-[10px] font-bold text-slate-400 uppercase tracking-tighter mt-0.5"
+              >清除快取並重新載入</span
+            >
+          </div>
+          <ChevronRight :size="20" class="text-slate-200" />
+        </button>
+
+        <!-- Install PWA Button (Only show if not in standalone mode) -->
+        <button
+          v-if="!isStandalone"
+          @click="handleInstallClick"
+          class="w-full p-6 flex items-center gap-4 hover:bg-orange-50 transition-colors group border-b border-slate-50"
+        >
+          <div
+            class="w-10 h-10 bg-orange-50 rounded-xl flex items-center justify-center text-orange-500 group-hover:scale-110 transition-transform"
+          >
+            <Download :size="20" />
+          </div>
+          <div class="flex-1 text-left">
+            <span class="block font-bold text-slate-700">安裝到手機桌面</span>
+            <span
+              class="block text-[10px] font-bold text-slate-400 uppercase tracking-tighter mt-0.5"
+              >像 App 一樣快速開啟</span
+            >
           </div>
           <ChevronRight :size="20" class="text-slate-200" />
         </button>

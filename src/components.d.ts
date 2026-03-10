@@ -21,6 +21,7 @@ declare module 'vue' {
     ElSelect: typeof import('element-plus/es')['ElSelect']
     ElTabPane: typeof import('element-plus/es')['ElTabPane']
     ElTabs: typeof import('element-plus/es')['ElTabs']
+    IOSInstallPrompt: typeof import('./components/IOSInstallPrompt.vue')['default']
     ItineraryCard: typeof import('./components/ItineraryCard.vue')['default']
     PayCard: typeof import('./components/PayCard.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
