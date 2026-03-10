@@ -92,7 +92,10 @@ const modules = [Pagination, Autoplay];
       }"
     >
       <div class="flex flex-col">
-        <div v-if="item.cover" class="relative h-32 w-full overflow-hidden">
+        <div
+          v-if="item.cover"
+          class="relative aspect-video w-full overflow-hidden"
+        >
           <el-image
             :src="item.cover"
             fit="cover"
@@ -111,8 +114,8 @@ const modules = [Pagination, Autoplay];
           </div>
         </div>
 
-        <div class="p-5">
-          <div class="flex justify-between items-start">
+        <div class="px-4 py-3">
+          <div class="flex justify-between items-center">
             <div class="flex-1">
               <h4
                 class="text-lg font-black text-slate-800 leading-tight transition-colors"
@@ -123,7 +126,7 @@ const modules = [Pagination, Autoplay];
             <div
               class="bg-slate-50 p-2 rounded-xl text-slate-300 group-hover:text-orange-400 transition-colors"
             >
-              <ChevronRight :size="18" />
+              <ChevronRight :size="16" />
             </div>
           </div>
 
@@ -200,10 +203,12 @@ const modules = [Pagination, Autoplay];
       >
         <X :size="20" />
       </button>
-      <div class="flex-1 p-4 pb-[100px] overflow-y-auto overflow-x-hidden space-y-[20px]">
+      <div
+        class="flex-1 p-4 pb-[100px] overflow-y-auto overflow-x-hidden space-y-[20px]"
+      >
         <!-- 頂部圖片容器：使用 w-[calc(100%+32px)] 配合 mx-[-16px] 確保寬度精確 -->
         <div
-          class="h-[160px] mx-[-16px] mt-[-16px] w-[calc(100%+32px)] overflow-hidden relative shadow-xl mb-4"
+          class="mx-[-16px] aspect-video mt-[-16px] w-[calc(100%+32px)] overflow-hidden relative shadow-xl mb-4"
         >
           <el-image
             :src="item.cover"
