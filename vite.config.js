@@ -26,7 +26,7 @@ export default defineConfig({
       resolvers: [ElementPlusResolver()],
     }),
     VitePWA({
-      registerType: 'prompt',
+      registerType: 'autoUpdate',
       devOptions: {
         enabled: true,
       },
@@ -53,6 +53,23 @@ export default defineConfig({
       workbox: {
         maximumFileSizeToCacheInBytes: 4000000,
         clientsClaim: true,
+        skipWaiting: true,
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/(i\.ibb\.co|firebasestorage\.googleapis\.com)/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'external-images',
+              expiration: {
+                maxEntries: 100,
+                maxAgeSeconds: 60 * 60 * 24 * 30, // 30 Days
+              },
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+            },
+          },
+        ],
       },
     }),
   ],

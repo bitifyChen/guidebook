@@ -77,16 +77,18 @@ const weatherTheme = {
   },
 };
 // 取得目前的佈景主題設定
-const current = computed(() =>
-  props?.weather?.current?.weather_code
-    ? getWeatherThemeByCode(props?.weather?.current?.weather_code)
-    : {
-        bg: 'from-purple-800 to-slate-900',
-        icon: Loader,
-        text: '更新中...',
-        shadow: 'bg-purple-400/10',
-      }
-);
+const current = computed(() => {
+  const code = props?.weather?.current?.weather_code;
+  if (code !== undefined && code !== null) {
+    return getWeatherThemeByCode(code);
+  }
+  return {
+    bg: 'from-purple-800 to-slate-900',
+    icon: Loader,
+    text: '更新中...',
+    shadow: 'bg-purple-400/10',
+  };
+});
 </script>
 
 <template>

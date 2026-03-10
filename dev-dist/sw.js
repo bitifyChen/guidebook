@@ -67,13 +67,9 @@ if (!self.define) {
     });
   };
 }
-define(['./workbox-5a5d9309'], (function (workbox) { 'use strict';
+define(['./workbox-ca84f546'], (function (workbox) { 'use strict';
 
-  self.addEventListener('message', event => {
-    if (event.data && event.data.type === 'SKIP_WAITING') {
-      self.skipWaiting();
-    }
-  });
+  self.skipWaiting();
   workbox.clientsClaim();
 
   /**
@@ -86,11 +82,20 @@ define(['./workbox-5a5d9309'], (function (workbox) { 'use strict';
     "revision": "f468ec745d08c24bae252c6ba811e592"
   }, {
     "url": "index.html",
-    "revision": "0.gd0rtonhfv8"
+    "revision": "0.asj4gtfc9ho"
   }], {});
   workbox.cleanupOutdatedCaches();
   workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("index.html"), {
     allowlist: [/^\/$/]
   }));
+  workbox.registerRoute(/^https:\/\/(i\.ibb\.co|firebasestorage\.googleapis\.com)/, new workbox.CacheFirst({
+    "cacheName": "external-images",
+    plugins: [new workbox.ExpirationPlugin({
+      maxEntries: 100,
+      maxAgeSeconds: 2592000
+    }), new workbox.CacheableResponsePlugin({
+      statuses: [0, 200]
+    })]
+  }), 'GET');
 
 }));
