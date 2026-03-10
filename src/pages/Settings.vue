@@ -6,6 +6,7 @@ import { useParticipantsStore } from '@/store/participantsStore';
 import { claimParticipantByCode } from '@/api/participants';
 import { uploadImage } from '@/api/storage';
 import { lockScroll, unlockScroll } from '@/utils/scrollLock';
+import PackingList from '@/components/PackingList.vue';
 import {
   ShieldCheck,
   ChevronRight,
@@ -21,6 +22,7 @@ import {
   RefreshCw,
   LayoutDashboard,
   Download,
+  Luggage,
 } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -34,6 +36,7 @@ const isRefreshing = ref(false);
 // PWA Install Logic
 const deferredPrompt = ref(null);
 const isStandalone = ref(false);
+const isPackingListOpen = ref(false);
 
 const handleInstallClick = async () => {
   if (deferredPrompt.value) {
@@ -277,6 +280,26 @@ const handleLogout = async () => {
           <ChevronRight :size="20" class="text-slate-200" />
         </button>
 
+        <!-- Packing List Button -->
+        <button
+          @click="isPackingListOpen = true"
+          class="w-full p-6 flex items-center gap-4 hover:bg-lime-50 transition-colors group border-b border-slate-50"
+        >
+          <div
+            class="w-10 h-10 bg-lime-50 rounded-xl flex items-center justify-center text-lime-600 group-hover:scale-110 transition-transform"
+          >
+            <Luggage :size="20" />
+          </div>
+          <div class="flex-1 text-left">
+            <span class="block font-bold text-slate-700">行李準備清單</span>
+            <span
+              class="block text-[10px] font-bold text-slate-400 uppercase tracking-tighter mt-0.5"
+              >檢查必備物品與證件</span
+            >
+          </div>
+          <ChevronRight :size="20" class="text-slate-200" />
+        </button>
+
         <!-- Force Refresh Button -->
         <button
           @click="handleForceRefresh"
@@ -344,6 +367,9 @@ const handleLogout = async () => {
         濟州小幫手 v1.0.0
       </p>
     </div>
+
+    <!-- Packing List Drawer -->
+    <PackingList v-model:visible="isPackingListOpen" />
 
     <!-- Edit Profile Modal -->
     <div

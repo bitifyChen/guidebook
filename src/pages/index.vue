@@ -3,8 +3,9 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useExpensesStore } from '@/store/expensesStore';
 import { useParticipantsStore } from '@/store/participantsStore';
 import { useTravelStore } from '@/store/travelStore';
-import { User, X, Leaf } from 'lucide-vue-next';
+import { User, X, Leaf, Luggage } from 'lucide-vue-next';
 import { lockScroll, unlockScroll } from '@/utils/scrollLock';
+import PackingList from '@/components/PackingList.vue';
 import dayjs from 'dayjs';
 
 const travelStore = useTravelStore();
@@ -12,14 +13,41 @@ const expense = useExpensesStore();
 const participants = useParticipantsStore();
 
 const isParticipantsModalOpen = ref(false);
+const isPackingListOpen = ref(false);
 
 // 鎖定背景滾動
-watch(isParticipantsModalOpen, (val) => {
-  if (val) {
+watch([isParticipantsModalOpen, isPackingListOpen], ([p, l]) => {
+  if (p || l) {
     lockScroll();
   } else {
     unlockScroll();
   }
+});
+
+// 行李準備進度
+const packingProgress = ref(0);
+const updatePackingProgress = () => {
+  const saved = localStorage.getItem('jeju_packing_list_v2');
+  if (saved) {
+    const list = JSON.parse(saved);
+    let total = 0;
+    let checked = 0;
+    list.forEach((cat) => {
+      cat.items.forEach((item) => {
+        total++;
+        if (item.checked) checked++;
+      });
+    });
+    packingProgress.value =
+      total === 0 ? 0 : Math.round((checked / total) * 100);
+  } else {
+    packingProgress.value = 0;
+  }
+};
+
+// 當清單關閉時重新計算進度
+watch(isPackingListOpen, (val) => {
+  if (!val) updatePackingProgress();
 });
 
 const currentActivity = computed(() => travelStore.currentActivity);
@@ -62,7 +90,10 @@ const getWeather = async () => {
   }
 };
 
-getWeather();
+onMounted(() => {
+  getWeather();
+  updatePackingProgress();
+});
 </script>
 
 <template>
@@ -98,7 +129,41 @@ getWeather();
           </p>
         </div>
       </div>
+
+      <!-- 行李準備進度卡片 -->
+      <div
+        @click="isPackingListOpen = true"
+        class="mt-4 bg-white p-4 rounded-2xl border border-slate-100 shadow-sm active:scale-95 transition-transform cursor-pointer group overflow-hidden relative"
+      >
+        <div class="relative z-10 w-full">
+          <p
+            class="text-xs text-slate-400 font-bold mb-1 group-hover:text-orange-500 transition-colors"
+          >
+            行李準備進度
+          </p>
+          <div class="flex items-center gap-4 w-full">
+            <span class="text-2xl font-black text-slate-800 shrink-0"
+              >{{ packingProgress }}%</span
+            >
+            <div
+              class="flex-1 h-3 bg-slate-100 rounded-full overflow-hidden border border-slate-50 p-0.5"
+            >
+              <div
+                class="h-full bg-orange-500 rounded-full transition-all duration-700 ease-out"
+                :style="{ width: `${packingProgress}%` }"
+              ></div>
+            </div>
+          </div>
+        </div>
+        <!-- 裝飾背景 -->
+        <Luggage
+          :size="80"
+          class="absolute -bottom-4 -right-4 opacity-5 -rotate-12 group-hover:scale-110 transition-transform"
+        />
+      </div>
     </section>
+
+    <PackingList v-model:visible="isPackingListOpen" />
 
     <!-- 原有的行程區塊保持不變 -->
     <section>

@@ -1,0 +1,50 @@
+[
+  {
+    "category": "重要證件與金流",
+    "items": [
+      { "name": "護照 (檢查效期)", "checked": false },
+      { "name": "駕照與國際駕照", "checked": false },
+      { "name": "機票與住宿憑證", "checked": false },
+      { "name": "美元現金(或韓元)", "checked": false },
+      { "name": "海外刷卡信用卡", "checked": false }
+    ]
+  },
+  {
+    "category": "電子產品",
+    "items": [
+      { "name": "轉接頭 (韓國用)", "checked": false },
+      { "name": "多孔充電頭", "checked": false },
+      { "name": "行動電源", "checked": false },
+      { "name": "各類充電線", "checked": false },
+      { "name": "eSIM", "checked": false }
+    ]
+  },
+  {
+    "category": "衣物與配件",
+    "items": [
+      { "name": "換洗衣物", "checked": false },
+      { "name": "睡衣", "checked": false },
+      { "name": "襪子", "checked": false },
+      { "name": "外套 (防風/保暖)", "checked": false },
+      { "name": "泳裝", "checked": false },
+      { "name": "防水拖鞋", "checked": false },
+      { "name": "墨鏡", "checked": false },
+      { "name": "帽子", "checked": false }
+    ]
+  },
+  {
+    "category": "個人衛生與藥品",
+    "items": [
+      { "name": "牙刷牙膏 (環保自備)", "checked": false },
+      { "name": "保養品 / 防曬乳", "checked": false },
+      { "name": "常備藥品 (感冒/腸胃)", "checked": false },
+      { "name": "暈車/暈機藥", "checked": false },
+      { "name": "雨傘 / 雨衣", "checked": false },
+      { "name": "面紙 / 濕紙巾", "checked": false }
+    ]
+  },
+  {
+    "category": "其他",
+    "items": []
+  }
+]
