@@ -102,9 +102,20 @@ const handleFileUpload = async (event) => {
   isUploading.value = true;
   try {
     const url = await uploadImage(file);
+    
+    // 建立 Image 物件來預載圖片，確保瀏覽器已經快取並準備好顯示
+    await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('圖片預載失敗'));
+      img.src = url;
+      // 設定 10 秒逾時，避免卡死
+      setTimeout(() => resolve(), 10000);
+    });
+
     form.value.avatar = url;
   } catch (error) {
-    alert('圖片上傳失敗：' + error.message);
+    alert('圖片處理失敗：' + error.message);
   } finally {
     isUploading.value = false;
     // 重置 input 讓同一個檔案可以再次觸發 change

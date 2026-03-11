@@ -150,13 +150,28 @@ const handleSaveOrder = async () => {
     await bulkUpdateItinerary(flattened);
     await travelStore.init();
     hasChanges.value = false;
-    alert('排序已更新');
+    initLocalItinerary(); // 明確重新初始化，將 temp ID 替換為真實 ID
+    alert('排序已更新，現在可以編輯複製的行程詳情了。');
   } catch (err) {
     alert('儲存失敗：' + err.message);
   }
 };
 
+const handleEditItem = (item) => {
+  if (item.id && item.id.toString().startsWith('temp-')) {
+    alert('請先點擊下方的「儲存更新排序」按鈕，以完成複製行程的建立，之後才能編輯詳細資訊。');
+    return;
+  }
+  router.push(`/admin/item/${item.id}`);
+};
+
 const updateItem = async (item) => {
+  // 如果是暫時 ID，只需標記 hasChanges，不呼叫 API (因為還沒存入 Firebase)
+  if (item.id && item.id.toString().startsWith('temp-')) {
+    hasChanges.value = true;
+    return;
+  }
+
   try {
     await patchItineraryItem(item.id, {
       duration: item.duration,
@@ -323,7 +338,7 @@ const handleImport = async (event) => {
 
               <div
                 class="flex-1"
-                @click="router.push(`/admin/item/${item.id}`)"
+                @click="handleEditItem(item)"
               >
                 <div
                   class="font-black text-slate-700 leading-tight flex items-center gap-1.5"
@@ -405,7 +420,7 @@ const handleImport = async (event) => {
                     <Copy :size="16" />
                   </button>
                   <button
-                    @click="router.push(`/admin/item/${item.id}`)"
+                    @click="handleEditItem(item)"
                     class="p-2 text-slate-300 hover:text-orange-500 transition-colors"
                   >
                     <ChevronRight :size="20" />
