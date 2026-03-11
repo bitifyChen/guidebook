@@ -91,6 +91,48 @@ const modules = [Pagination, Autoplay];
         'border-slate-100': !isNow,
       }"
     >
+      <!-- 強化時間狀態橫幅 -->
+      <div
+        v-if="isNow"
+        class="bg-orange-500 px-4 py-2 flex justify-between items-center text-white"
+      >
+        <div class="flex items-center gap-2">
+          <div class="w-2 h-2 bg-white rounded-full animate-ping"></div>
+          <span class="text-[11px] font-black uppercase tracking-[0.2em]"
+            >正在進行中</span
+          >
+        </div>
+        <div class="flex items-baseline gap-1">
+          <span class="text-[10px] font-bold opacity-80">預計</span>
+          <span class="text-base font-black italic font-mono">{{
+            item.endTime
+          }}</span>
+          <span
+            class="text-[10px] font-bold opacity-80 px-1 py-0.5 bg-white/20 rounded ml-1"
+            >離開</span
+          >
+        </div>
+      </div>
+
+      <div
+        v-else-if="isNext"
+        class="bg-slate-800 px-4 py-2 flex justify-between items-center text-white border-b border-white/10"
+      >
+        <div class="flex items-center gap-2">
+          <Clock :size="14" class="text-slate-400" />
+          <span
+            class="text-[11px] font-black uppercase tracking-[0.2em] text-slate-300"
+            >下一個行程</span
+          >
+        </div>
+        <div class="flex items-baseline gap-1">
+          <span class="text-base font-black italic font-mono text-white">{{
+            item.startTime
+          }}</span>
+          <span class="text-[10px] font-bold text-slate-400 ml-1">抵達</span>
+        </div>
+      </div>
+
       <div class="flex flex-col">
         <div
           v-if="item.cover"

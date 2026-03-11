@@ -19,6 +19,8 @@ watch(
   activeDay,
   (val) => {
     travelStore.setSelectedDay(parseInt(val));
+    // 切換天數時回到最上方
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   },
   { immediate: true }
 );

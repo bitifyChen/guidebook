@@ -46,8 +46,21 @@ export const useTravelStore = defineStore('travel', {
         const end = dayjs(item.endTime, 'HH:mm');
         return (
           item.day === state.currentDay &&
-          now.isAfter(start) &&
+          (now.isAfter(start) || now.isSame(start)) &&
           now.isBefore(end)
+        );
+      });
+    },
+    //行程-交通中
+    currentTransit: (state) => {
+      const now = state.now;
+      return state.allItinerary.find((item) => {
+        const end = dayjs(item.endTime, 'HH:mm');
+        const transitEnd = end.add(item.nextDrive?.time || 0, 'minute');
+        return (
+          item.day === state.currentDay &&
+          (now.isAfter(end) || now.isSame(end)) &&
+          now.isBefore(transitEnd)
         );
       });
     },

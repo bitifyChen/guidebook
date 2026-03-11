@@ -3,9 +3,20 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useExpensesStore } from '@/store/expensesStore';
 import { useParticipantsStore } from '@/store/participantsStore';
 import { useTravelStore } from '@/store/travelStore';
-import { User, X, Leaf, Luggage } from 'lucide-vue-next';
+import {
+  User,
+  X,
+  Leaf,
+  Luggage,
+  CarFront,
+  MapPin,
+  Clock,
+  ChevronRight,
+} from 'lucide-vue-next';
 import { lockScroll, unlockScroll } from '@/utils/scrollLock';
 import PackingList from '@/components/PackingList.vue';
+import WeatherCard from '@/components/WeatherCard.vue';
+import ItineraryCard from '@/components/ItineraryCard.vue';
 import dayjs from 'dayjs';
 
 const travelStore = useTravelStore();
@@ -51,6 +62,7 @@ watch(isPackingListOpen, (val) => {
 });
 
 const currentActivity = computed(() => travelStore.currentActivity);
+const currentTransit = computed(() => travelStore.currentTransit);
 const nextActivity = computed(() => travelStore.nextActivity);
 
 //取得濟州島天氣
@@ -168,13 +180,65 @@ onMounted(() => {
     <!-- 原有的行程區塊保持不變 -->
     <section>
       <div class="flex justify-between items-center mb-4">
-        <h3 class="font-bold text-slate-800">目前行程</h3>
+        <h3 class="font-bold text-slate-800">
+          {{ currentTransit ? '正在路程中' : '目前行程' }}
+        </h3>
       </div>
-      <ItineraryCard
-        v-if="currentActivity"
-        :item="currentActivity"
-        :timeLine="false"
-      />
+
+      <div v-if="currentActivity">
+        <ItineraryCard
+          :item="currentActivity"
+          :timeLine="false"
+          :isNow="true"
+        />
+      </div>
+
+      <div
+        v-else-if="currentTransit"
+        class="bg-orange-50 p-6 rounded-3xl border border-orange-100 shadow-sm active:scale-[0.98] transition-all cursor-pointer group relative overflow-hidden"
+      >
+        <div class="relative z-10 flex items-center gap-4">
+          <div
+            class="bg-orange-500 p-3 rounded-2xl text-white shadow-lg shadow-orange-200 animate-bounce-slow"
+          >
+            <CarFront :size="24" />
+          </div>
+          <div class="flex-1">
+            <p
+              class="text-[10px] font-black text-orange-400 uppercase tracking-[0.2em] mb-1"
+            >
+              On the Way
+            </p>
+            <h4 class="text-lg font-black text-slate-800">
+              前往 {{ nextActivity?.location || '下一個地點' }}
+            </h4>
+            <div class="flex items-center gap-3 mt-1">
+              <span
+                v-if="currentTransit.nextDrive?.km"
+                class="text-xs font-bold text-slate-400 flex items-center gap-1"
+              >
+                <MapPin :size="12" /> {{ currentTransit.nextDrive.km }} KM
+              </span>
+              <span
+                v-if="currentTransit.nextDrive?.time"
+                class="text-xs font-bold text-slate-400 flex items-center gap-1"
+              >
+                <Clock :size="12" /> 預計 {{ currentTransit.nextDrive.time }} 分
+              </span>
+            </div>
+          </div>
+          <ChevronRight
+            :size="20"
+            class="text-orange-300 group-hover:translate-x-1 transition-transform"
+          />
+        </div>
+        <!-- 裝飾背景 -->
+        <CarFront
+          :size="120"
+          class="absolute -bottom-8 -right-8 opacity-5 -rotate-12 group-hover:scale-110 transition-transform"
+        />
+      </div>
+
       <div
         v-else
         class="bg-white/50 p-6 rounded-2xl border border-dashed border-slate-200 text-center text-slate-400 text-sm"
@@ -190,6 +254,7 @@ onMounted(() => {
         v-if="nextActivity"
         :item="nextActivity"
         :timeLine="false"
+        :isNext="true"
       />
       <div
         v-else
@@ -319,5 +384,20 @@ onMounted(() => {
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: #d4ccb6;
+}
+
+@keyframes bounce-slow {
+  0%,
+  100% {
+    transform: translateY(-5%);
+    animation-timing-function: cubic-bezier(0.8, 0, 1, 1);
+  }
+  50% {
+    transform: translateY(0);
+    animation-timing-function: cubic-bezier(0, 0, 0.2, 1);
+  }
+}
+.animate-bounce-slow {
+  animation: bounce-slow 2s infinite;
 }
 </style>
