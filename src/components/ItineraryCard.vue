@@ -156,8 +156,12 @@ const modules = [Pagination, Autoplay];
         <!-- 封面圖片：如果是子景點，縮減高度 -->
         <div
           v-if="item.cover"
-          class="relative w-full overflow-hidden"
-          :class="easyMode ? 'aspect-square w-[30vw]' : 'aspect-video'"
+          class="relative overflow-hidden"
+          :class="
+            easyMode
+              ? 'aspect-square w-[30vw] md:w-[100px]'
+              : 'aspect-video w-full'
+          "
         >
           <el-image
             :src="item.cover"
