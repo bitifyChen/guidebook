@@ -1,0 +1,1 @@
+import{ca as e,cb as a,cc as c,cd as n}from"./index-DqlOX5Dh.js";const i=c(n),l=new a,p=()=>new Promise(async(r,t)=>{try{const s=(await e(i,l)).user;console.log("✅ 登入成功:",s.displayName),r({status:200,user:s})}catch(o){console.error("❌ 登入失敗:",o),t(o)}});export{p as l};
