@@ -351,7 +351,7 @@ const modules = [Pagination, Autoplay];
           <div
             v-if="item.detail"
             v-html="item.detail"
-            class="text-slate-600 leading-relaxed font-medium detail-content text-[14px]"
+            class="text-slate-600 leading-relaxed font-medium detail-content text-[14px] whitespace-pre-line"
           ></div>
           <p v-else class="text-slate-600 leading-relaxed font-medium">
             {{ item.description }}
