@@ -157,7 +157,7 @@ const modules = [Pagination, Autoplay];
         <div
           v-if="item.cover"
           class="relative w-full overflow-hidden"
-          :class="easyMode ? 'aspect-square w-[30%]' : 'aspect-video'"
+          :class="easyMode ? 'aspect-square w-[30vw]' : 'aspect-video'"
         >
           <el-image
             :src="item.cover"
