@@ -149,12 +149,15 @@ const modules = [Pagination, Autoplay];
         </div>
       </div>
 
-      <div class="flex" :class="easyMode ? 'flex-row' : 'flex-col'">
+      <div
+        class="flex"
+        :class="easyMode ? 'flex-row items-center' : 'flex-col'"
+      >
         <!-- 封面圖片：如果是子景點，縮減高度 -->
         <div
           v-if="item.cover"
           class="relative w-full overflow-hidden"
-          :class="easyMode ? 'aspect-square h-[80px] w-[80px]' : 'aspect-video'"
+          :class="easyMode ? 'aspect-square w-[30%]' : 'aspect-video'"
         >
           <el-image
             :src="item.cover"
