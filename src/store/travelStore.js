@@ -51,27 +51,48 @@ export const useTravelStore = defineStore('travel', {
         );
       });
     },
+    //行程-目前行程子項目
+    currentSubActivity: (state) => {
+      const current = state.currentActivity;
+      if (!current) return [];
+      return state.allItinerary.filter((item) => item.parentId === current.id);
+    },
     //行程-交通中
     currentTransit: (state) => {
       const now = state.now;
       return state.allItinerary.find((item) => {
         const end = dayjs(item.endTime, 'HH:mm');
         const transitEnd = end.add(item.nextDrive?.time || 0, 'minute');
+        // 只有非子景點（或群組最後一個）才會有交通時間
         return (
           item.day === state.currentDay &&
           (now.isAfter(end) || now.isSame(end)) &&
-          now.isBefore(transitEnd)
+          now.isBefore(transitEnd) &&
+          item.nextDrive?.time > 0
         );
       });
     },
     //行程-下一個行程
     nextActivity: (state) => {
       const now = state.now;
-      return state.allItinerary.find(
-        (item) =>
-          item.day === state.currentDay &&
-          dayjs(item.startTime, 'HH:mm').isAfter(now)
-      );
+      const current = state.currentActivity;
+
+      return state.allItinerary.find((item) => {
+        if (item.day !== state.currentDay) return false;
+        const start = dayjs(item.startTime, 'HH:mm');
+
+        // 如果目前有活動，下一個必須不是目前這個
+        if (current && item.id === current.id) return false;
+        // 下一個形程不是目前活動的子項目
+        if (current && item.parentId === current.id) return false;
+        return start.isAfter(now);
+      });
+    },
+    //行程-下一個行程子項目
+    nextSubActivity: (state) => {
+      const next = state.nextActivity;
+      if (!next) return [];
+      return state.allItinerary.filter((item) => item.parentId === next.id);
     },
   },
 
@@ -183,7 +204,7 @@ export const useTravelStore = defineStore('travel', {
 
       // 3. 開始累加計算
       return rawDayItems
-        .map((item) => {
+        .map((item, index) => {
           const startH = Math.floor(rollingMinutes / 60);
           const startM = rollingMinutes % 60;
           const computedStartTime = `${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}`;
@@ -195,7 +216,27 @@ export const useTravelStore = defineStore('travel', {
           const endM = rollingMinutes % 60;
           const computedEndTime = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
 
-          rollingMinutes += item.nextDrive?.time || 0;
+          // --- 車程時間累加邏輯修正 ---
+          // 只有當此項目是：
+          // 1. 獨立項目 (無 parentId 且 無子項目)
+          // 2. 子項目且是該群組最後一個 (後續沒有相同 parentId 的項目)
+          const isChild = !!item.parentId;
+          const nextItem = rawDayItems[index + 1];
+          const hasChildren = rawDayItems.some((i) => i.parentId === item.id);
+          const isLastInGroup = isChild
+            ? !nextItem || nextItem.parentId !== item.parentId
+            : !hasChildren;
+
+          if (isLastInGroup) {
+            // 如果是子景點結尾，要用父景點的車程時間
+            if (isChild) {
+              const parent = rawDayItems.find((i) => i.id === item.parentId);
+              rollingMinutes += parent?.nextDrive?.time || 0;
+            } else {
+              // 獨立景點用自己的
+              rollingMinutes += item.nextDrive?.time || 0;
+            }
+          }
 
           return {
             ...item,

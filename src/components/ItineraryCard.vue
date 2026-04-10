@@ -39,12 +39,17 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  easyMode: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 const drawerVisible = ref(false);
 
 import { watch } from 'vue';
 import { lockScroll, unlockScroll } from '@/utils/scrollLock';
+import { es } from 'element-plus/es/locales.mjs';
 watch(drawerVisible, (val) => {
   if (val) {
     lockScroll();
@@ -65,35 +70,46 @@ const modules = [Pagination, Autoplay];
 
 <template>
   <div
-    class="relative pr-2 mb-8 group cursor-pointer"
+    class="relative pr-2 group cursor-pointer mb-2"
     @click="openDetail"
-    :class="timeLine ? 'pl-[60px]' : ''"
+    :class="[timeLine ? 'pl-[60px]' : '']"
   >
+    <!-- Timeline -->
     <div
       v-if="timeLine"
       class="absolute left-0 top-0 bottom-0 w-[60px] px-[4px] flex flex-col items-center text-[14px] font-semibold text-slate-500 font-mono tracking-tighter uppercase"
     >
-      <span>
+      <!-- 只有非子景點（父/獨立）才顯示 startTime -->
+      <span v-if="!item.isGroupChild">
         {{ item?.startTime }}
       </span>
-      <div class="flex-1">
-        <div class="h-full w-[2px] bg-slate-200"></div>
+
+      <div class="flex-1 py-1">
+        <!-- 如果是子景點但不是最後一個，線條維持點狀或特別處理 -->
+        <div
+          class="h-full w-[2px] bg-slate-200"
+          :class="item.isGroupChild ? 'mt-[-40px] h-[calc(100%+40px)]' : ''"
+        ></div>
       </div>
-      <span>
+
+      <!-- 只有群組的最後一個項目才顯示 endTime -->
+      <span v-if="item.isGroupLast">
         {{ item?.endTime }}
       </span>
     </div>
 
+    <!-- Main Card -->
     <div
-      class="bg-white rounded-3xl overflow-hidden shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-slate-50 active:scale-[0.98] transition-all duration-300"
-      :class="{
-        'border-orange-500 border-2 animate-pulse-border': isNow,
-        'border-slate-100': !isNow,
-      }"
+      class="bg-white rounded-3xl overflow-hidden shadow-[0_4px_20px_rgba(0,0,0,0.03)] border transition-all duration-300"
+      :class="[
+        isNow && !easyMode
+          ? 'border-orange-500 border-2 animate-pulse-border'
+          : 'border-slate-50',
+      ]"
     >
-      <!-- 強化時間狀態橫幅 -->
+      <!-- Now/Next Banner -->
       <div
-        v-if="isNow"
+        v-if="isNow && !easyMode"
         class="bg-orange-500 px-4 py-2 flex justify-between items-center text-white"
       >
         <div class="flex items-center gap-2">
@@ -115,7 +131,7 @@ const modules = [Pagination, Autoplay];
       </div>
 
       <div
-        v-else-if="isNext"
+        v-else-if="isNext && !easyMode"
         class="bg-slate-800 px-4 py-2 flex justify-between items-center text-white border-b border-white/10"
       >
         <div class="flex items-center gap-2">
@@ -133,10 +149,12 @@ const modules = [Pagination, Autoplay];
         </div>
       </div>
 
-      <div class="flex flex-col">
+      <div class="flex" :class="easyMode ? 'flex-row' : 'flex-col'">
+        <!-- 封面圖片：如果是子景點，縮減高度 -->
         <div
           v-if="item.cover"
-          class="relative aspect-video w-full overflow-hidden"
+          class="relative w-full overflow-hidden"
+          :class="easyMode ? 'aspect-square h-[80px] w-[80px]' : 'aspect-video'"
         >
           <el-image
             :src="item.cover"
@@ -156,11 +174,11 @@ const modules = [Pagination, Autoplay];
           </div>
         </div>
 
-        <div class="px-4 py-3">
+        <div class="px-4 py-3 flex-1">
           <div class="flex justify-between items-center">
-            <div class="flex-1">
+            <div class="flex-1 flex items-center gap-2">
               <h4
-                class="text-lg font-black text-slate-800 leading-tight transition-colors"
+                class="font-black text-slate-800 leading-tight transition-colors text-lg"
               >
                 {{ item.location }}
               </h4>
@@ -181,8 +199,16 @@ const modules = [Pagination, Autoplay];
       </div>
     </div>
   </div>
+
+  <!-- 車程區塊：只有群組最後一個項目才顯示下一個車程 -->
   <div
-    v-if="item.nextDrive && timeLine"
+    v-if="
+      item.nextDrive &&
+      timeLine &&
+      item?.nextDrive?.km &&
+      item?.nextDrive?.time &&
+      item.isGroupLast
+    "
     class="relative pr-2 mb-8"
     :class="timeLine ? 'pl-[60px]' : ''"
   >
@@ -248,7 +274,7 @@ const modules = [Pagination, Autoplay];
       <div
         class="flex-1 p-4 pb-[100px] overflow-y-auto overflow-x-hidden space-y-[20px]"
       >
-        <!-- 頂部圖片容器：使用 w-[calc(100%+32px)] 配合 mx-[-16px] 確保寬度精確 -->
+        <!-- 頂部圖片容器 -->
         <div
           class="mx-[-16px] aspect-video mt-[-16px] w-[calc(100%+32px)] overflow-hidden relative shadow-xl mb-4"
         >
@@ -277,26 +303,38 @@ const modules = [Pagination, Autoplay];
             </h2>
           </div>
         </div>
+
+        <!-- 時間區塊：如果目前顯示的是子景點，可以稍微調整或提示 -->
         <div class="bg-[#68686820] rounded-xl p-2 !mt-[4px]">
-          <p
-            class="text-[12px] font-black text-slate-800 uppercase tracking-tighter"
-          >
-            停留
-            <span class="text-orange-500 text-[16px]">
-              {{ item.duration }}
-            </span>
-            分鐘 / 延遲
-            <span class="text-[#f58585] text-[16px]">{{
-              item.delay == '0' ? '-' : item.delay
-            }}</span>
-            分鐘
-          </p>
-          <p
-            class="text-2xl font-black text-orange-500 font-mono italic text-right"
-          >
-            {{ item.startTime }} - {{ item.endTime }}
-          </p>
+          <template v-if="!item.isGroupChild">
+            <p
+              class="text-[12px] font-black text-slate-800 uppercase tracking-tighter"
+            >
+              停留
+              <span class="text-orange-500 text-[16px]">
+                {{ item.duration }}
+              </span>
+              分鐘 / 延遲
+              <span class="text-[#f58585] text-[16px]">{{
+                item.delay == '0' ? '-' : item.delay
+              }}</span>
+              分鐘
+            </p>
+            <p
+              class="text-2xl font-black text-orange-500 font-mono italic text-right"
+            >
+              {{ item.startTime }} - {{ item.endTime }}
+            </p>
+          </template>
+          <template v-else>
+            <p
+              class="text-[12px] font-black text-slate-800 uppercase tracking-tighter text-center py-2"
+            >
+              區域內行程 / 隨主行程時間活動
+            </p>
+          </template>
         </div>
+
         <div class="prose prose-slate max-w-none">
           <h3
             class="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2"

@@ -7,7 +7,43 @@ import { useTravelStore } from '@/store/travelStore';
 const travelStore = useTravelStore();
 const activeDay = ref(travelStore.currentDay || 1);
 const days = computed(() => travelStore.totalDays);
-const itinerary = computed(() => travelStore.dailyItinerary);
+const itinerary = computed(() => {
+  const items = travelStore.dailyItinerary;
+  return items.map((item, index) => {
+    const isChild = !!item.parentId;
+    // 判斷是否為群組的最後一個項目
+    // 邏輯：下一個項目的 parentId 不同於目前的 parentId (如果目前是 child)
+    // 或者目前是 parent 但下一個項目不是它的 child
+    const nextItem = items[index + 1];
+    let isLastInGroup = false;
+
+    if (isChild) {
+      // 如果下一個項目不存在，或者是另一個群組，或是一個新的主景點
+      isLastInGroup = !nextItem || nextItem.parentId !== item.parentId;
+    } else {
+      // 如果自己是 parent，但沒有任何 child 跟隨，那自己也是 Last
+      const hasChildren = items.some((i) => i.parentId === item.id);
+      isLastInGroup = !hasChildren;
+    }
+
+    // --- 資料繼承邏輯 ---
+    // 如果是子景點且是結尾，從父景點抓取 nextDrive 供 UI 顯示
+    let displayNextDrive = item.nextDrive;
+    if (isChild && isLastInGroup) {
+      const parent = items.find((i) => i.id === item.parentId);
+      if (parent) {
+        displayNextDrive = parent.nextDrive;
+      }
+    }
+
+    return {
+      ...item,
+      isGroupChild: isChild,
+      isGroupLast: isLastInGroup,
+      nextDrive: displayNextDrive,
+    };
+  });
+});
 watch(
   () => travelStore.currentDay,
   (newDay) => {

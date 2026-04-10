@@ -62,8 +62,10 @@ watch(isPackingListOpen, (val) => {
 });
 
 const currentActivity = computed(() => travelStore.currentActivity);
+const currentSubActivity = computed(() => travelStore.currentSubActivity);
 const currentTransit = computed(() => travelStore.currentTransit);
 const nextActivity = computed(() => travelStore.nextActivity);
+const nextSubActivity = computed(() => travelStore.nextSubActivity);
 
 //取得濟州島天氣
 const weather = ref({});
@@ -192,6 +194,17 @@ onMounted(() => {
           :isNow="true"
         />
       </div>
+      <!-- 如果有子形程，顯示在目前行程下方 -->
+      <div v-if="currentSubActivity.length">
+        <ItineraryCard
+          v-for="subActivity in currentSubActivity"
+          :item="subActivity"
+          :key="subActivity.id"
+          easyMode
+          :timeLine="false"
+          :isNow="true"
+        />
+      </div>
 
       <div
         v-else-if="currentTransit"
@@ -256,6 +269,17 @@ onMounted(() => {
         :timeLine="false"
         :isNext="true"
       />
+      <!-- 如果有子形程，顯示在目前行程下方 -->
+      <div v-if="nextSubActivity.length">
+        <ItineraryCard
+          v-for="subActivity in nextSubActivity"
+          :item="subActivity"
+          :key="subActivity.id"
+          easyMode
+          :timeLine="false"
+          :isNow="true"
+        />
+      </div>
       <div
         v-else
         class="bg-white/50 p-6 rounded-2xl border border-dashed border-slate-200 text-center text-slate-400 text-sm"

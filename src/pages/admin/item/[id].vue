@@ -1,8 +1,9 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useTravelStore } from '@/store/travelStore';
 import { patchItineraryItem, deleteItineraryItem } from '@/api/itinerary';
+import { uploadImage } from '@/api/storage';
 import {
   ChevronLeft,
   MapPin,
@@ -12,13 +13,18 @@ import {
   Plus,
   MoveVertical,
   ExternalLink,
+  Upload,
+  Loader2,
+  Layers,
 } from 'lucide-vue-next';
-import { da } from 'element-plus/es/locales.mjs';
 
 const route = useRoute();
 const router = useRouter();
 const travelStore = useTravelStore();
 const currentItem = ref(null);
+
+const isUploadingCover = ref(false);
+const isUploadingImages = ref(false);
 
 onMounted(async () => {
   if (travelStore.itinerary.length === 0) await travelStore.init();
@@ -30,8 +36,21 @@ onMounted(async () => {
       ...item,
       nextDrive: item.nextDrive || { time: 0, km: 0 },
       images: item.images || [],
+      parentId: item.parentId || '',
     };
   }
+});
+
+// 可選擇的父項目清單 (同天、非自身、非交通)
+const availableParents = computed(() => {
+  if (!currentItem.value) return [];
+  return travelStore.itinerary.filter(
+    (item) =>
+      item.day === currentItem.value.day &&
+      item.id !== currentItem.value.id &&
+      item.type !== 'transport' &&
+      !item.parentId // 避免巢狀巢狀
+  );
 });
 
 // --- 圖片管理 ---
@@ -42,15 +61,57 @@ const removeImage = (index) => {
   currentItem.value.images.splice(index, 1);
 };
 
+// --- ImgBB 上傳邏輯 ---
+const handleCoverUpload = async (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  isUploadingCover.value = true;
+  try {
+    const url = await uploadImage(file);
+    currentItem.value.cover = url;
+  } catch (error) {
+    alert('封面上傳失敗：' + error.message);
+  } finally {
+    isUploadingCover.value = false;
+    event.target.value = ''; // 清除 input
+  }
+};
+
+const handleImagesUpload = async (event) => {
+  const files = Array.from(event.target.files);
+  if (files.length === 0) return;
+
+  isUploadingImages.value = true;
+  try {
+    const uploadPromises = files.map((file) => uploadImage(file));
+    const urls = await Promise.all(uploadPromises);
+    currentItem.value.images.push(...urls);
+  } catch (error) {
+    alert('圖片上傳失敗：' + error.message);
+  } finally {
+    isUploadingImages.value = false;
+    event.target.value = ''; // 清除 input
+  }
+};
+
 // --- 儲存邏輯 ---
 const handleSave = async () => {
   try {
     const { id, startTime, endTime, ...updateData } = currentItem.value;
-    // 確保數字欄位格式正確
+
+    // 如果有父項目，強制時間歸零
+    if (updateData.parentId) {
+      updateData.duration = 0;
+      updateData.nextDrive.time = 0;
+      updateData.nextDrive.km = '0';
+    } else {
+      updateData.duration = Number(updateData.duration);
+      updateData.nextDrive.time = Number(updateData.nextDrive.time);
+    }
+
     updateData.day = Number(updateData.day);
-    updateData.duration = Number(updateData.duration);
     updateData.delay = Number(updateData.delay);
-    updateData.nextDrive.time = Number(updateData.nextDrive.time);
 
     await patchItineraryItem(id, updateData);
     await travelStore.init();
@@ -100,6 +161,7 @@ const handleDelete = async () => {
     </nav>
 
     <main class="px-6 space-y-8 max-w-2xl mx-auto">
+      <!-- Base Settings -->
       <section class="space-y-3">
         <label
           class="text-xs font-black text-slate-400 uppercase tracking-widest ml-2"
@@ -149,6 +211,23 @@ const handleDelete = async () => {
             />
           </div>
         </div>
+
+        <!-- Parent Selector -->
+        <div class="bg-white rounded-[24px] p-4 border border-slate-100 shadow-sm flex items-center gap-3">
+          <Layers :size="18" class="text-orange-500 shrink-0" />
+          <div class="flex-1">
+            <span class="text-[10px] font-black text-slate-400 block uppercase">Parent Item (Optional)</span>
+            <select
+              v-model="currentItem.parentId"
+              class="w-full bg-transparent font-bold text-slate-700 outline-none appearance-none cursor-pointer"
+            >
+              <option value="">-- No Parent (Standalone) --</option>
+              <option v-for="p in availableParents" :key="p.id" :value="p.id">
+                {{ p.location }}
+              </option>
+            </select>
+          </div>
+        </div>
       </section>
 
       <section class="space-y-3">
@@ -180,13 +259,30 @@ const handleDelete = async () => {
           <div
             class="bg-white rounded-[32px] p-6 border border-slate-100 space-y-4 shadow-sm"
           >
-            <div class="flex items-center gap-3 bg-slate-50 p-3 rounded-2xl">
-              <Image :size="18" class="text-slate-400" />
+            <div class="flex items-center gap-3 bg-slate-50 p-3 rounded-2xl relative">
+              <Image :size="18" class="text-slate-400 shrink-0" />
               <input
                 v-model="currentItem.cover"
-                class="bg-transparent text-xs font-medium w-full outline-none"
+                class="bg-transparent text-xs font-medium w-full outline-none pr-10"
                 placeholder="封面圖片 URL"
               />
+              <div class="absolute right-3 flex items-center">
+                <input
+                  type="file"
+                  accept="image/*"
+                  class="hidden"
+                  ref="coverInput"
+                  @change="handleCoverUpload"
+                />
+                <button
+                  @click="$refs.coverInput.click()"
+                  :disabled="isUploadingCover"
+                  class="p-1.5 bg-white rounded-lg shadow-sm border border-slate-100 hover:bg-slate-50 transition-colors"
+                >
+                  <Loader2 v-if="isUploadingCover" :size="14" class="animate-spin text-orange-500" />
+                  <Upload v-else :size="14" class="text-slate-400" />
+                </button>
+              </div>
             </div>
             <!-- 封面圖即時預覽 -->
             <div
@@ -219,14 +315,28 @@ const handleDelete = async () => {
           </div>
         </div>
       </section>
+      
+      <!-- Time & Next Trip -->
       <section class="space-y-3">
         <label
           class="text-xs font-black text-slate-400 uppercase tracking-widest ml-2"
           >Time & Next Trip</label
         >
         <div
-          class="bg-white rounded-[32px] p-6 border border-slate-100 space-y-4 shadow-sm"
+          class="bg-white rounded-[32px] p-6 border border-slate-100 space-y-4 shadow-sm overflow-hidden relative"
         >
+          <!-- Disable Overlay for Sub-items -->
+          <div 
+            v-if="currentItem.parentId"
+            class="absolute inset-0 bg-slate-50/60 backdrop-blur-[2px] z-10 flex flex-col items-center justify-center p-6 text-center"
+          >
+            <div class="bg-white p-4 rounded-3xl shadow-xl border border-slate-100">
+              <Clock :size="32" class="text-orange-500 mx-auto mb-2" />
+              <p class="text-xs font-black text-slate-700 uppercase tracking-tight">Time Controlled by Parent</p>
+              <p class="text-[10px] font-bold text-slate-400 mt-1">子項目不設定停留時間與下段路程</p>
+            </div>
+          </div>
+
           <div class="grid grid-cols-2 gap-4">
             <div class="bg-slate-50 p-3 rounded-2xl">
               <span
@@ -310,12 +420,30 @@ const handleDelete = async () => {
             class="text-xs font-black text-slate-400 uppercase tracking-widest"
             >Images Array</label
           >
-          <button
-            @click="addImage"
-            class="flex items-center gap-1 text-[10px] font-black bg-slate-200 text-slate-600 px-3 py-1 rounded-full hover:bg-slate-300"
-          >
-            <Plus :size="12" /> ADD IMAGE
-          </button>
+          <div class="flex items-center gap-2">
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              class="hidden"
+              ref="imagesInput"
+              @change="handleImagesUpload"
+            />
+            <button
+              @click="$refs.imagesInput.click()"
+              :disabled="isUploadingImages"
+              class="flex items-center gap-1 text-[10px] font-black bg-orange-100 text-orange-600 px-3 py-1 rounded-full hover:bg-orange-200 transition-colors"
+            >
+              <Loader2 v-if="isUploadingImages" :size="12" class="animate-spin" />
+              <Upload v-else :size="12" /> BATCH UPLOAD
+            </button>
+            <button
+              @click="addImage"
+              class="flex items-center gap-1 text-[10px] font-black bg-slate-200 text-slate-600 px-3 py-1 rounded-full hover:bg-slate-300 transition-colors"
+            >
+              <Plus :size="12" /> ADD IMAGE
+            </button>
+          </div>
         </div>
         <div class="space-y-4">
           <div
