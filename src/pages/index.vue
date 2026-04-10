@@ -281,7 +281,7 @@ onMounted(() => {
         />
       </div>
       <div
-        v-else
+        v-if="!nextActivity"
         class="bg-white/50 p-6 rounded-2xl border border-dashed border-slate-200 text-center text-slate-400 text-sm"
       >
         之後沒有行程囉，好好休息吧！
