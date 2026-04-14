@@ -122,6 +122,7 @@ const menuItems = [
   { name: 'home', path: '/', icon: LayoutDashboard, label: '概覽' },
   { name: 'itinerary', path: '/itinerary', icon: CalendarDays, label: '行程' },
   { name: 'wallet', path: '/wallet', icon: Wallet, label: '記帳' },
+  { name: 'Converter', path: '/Converter', icon: RefreshCw, label: '換算' },
   { name: 'settings', path: '/settings', icon: Settings, label: '我的' },
 ];
 
