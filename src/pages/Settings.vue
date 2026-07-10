@@ -6,7 +6,10 @@ import { useParticipantsStore } from '@/store/participantsStore';
 import { useTripStore } from '@/store/tripStore';
 import { useTravelStore } from '@/store/travelStore';
 import { useExpensesStore } from '@/store/expensesStore';
-import { getParticipantsByUid } from '@/api/participants';
+import {
+  getParticipantsByUid,
+  upsertParticipantPushToken,
+} from '@/api/participants';
 import { getTripById } from '@/api/trips';
 import { loginWithGoogle } from '@/api/auth';
 import { uploadImage } from '@/api/storage';
@@ -28,7 +31,9 @@ import {
   LayoutDashboard,
   Download,
   Luggage,
+  Bell,
 } from 'lucide-vue-next';
+import { getFCMToken } from '@/firebase/index';
 
 const router = useRouter();
 const userStore = useUserStore();
@@ -64,6 +69,27 @@ const tripPickerRows = computed(() => {
 const deferredPrompt = ref(null);
 const isStandalone = ref(false);
 const isPackingListOpen = ref(false);
+
+// FCM 推播相關狀態
+const notificationPermission = ref('default');
+const fcmToken = ref('');
+const isGettingToken = ref(false);
+const isIOS = ref(false);
+const PUSH_TOKEN_STORAGE_KEY = 'guidebook_fcm_token';
+
+const getNotificationPromptKey = () => {
+  const participantId = userStore.myParticipant?.id || userStore.localParticipantId;
+  const tripId = tripStore.currentTripId || 'no-trip';
+  return participantId
+    ? `guidebook_notification_prompted_${tripId}_${participantId}`
+    : '';
+};
+
+const getDevicePlatform = () => {
+  if (isIOS.value) return 'ios-pwa';
+  if (/Android/i.test(navigator.userAgent)) return 'android';
+  return 'web';
+};
 
 const handleInstallClick = async () => {
   if (deferredPrompt.value) {
@@ -140,6 +166,9 @@ const switchUserTrip = async (row, options = {}) => {
   clearTripCaches();
   await reloadTripData();
   isTripPickerOpen.value = false;
+  if (options.askNotification !== false) {
+    await promptNotificationAfterTripSelection();
+  }
   if (options.redirect !== false) {
     router.push('/');
   }
@@ -167,6 +196,7 @@ const selectTripFromPicker = async (row) => {
   await reloadTripData();
   await loadUserTrips();
   isTripPickerOpen.value = false;
+  await promptNotificationAfterTripSelection();
   router.push('/');
 };
 
@@ -190,6 +220,8 @@ onMounted(async () => {
   isStandalone.value =
     window.matchMedia('(display-mode: standalone)').matches ||
     window.navigator.standalone;
+
+  checkNotificationStatus();
 });
 
 const handleForceRefresh = () => {
@@ -346,6 +378,7 @@ const handleClaim = async () => {
       clearTripCaches();
       await reloadTripData();
       await loadUserTrips();
+      await promptNotificationAfterTripSelection();
       router.push('/');
     } else if (res.status === 300 && res.mode === 'participantTripSelection') {
       pendingTripSelection.value = {
@@ -386,6 +419,124 @@ const leaveCurrentTrip = async () => {
   tripPickerHint.value = '';
   isTripPickerOpen.value = false;
   router.push('/settings');
+};
+
+const checkNotificationStatus = () => {
+  if ('Notification' in window) {
+    notificationPermission.value = Notification.permission;
+  }
+  const ua = window.navigator.userAgent;
+  isIOS.value = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+};
+
+const bindPushTokenToCurrentParticipant = async (token, { silent = false } = {}) => {
+  if (!token || !userStore.myParticipant?.id) return false;
+
+  const previousToken = localStorage.getItem(PUSH_TOKEN_STORAGE_KEY) || '';
+  const participantTokens = Array.isArray(userStore.myParticipant.pushTokens)
+    ? userStore.myParticipant.pushTokens
+    : [];
+  const alreadyBound = participantTokens.some((item) => item.token === token);
+
+  if (alreadyBound && previousToken === token) return false;
+
+  await upsertParticipantPushToken(userStore.myParticipant.id, token, {
+    previousToken,
+    tripId: tripStore.currentTripId,
+    userAgent: navigator.userAgent,
+    platform: getDevicePlatform(),
+  });
+  localStorage.setItem(PUSH_TOKEN_STORAGE_KEY, token);
+  await participantsStore.init();
+
+  if (previousToken && previousToken !== token) {
+    alert('偵測到此裝置的推播 Token 已更新，已重新綁定目前成員。');
+  }
+
+  return true;
+};
+
+const requestNotificationPermission = async ({ silent = false } = {}) => {
+  if (!('Notification' in window)) {
+    if (!silent) alert('此瀏覽器不支援通知功能。');
+    return;
+  }
+
+  if (isIOS.value && !isStandalone.value) {
+    if (!silent) {
+      alert('iOS 需要先加入主畫面，並從桌面圖示開啟 App 後才能啟用推播。');
+    }
+    return;
+  }
+
+  isGettingToken.value = true;
+  try {
+    const permission = await Notification.requestPermission();
+    notificationPermission.value = permission;
+
+    if (permission === 'granted') {
+      const token = await getFCMToken();
+      if (token) {
+        fcmToken.value = token;
+        const wasBound = await bindPushTokenToCurrentParticipant(token, {
+          silent,
+        });
+        if (wasBound && !silent) {
+          alert('推播通知已啟用，並綁定到目前成員。');
+        }
+      } else {
+        if (!silent) {
+          alert('取得推播 Token 失敗，請確認 Firebase 設定（特別是 VAPID 金鑰）是否正確。');
+        }
+      }
+    } else if (permission === 'denied') {
+      if (!silent) {
+        alert('已拒絕通知權限。若要接收推播，請到系統或瀏覽器設定重新開啟通知。');
+      }
+    }
+  } catch (error) {
+    console.error('設定通知失敗:', error);
+    if (!silent) alert('設定通知失敗: ' + error.message);
+  } finally {
+    isGettingToken.value = false;
+  }
+};
+
+const promptNotificationAfterTripSelection = async () => {
+  checkNotificationStatus();
+  if (!userStore.myParticipant) return;
+  if (!('Notification' in window)) return;
+
+  if (notificationPermission.value === 'granted') {
+    await requestNotificationPermission({ silent: true });
+    return;
+  }
+
+  if (notificationPermission.value !== 'default') return;
+  if (isIOS.value && !isStandalone.value) return;
+
+  const promptKey = getNotificationPromptKey();
+  if (!promptKey || localStorage.getItem(promptKey)) return;
+
+  localStorage.setItem(promptKey, '1');
+  if (confirm('是否允許接收此旅程的推播通知？')) {
+    await requestNotificationPermission();
+  }
+};
+
+const copyFCMToken = async () => {
+  try {
+    await navigator.clipboard.writeText(fcmToken.value);
+    alert('FCM Token 已複製到剪貼簿！');
+  } catch (err) {
+    const input = document.createElement('input');
+    input.value = fcmToken.value;
+    document.body.appendChild(input);
+    input.select();
+    document.execCommand('copy');
+    document.body.removeChild(input);
+    alert('FCM Token 已複製到剪貼簿！');
+  }
 };
 </script>
 
@@ -601,6 +752,72 @@ const leaveCurrentTrip = async () => {
           </div>
           <ChevronRight :size="20" class="text-slate-200" />
         </button>
+
+        <!-- Push Notification Settings -->
+        <div v-if="userStore.myParticipant" class="w-full p-6 border-b border-slate-50">
+          <div class="flex items-center gap-4 text-left">
+            <div
+              class="w-10 h-10 bg-purple-50 rounded-xl flex items-center justify-center text-purple-500"
+            >
+              <Bell :size="20" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <span class="block font-bold text-slate-700">推播通知</span>
+              <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-tighter mt-0.5">
+                權限狀態: 
+                <span :class="{
+                  'text-green-500': notificationPermission === 'granted',
+                  'text-red-500': notificationPermission === 'denied',
+                  'text-amber-500': notificationPermission === 'default'
+                }">
+                  {{ notificationPermission === 'granted' ? '已允許' : notificationPermission === 'denied' ? '已拒絕' : '未設定' }}
+                </span>
+              </span>
+            </div>
+            
+            <button
+              v-if="notificationPermission !== 'granted'"
+              @click="requestNotificationPermission"
+              :disabled="isGettingToken"
+              class="bg-purple-500 text-white text-xs font-black px-4 py-2 rounded-xl hover:bg-purple-600 disabled:opacity-50 transition-colors flex items-center shrink-0"
+            >
+              <Loader2 v-if="isGettingToken" class="animate-spin mr-1" :size="12" />
+              啟用通知
+            </button>
+            <button
+              v-else-if="!fcmToken"
+              @click="requestNotificationPermission"
+              :disabled="isGettingToken"
+              class="bg-indigo-500 text-white text-xs font-black px-4 py-2 rounded-xl hover:bg-indigo-600 disabled:opacity-50 transition-colors flex items-center shrink-0"
+            >
+              <Loader2 v-if="isGettingToken" class="animate-spin mr-1" :size="12" />
+              取得 Token
+            </button>
+            <button
+              v-else
+              @click="copyFCMToken"
+              class="bg-green-500 text-white text-xs font-black px-4 py-2 rounded-xl hover:bg-green-600 transition-colors shrink-0"
+            >
+              複製 Token
+            </button>
+          </div>
+          
+          <!-- iOS Standalone 警告說明 -->
+          <div v-if="isIOS && !isStandalone" class="mt-4 p-4 bg-amber-50 border border-amber-100 rounded-2xl text-[11px] text-amber-800 font-bold leading-relaxed text-left">
+            💡 iOS 系統限制：請先點擊 Safari 下方的「分享」圖示，選擇「加入主畫面」，然後從手機桌面啟動此 PWA 應用程式，才能啟用並接收推播通知。
+          </div>
+          
+          <!-- Token 顯示與手動發送提示 -->
+          <div v-if="fcmToken" class="mt-4 p-4 bg-slate-50 rounded-2xl text-xs space-y-2 border border-slate-100 text-left">
+            <div class="font-black text-slate-700">您的推播 Token：</div>
+            <div class="font-mono bg-white p-2 rounded-xl border border-slate-200 break-all select-all text-slate-500">
+              {{ fcmToken }}
+            </div>
+            <div class="text-[10px] text-slate-400 leading-normal">
+              提示：您可以複製上述 Token，搭配你的 Firebase 專案憑證，從電腦執行手動推送測試。
+            </div>
+          </div>
+        </div>
 
         <!-- Logout Button -->
         <button

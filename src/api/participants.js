@@ -226,6 +226,52 @@ export const patchParticipant = (id, params) => {
   });
 };
 
+export const upsertParticipantPushToken = async (
+  id,
+  token,
+  { previousToken = '', tripId = '', userAgent = '', platform = '' } = {}
+) => {
+  if (!id || !token) throw new Error('缺少成員或推播 Token。');
+
+  const docRef = doc(db, COLLECTION_NAME, id);
+  const snap = await getDoc(docRef);
+  if (!snap.exists()) throw new Error('找不到成員資料。');
+
+  const participant = withTripIds(snap.data());
+  const now = Date.now();
+  const existingTokens = Array.isArray(participant.pushTokens)
+    ? participant.pushTokens
+    : [];
+  const existingToken = existingTokens.find((item) => item.token === token);
+  const nextTokens = existingTokens.filter(
+    (item) =>
+      item.token &&
+      item.token !== token &&
+      (!previousToken || item.token !== previousToken)
+  );
+
+  nextTokens.push({
+    token,
+    tripId,
+    userAgent,
+    platform,
+    permission: 'granted',
+    createdAt: existingToken?.createdAt || now,
+    updatedAt: now,
+  });
+
+  await updateDoc(docRef, {
+    pushTokens: nextTokens,
+    pushToken: token,
+    pushTokenUpdatedAt: now,
+    notificationPermission: 'granted',
+    updatedAt: serverTimestamp(),
+  });
+  await updateParticipantsVersion();
+
+  return { status: 200 };
+};
+
 /**
  * [DELETE] 刪除參與者
  */

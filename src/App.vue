@@ -51,19 +51,23 @@ const initFrontendStores = () => {
 const updateAppIdentity = () => {
   const appName = tripStore.currentTrip?.title || 'Guidebook';
   document.title = appName;
+  const appleTitle = document.querySelector(
+    'meta[name="apple-mobile-web-app-title"]'
+  );
+  if (appleTitle) appleTitle.setAttribute('content', appName);
 
   const manifest = {
     name: appName,
     short_name: appName.slice(0, 12),
     description: `${appName} 旅程手冊`,
-    start_url: '/guidebook/',
-    scope: '/guidebook/',
+    start_url: '/',
+    scope: '/',
     display: 'standalone',
     theme_color: '#FF8C00',
     background_color: '#FF8C00',
     icons: [
-      { src: '/guidebook/192.png', sizes: '192x192', type: 'image/png' },
-      { src: '/guidebook/512.png', sizes: '512x512', type: 'image/png' },
+      { src: '/192.png', sizes: '192x192', type: 'image/png' },
+      { src: '/512.png', sizes: '512x512', type: 'image/png' },
     ],
   };
   const nextUrl = URL.createObjectURL(
