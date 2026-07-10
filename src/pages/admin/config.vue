@@ -126,6 +126,6 @@ const updateConfig = async () => {
 
 <route>
 {
-  meta: { layout: "empty" }
+  meta: { layout: "admin" }
 }
 </route>

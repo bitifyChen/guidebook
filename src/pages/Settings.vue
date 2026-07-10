@@ -1,9 +1,14 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue';
+import { computed, ref, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useUserStore } from '@/store/userStore';
 import { useParticipantsStore } from '@/store/participantsStore';
-import { claimParticipantByCode } from '@/api/participants';
+import { useTripStore } from '@/store/tripStore';
+import { useTravelStore } from '@/store/travelStore';
+import { useExpensesStore } from '@/store/expensesStore';
+import { getParticipantsByUid } from '@/api/participants';
+import { getTripById } from '@/api/trips';
+import { loginWithGoogle } from '@/api/auth';
 import { uploadImage } from '@/api/storage';
 import { lockScroll, unlockScroll } from '@/utils/scrollLock';
 import PackingList from '@/components/PackingList.vue';
@@ -28,10 +33,32 @@ import {
 const router = useRouter();
 const userStore = useUserStore();
 const participantsStore = useParticipantsStore();
+const tripStore = useTripStore();
+const travelStore = useTravelStore();
+const expensesStore = useExpensesStore();
 
 const inviteCode = ref('');
 const isClaiming = ref(false);
 const isRefreshing = ref(false);
+const userTrips = ref([]);
+const isLoadingUserTrips = ref(false);
+const isTripPickerOpen = ref(false);
+const isGoogleLoggingIn = ref(false);
+const pendingTripSelection = ref(null);
+const tripPickerHint = ref('');
+
+const displayUserName = computed(() => {
+  return (
+    userStore.myParticipant?.name ||
+    userStore.user?.displayName ||
+    userStore.user?.email ||
+    '旅程訪客'
+  );
+});
+
+const tripPickerRows = computed(() => {
+  return pendingTripSelection.value?.rows || userTrips.value;
+});
 
 // PWA Install Logic
 const deferredPrompt = ref(null);
@@ -51,7 +78,110 @@ const handleInstallClick = async () => {
   }
 };
 
-onMounted(() => {
+const reloadTripData = async () => {
+  await participantsStore.init();
+  await travelStore.init();
+  await expensesStore.init();
+};
+
+const clearTripCaches = () => {
+  Object.keys(localStorage)
+    .filter((key) => key.startsWith('guidebook_') && key.endsWith('_cache'))
+    .forEach((key) => localStorage.removeItem(key));
+};
+
+const loadUserTrips = async () => {
+  if (!userStore.user?.uid) {
+    userTrips.value = [];
+    tripPickerHint.value = '';
+    return;
+  }
+
+  isLoadingUserTrips.value = true;
+  try {
+    const memberships = await getParticipantsByUid(userStore.user.uid);
+    const rows = await Promise.all(
+      memberships.flatMap((membership) =>
+        (membership.tripIds || (membership.tripId ? [membership.tripId] : []))
+          .map(async (tripId) => {
+            const trip = await getTripById(tripId);
+            return trip ? { trip, participant: membership } : null;
+          })
+      )
+    );
+    userTrips.value = rows.filter(Boolean);
+    const selectedTrip = userTrips.value.find(
+      (row) => row.trip.id === tripStore.currentTripId
+    );
+
+    if (!selectedTrip && userTrips.value.length === 1) {
+      const message = `只有一個旅程，已自動切換至「${userTrips.value[0].trip.title}」。`;
+      await switchUserTrip(userTrips.value[0], { redirect: false });
+      alert(message);
+      tripPickerHint.value = '';
+      return;
+    }
+
+    if (!selectedTrip && userTrips.value.length > 1 && !pendingTripSelection.value) {
+      tripPickerHint.value = `你有 ${userTrips.value.length} 個旅程，請先選擇要進入的旅程。`;
+      isTripPickerOpen.value = true;
+      return;
+    }
+
+    tripPickerHint.value = '';
+  } finally {
+    isLoadingUserTrips.value = false;
+  }
+};
+
+const switchUserTrip = async (row, options = {}) => {
+  await tripStore.switchTrip(row.trip.id);
+  userStore.setLocalParticipant(row.participant.id);
+  clearTripCaches();
+  await reloadTripData();
+  isTripPickerOpen.value = false;
+  if (options.redirect !== false) {
+    router.push('/');
+  }
+};
+
+const selectTripFromPicker = async (row) => {
+  if (!pendingTripSelection.value) {
+    await switchUserTrip(row);
+    return;
+  }
+
+  const { participant, profile } = pendingTripSelection.value;
+  await tripStore.switchTrip(row.trip.id);
+  await participantsStore.updateParticipant(participant.id, {
+    isClaimed: true,
+    uid: profile.uid || participant.uid || null,
+    name: participant.name || profile.name || profile.email || '旅伴',
+    avatar: participant.avatar || profile.avatar || '',
+  });
+  userStore.setLocalParticipant(participant.id);
+  pendingTripSelection.value = null;
+  tripPickerHint.value = '';
+  inviteCode.value = '';
+  clearTripCaches();
+  await reloadTripData();
+  await loadUserTrips();
+  isTripPickerOpen.value = false;
+  router.push('/');
+};
+
+const closeTripPicker = () => {
+  isTripPickerOpen.value = false;
+  pendingTripSelection.value = null;
+  tripPickerHint.value = '';
+};
+
+onMounted(async () => {
+  if (!userStore.isAuthReady) {
+    await userStore.initAuth();
+  }
+  await loadUserTrips();
+
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     deferredPrompt.value = e;
@@ -66,16 +196,47 @@ const handleForceRefresh = () => {
   isRefreshing.value = true;
   // 清除所有快取
   const caches = [
-    'jeju_participants_cache',
-    'jeju_weather_cache',
-    'jeju_travel_cache', // 預留可能有的行程快取
+    'guidebook_participants_cache',
+    'guidebook_weather_cache',
+    'guidebook_travel_cache',
   ];
   caches.forEach((key) => localStorage.removeItem(key));
+  Object.keys(localStorage)
+    .filter((key) => key.startsWith('guidebook_') && key.endsWith('_cache'))
+    .forEach((key) => localStorage.removeItem(key));
 
   // 延遲一下讓使用者看到轉圈動畫，然後重新整理
   setTimeout(() => {
     window.location.reload();
   }, 800);
+};
+
+const handleGoogleLogin = async () => {
+  isGoogleLoggingIn.value = true;
+  try {
+    await loginWithGoogle();
+    await userStore.initAuth();
+    if (userStore.localParticipantId && userStore.user) {
+      await participantsStore.updateParticipant(userStore.localParticipantId, {
+        uid: userStore.user.uid,
+        name:
+          userStore.myParticipant?.name ||
+          userStore.user.displayName ||
+          userStore.user.email ||
+          '旅伴',
+        avatar: userStore.myParticipant?.avatar || userStore.user.photoURL || '',
+      });
+      userStore.setLocalParticipant(userStore.localParticipantId);
+    }
+    await loadUserTrips();
+    if (inviteCode.value.trim()) {
+      await handleClaim();
+    }
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    isGoogleLoggingIn.value = false;
+  }
 };
 
 // Edit Profile State
@@ -84,6 +245,14 @@ const isUploading = ref(false);
 const isSaving = ref(false);
 
 watch(isEditModalOpen, (val) => {
+  if (val) {
+    lockScroll();
+  } else {
+    unlockScroll();
+  }
+});
+
+watch(isTripPickerOpen, (val) => {
   if (val) {
     lockScroll();
   } else {
@@ -151,33 +320,43 @@ const handleUpdateProfile = async () => {
   }
 };
 
-const handleClaim = async (force = false) => {
+const handleClaim = async () => {
   if (!inviteCode.value.trim()) return alert('請輸入邀請碼');
 
   isClaiming.value = true;
   try {
-    const res = await claimParticipantByCode(
-      inviteCode.value.trim(),
-      userStore.user?.uid || null,
-      force
-    );
-
-    // 處理重複認領的確認
-    if (res.status === 409) {
-      if (confirm(res.message)) {
-        return handleClaim(true); // 使用者確認後，再次呼叫並帶入 force = true
-      } else {
-        return;
-      }
-    }
+    const profile = {
+      uid: userStore.user?.uid || null,
+      name: userStore.user?.displayName || userStore.user?.email || '',
+      email: userStore.user?.email || '',
+      avatar: userStore.user?.photoURL || '',
+    };
+    const res = await tripStore.joinByInviteCode(inviteCode.value.trim(), profile);
 
     if (res.status === 200) {
-      // 將認領成功的 ID 存入本地持久化
-      userStore.setLocalParticipant(res.data.id);
+      if (res.mode === 'guest') {
+        userStore.clearLocalParticipant();
+        alert('已進入訪客瀏覽模式。');
+      } else if (res.participant?.id) {
+        userStore.setLocalParticipant(res.participant.id);
+        alert('認領成功！');
+      }
 
-      alert('認領成功！');
       inviteCode.value = '';
-      await participantsStore.init();
+      clearTripCaches();
+      await reloadTripData();
+      await loadUserTrips();
+      router.push('/');
+    } else if (res.status === 300 && res.mode === 'participantTripSelection') {
+      pendingTripSelection.value = {
+        participant: res.participant,
+        profile,
+        rows: res.trips.map((trip) => ({
+          trip,
+          participant: res.participant,
+        })),
+      };
+      isTripPickerOpen.value = true;
     }
   } catch (error) {
     alert(error.message);
@@ -188,7 +367,25 @@ const handleClaim = async (force = false) => {
 
 const handleLogout = async () => {
   await userStore.logout();
-  router.push('/');
+  userTrips.value = [];
+  pendingTripSelection.value = null;
+  tripPickerHint.value = '';
+  isTripPickerOpen.value = false;
+  router.push('/settings');
+};
+
+const leaveCurrentTrip = async () => {
+  if (!confirm('確定要離開目前旅程？之後需要重新輸入 6 碼才能瀏覽。')) return;
+  userStore.clearLocalParticipant();
+  tripStore.clearCurrentTrip();
+  clearTripCaches();
+  travelStore.clear();
+  expensesStore.clear();
+  participantsStore.clear();
+  pendingTripSelection.value = null;
+  tripPickerHint.value = '';
+  isTripPickerOpen.value = false;
+  router.push('/settings');
 };
 </script>
 
@@ -209,12 +406,18 @@ const handleLogout = async () => {
         <User v-else :size="40" />
       </div>
       <h2 class="text-xl font-black text-slate-800">
-        {{ userStore.myParticipant?.name || userStore.user?.email || '旅客' }}
+        {{ displayUserName }}
       </h2>
       <p
         class="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1"
       >
-        {{ userStore.myParticipant ? '已認領旅客身份' : '個人設定與管理' }}
+        {{ userStore.myParticipant ? '已綁定旅客身份' : userStore.user ? '已登入 Google' : '旅程設定與登入' }}
+      </p>
+      <p
+        v-if="tripStore.currentTrip"
+        class="text-xs font-bold text-indigo-500 mt-2"
+      >
+        目前旅程：{{ tripStore.currentTrip.title }}
       </p>
 
       <!-- Edit Profile Button -->
@@ -227,19 +430,63 @@ const handleLogout = async () => {
       </button>
     </header>
 
-    <!-- Invitation Claim Section (Conditional) -->
-    <section v-if="!userStore.myParticipant" class="space-y-3">
+    <section v-if="userTrips.length || isLoadingUserTrips" class="space-y-3">
       <h3
         class="px-4 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]"
       >
-        認領旅客身份
+        我的旅程
+      </h3>
+      <div class="bg-white rounded-[32px] border border-slate-100 overflow-hidden">
+        <button
+          @click="isTripPickerOpen = true"
+          class="w-full p-5 flex items-center gap-4 hover:bg-indigo-50 transition-colors border-b border-slate-50 last:border-b-0 text-left"
+        >
+          <div
+            class="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-500 flex items-center justify-center font-black"
+          >
+            {{ tripStore.currentTrip?.title?.slice(0, 1) || userTrips.length }}
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="font-black text-slate-800 truncate">
+              {{ tripStore.currentTrip?.title || '選擇旅程' }}
+            </div>
+            <div class="text-[10px] font-bold text-slate-400 mt-0.5">
+              共 {{ userTrips.length }} 趟旅程可切換
+            </div>
+          </div>
+          <ChevronRight :size="20" class="text-slate-200" />
+        </button>
+        <div
+          v-if="isLoadingUserTrips"
+          class="p-5 flex items-center justify-center text-slate-300"
+        >
+          <Loader2 class="animate-spin" :size="18" />
+        </div>
+      </div>
+    </section>
+
+    <!-- Trip Access Section -->
+    <section class="space-y-3">
+      <h3
+        class="px-4 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]"
+      >
+        {{ userStore.user ? '加入旅程' : '選擇登入方式' }}
       </h3>
       <div
         class="bg-white p-6 rounded-[32px] border border-slate-100 space-y-4"
       >
         <p class="text-xs font-bold text-slate-500 leading-relaxed px-1">
-          請輸入 6 位邀請碼，以綁定你的旅遊手冊個人資料。
+          可用 Google 登入管理自己的旅程，也可輸入旅程邀請碼以訪客模式瀏覽；輸入旅客邀請碼會綁定個人資料與角色。
         </p>
+        <button
+          v-if="!userStore.user"
+          @click="handleGoogleLogin"
+          :disabled="isGoogleLoggingIn"
+          class="w-full bg-slate-900 text-white rounded-2xl py-4 font-black flex items-center justify-center gap-2 hover:bg-slate-800 disabled:opacity-50 transition-all shadow-lg shadow-slate-100"
+        >
+          <Loader2 v-if="isGoogleLoggingIn" class="animate-spin" :size="18" />
+          使用 Google 登入
+        </button>
         <div class="relative">
           <input
             v-model="inviteCode"
@@ -258,7 +505,7 @@ const handleLogout = async () => {
           class="w-full bg-purple-500 text-white rounded-2xl py-4 font-black flex items-center justify-center gap-2 hover:bg-purple-600 disabled:opacity-50 transition-all shadow-lg shadow-purple-100"
         >
           <Loader2 v-if="isClaiming" class="animate-spin" :size="18" />
-          {{ isClaiming ? '驗證中...' : '確認認領' }}
+          {{ isClaiming ? '驗證中...' : userStore.user ? '綁定 / 加入旅程' : '以邀請碼進入' }}
         </button>
       </div>
     </section>
@@ -357,7 +604,7 @@ const handleLogout = async () => {
 
         <!-- Logout Button -->
         <button
-          v-if="userStore.myParticipant"
+          v-if="userStore.user || userStore.myParticipant"
           @click="handleLogout"
           class="w-full p-6 flex items-center gap-4 hover:bg-red-50 transition-colors group"
         >
@@ -369,6 +616,20 @@ const handleLogout = async () => {
           <span class="font-bold text-red-500 flex-1 text-left">登出帳號</span>
           <ChevronRight :size="20" class="text-red-200" />
         </button>
+
+        <button
+          v-else-if="tripStore.currentTripId"
+          @click="leaveCurrentTrip"
+          class="w-full p-6 flex items-center gap-4 hover:bg-red-50 transition-colors group"
+        >
+          <div
+            class="w-10 h-10 bg-red-50 rounded-xl flex items-center justify-center text-red-400 group-hover:scale-110 transition-transform"
+          >
+            <LogOut :size="20" />
+          </div>
+          <span class="font-bold text-red-500 flex-1 text-left">離開目前旅程</span>
+          <ChevronRight :size="20" class="text-red-200" />
+        </button>
       </div>
     </section>
 
@@ -377,9 +638,80 @@ const handleLogout = async () => {
       <p
         class="text-[10px] font-black text-slate-300 uppercase tracking-[0.3em]"
       >
-        濟州小幫手 v1.0.0
+        Guidebook v1.0.0
       </p>
     </div>
+
+    <Teleport to="body">
+      <div
+        v-if="isTripPickerOpen"
+        class="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-4"
+      >
+        <div
+          class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+          @click="closeTripPicker"
+        ></div>
+        <div
+          class="relative w-full max-w-md bg-white rounded-[36px] shadow-2xl overflow-hidden animate-in slide-in-from-bottom duration-300"
+        >
+          <div class="p-6 border-b border-slate-100 flex items-center justify-between">
+            <div>
+              <h3 class="text-lg font-black text-slate-800">
+                {{ pendingTripSelection ? '選擇要綁定的旅程' : '選擇旅程' }}
+              </h3>
+              <p class="text-[10px] font-bold text-slate-400 mt-1">
+                {{
+                  tripPickerHint ||
+                  (pendingTripSelection
+                    ? '這個旅客碼可加入多趟旅程'
+                    : '切換後會重新載入本次旅程資料')
+                }}
+              </p>
+            </div>
+            <button
+              @click="closeTripPicker"
+              class="w-9 h-9 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400"
+            >
+              <X :size="18" />
+            </button>
+          </div>
+
+          <div class="max-h-[60vh] overflow-y-auto p-3">
+            <button
+              v-for="row in tripPickerRows"
+              :key="`${row.participant.id}-${row.trip.id}`"
+              @click="selectTripFromPicker(row)"
+              class="w-full p-4 rounded-2xl flex items-center gap-4 hover:bg-indigo-50 transition-colors text-left"
+              :class="row.trip.id === tripStore.currentTripId ? 'bg-indigo-50' : ''"
+            >
+              <div
+                class="w-10 h-10 rounded-xl flex items-center justify-center font-black"
+                :class="
+                  row.trip.id === tripStore.currentTripId
+                    ? 'bg-indigo-500 text-white'
+                    : 'bg-slate-50 text-slate-400'
+                "
+              >
+                {{ row.trip.title?.slice(0, 1) || '旅' }}
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="font-black text-slate-800 truncate">
+                  {{ row.trip.title }}
+                </div>
+                <div class="text-[10px] font-bold text-slate-400 mt-0.5">
+                  {{ row.trip.inviteCode }} · {{ row.participant.name }}
+                </div>
+              </div>
+              <CheckCircle2
+                v-if="row.trip.id === tripStore.currentTripId"
+                :size="18"
+                class="text-indigo-500"
+              />
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
     <!-- Packing List Drawer -->
     <PackingList v-model:visible="isPackingListOpen" />

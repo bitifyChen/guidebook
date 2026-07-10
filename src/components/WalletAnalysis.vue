@@ -2,6 +2,9 @@
 import { computed } from 'vue';
 import { X, PieChart, TrendingUp } from 'lucide-vue-next';
 import dayjs from 'dayjs';
+import { useTripStore } from '@/store/tripStore';
+
+const tripStore = useTripStore();
 
 const props = defineProps({
   visible: Boolean,
@@ -78,7 +81,7 @@ const close = () => emit('update:visible', false);
                 <TrendingUp :size="14" class="text-indigo-500" /> 支出走勢
               </h3>
               <span class="text-[10px] font-black text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-lg">
-                MAX: ₩{{ maxDailyTotal.toLocaleString() }}
+                MAX: {{ tripStore.currencySymbol }}{{ maxDailyTotal.toLocaleString() }}
               </span>
             </div>
 
@@ -93,7 +96,7 @@ const close = () => emit('update:visible', false);
                 <div
                   class="absolute -top-10 bg-slate-800 text-white text-[10px] px-2 py-1.5 rounded-xl opacity-0 group-hover:opacity-100 transition-all transform translate-y-2 group-hover:translate-y-0 whitespace-nowrap z-10 font-bold shadow-xl"
                 >
-                  ₩{{ s.total.toLocaleString() }}
+                  {{ tripStore.currencySymbol }}{{ s.total.toLocaleString() }}
                   <div class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-800 rotate-45"></div>
                 </div>
 
@@ -141,7 +144,7 @@ const close = () => emit('update:visible', false);
               <div class="text-right">
                 <p class="text-xs font-bold text-slate-300 mb-0.5">DAILY TOTAL</p>
                 <p class="text-lg font-black text-slate-800 tracking-tighter">
-                  ₩{{ s.total.toLocaleString() }}
+                  {{ tripStore.currencySymbol }}{{ s.total.toLocaleString() }}
                 </p>
               </div>
             </div>

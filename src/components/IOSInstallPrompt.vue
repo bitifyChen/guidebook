@@ -1,8 +1,11 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import { Share, PlusSquare, X } from 'lucide-vue-next';
+import { useTripStore } from '@/store/tripStore';
 
 const isVisible = ref(false);
+const tripStore = useTripStore();
+const appName = computed(() => tripStore.currentTrip?.title || 'Guidebook');
 
 onMounted(() => {
   // 偵測是否為 iOS
@@ -55,7 +58,7 @@ const dismiss = () => {
           <img src="/192.png" class="w-8 h-8 rounded-lg" alt="App Icon" />
         </div>
         <div>
-          <h3 class="font-black text-slate-800 text-sm">將「濟州小幫手」加入主畫面</h3>
+          <h3 class="font-black text-slate-800 text-sm">將「{{ appName }}」加入主畫面</h3>
           <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">像 App 一樣離線使用與快速開啟</p>
         </div>
       </div>

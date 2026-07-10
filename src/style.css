@@ -3,13 +3,13 @@
 @tailwind utilities;
 
 :root {
-  /* 濟州橘核心色 */
+  /* 旅程主色 */
   --primary-orange: #ff8c00;
   --primary-orange-light: #fff4e6;
   --primary-orange-dark: #e67e00;
 
   /* 輔助色 */
-  --jeju-green: #22c55e; /* 橘子葉子的綠 */
+  --guidebook-green: #22c55e;
   --slate-body: #f8fafc;
 
   /* Element Plus 主色覆蓋 */

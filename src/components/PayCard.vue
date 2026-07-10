@@ -2,7 +2,9 @@
 import { computed } from 'vue';
 import { Plus, Trash2, ReceiptText, X, Wallet2, Users } from 'lucide-vue-next';
 import { useParticipantsStore } from '@/store/participantsStore';
+import { useTripStore } from '@/store/tripStore';
 const participants = useParticipantsStore();
+const tripStore = useTripStore();
 const props = defineProps({
   item: {
     type: Object,
@@ -84,7 +86,7 @@ const openDetail = () => emit('edit', props.item);
       </span>
       <div class="text-right">
         <span class="font-black text-slate-800 text-lg tracking-tighter"
-          >₩{{ item.amount.toLocaleString() }}</span
+          >{{ tripStore.currencySymbol }}{{ item.amount.toLocaleString() }}</span
         >
       </div>
     </div>

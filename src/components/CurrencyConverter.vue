@@ -1,6 +1,7 @@
 <script setup>
 import { ref, reactive, watch, onMounted } from 'vue';
 import { getExchangeRates, COMMON_CURRENCIES } from '@/api/currency';
+import { useTripStore } from '@/store/tripStore';
 import {
   X,
   Camera,
@@ -16,6 +17,7 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['update:visible']);
+const tripStore = useTripStore();
 
 const loading = ref(false);
 const rates = ref({});
@@ -24,7 +26,7 @@ const lastUpdated = ref(null);
 // 換算表單
 const form = reactive({
   baseCurrency: 'TWD',
-  targetCurrency: 'KRW',
+  targetCurrency: tripStore.currencyCode,
   baseAmount: '',
   targetAmount: '',
 });

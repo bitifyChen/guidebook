@@ -10,7 +10,9 @@ const userStore = useUserStore();
 const handleLogin = async () => {
   const res = await loginWithGoogle();
   if (res.status === 200) {
-    router.push('/admin');
+    await userStore.initAuth();
+    await userStore.refreshGoogleAdminAccess();
+    router.push(router.currentRoute.value.query.redirect || '/admin');
   }
 };
 </script>

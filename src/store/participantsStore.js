@@ -1,12 +1,14 @@
 import { defineStore } from 'pinia';
 import {
   getParticipants,
+  getAllParticipants,
   postParticipant,
   patchParticipant,
   deleteParticipant,
   getParticipantsVersion,
 } from '@/api/participants';
 import { getWallet, patchWalletItem, deleteWalletItem } from '@/api/wallet';
+import { useTripStore } from '@/store/tripStore';
 
 export const useParticipantsStore = defineStore('participants', {
   state: () => ({
@@ -16,7 +18,14 @@ export const useParticipantsStore = defineStore('participants', {
 
   actions: {
     async init() {
-      const CACHE_KEY = 'jeju_participants_cache';
+      const tripStore = useTripStore();
+      if (!tripStore.currentTripId) await tripStore.init();
+      if (!tripStore.currentTripId) {
+        this.participants = [];
+        return;
+      }
+      const cacheScope = tripStore.currentTripId || 'legacy';
+      const CACHE_KEY = `guidebook_${cacheScope}_participants_cache`;
 
       // 1. 先抓取本地快取並立即呈現 (Stale-while-revalidate)
       let localCache = null;
@@ -62,6 +71,19 @@ export const useParticipantsStore = defineStore('participants', {
         );
       } catch (error) {
         console.error('Wallet 初始化失敗:', error);
+      } finally {
+        this.isLoading = false;
+      }
+    },
+
+    async loadAllParticipants() {
+      this.isLoading = true;
+      try {
+        const res = await getAllParticipants();
+        if (res.status === 200) {
+          this.participants = res.data;
+        }
+        return res;
       } finally {
         this.isLoading = false;
       }
@@ -151,6 +173,9 @@ export const useParticipantsStore = defineStore('participants', {
 
     getParticipant(id) {
       return this.participants.find((p) => p.id === id);
+    },
+    clear() {
+      this.participants = [];
     },
   },
 });

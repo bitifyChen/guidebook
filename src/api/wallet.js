@@ -9,9 +9,16 @@ import {
   updateDoc,
   deleteDoc,
   query,
-  orderBy,
+  where,
   serverTimestamp,
 } from 'firebase/firestore';
+import {
+  assertCurrentTripWritable,
+  getTripCollectionRef,
+  getTripDocRef,
+  getTripMetadataRef,
+  resolveTripId,
+} from '@/api/trips';
 
 const db = getFirestore(app);
 
@@ -20,7 +27,10 @@ const db = getFirestore(app);
 // ==========================================
 export const updateWalletVersion = async () => {
   try {
-    const docRef = doc(db, 'metadata', 'wallet');
+    const tripId = await resolveTripId();
+    const docRef = tripId
+      ? getTripMetadataRef(tripId, 'wallet')
+      : doc(db, 'metadata', 'wallet');
     await setDoc(docRef, { lastUpdate: Date.now() }, { merge: true });
   } catch (e) {
     console.error('Failed to update wallet version:', e);
@@ -29,8 +39,14 @@ export const updateWalletVersion = async () => {
 
 export const getWalletVersion = async () => {
   try {
-    const docRef = doc(db, 'metadata', 'wallet');
-    const snap = await getDoc(docRef);
+    const tripId = await resolveTripId();
+    const docRef = tripId
+      ? getTripMetadataRef(tripId, 'wallet')
+      : doc(db, 'metadata', 'wallet');
+    let snap = await getDoc(docRef);
+    if (!snap.exists() && tripId) {
+      snap = await getDoc(doc(db, 'metadata', `wallet_${tripId}`));
+    }
     return snap.exists() ? snap.data() : { lastUpdate: 0 };
   } catch (e) {
     return { lastUpdate: 0 };
@@ -47,8 +63,17 @@ export const getWalletVersion = async () => {
 export const getWallet = () => {
   return new Promise(async (resolve, reject) => {
     try {
-      const q = query(collection(db, 'wallet'));
-      const querySnapshot = await getDocs(q);
+      const tripId = await resolveTripId();
+      if (!tripId) {
+        resolve({ status: 200, data: [] });
+        return;
+      }
+      let querySnapshot = await getDocs(getTripCollectionRef(tripId, 'wallet'));
+      if (querySnapshot.empty) {
+        querySnapshot = await getDocs(
+          query(collection(db, 'wallet'), where('tripId', '==', tripId))
+        );
+      }
       const data = querySnapshot.docs.map((doc) => ({
         ...doc.data(),
         id: doc.id,
@@ -68,12 +93,16 @@ export const getWallet = () => {
 export const postWalletItem = (params) => {
   return new Promise(async (resolve, reject) => {
     try {
-      const walletRef = collection(db, 'wallet');
+      await assertCurrentTripWritable();
+      const tripId = await resolveTripId();
+      if (!tripId) throw new Error('請先選擇旅程');
+      const walletRef = getTripCollectionRef(tripId, 'wallet');
       // 不傳 ID 給 doc()，Firestore 就會自動生成隨機 ID
       const docRef = doc(walletRef);
 
       await setDoc(docRef, {
         ...params,
+        ...(tripId ? { tripId } : {}),
         updatedAt: serverTimestamp(),
       });
       await updateWalletVersion();
@@ -90,10 +119,14 @@ export const postWalletItem = (params) => {
 export const patchWalletItem = (id, params) => {
   return new Promise(async (resolve, reject) => {
     try {
-      const docRef = doc(db, 'wallet', id);
+      await assertCurrentTripWritable();
+      const tripId = await resolveTripId();
+      if (!tripId) throw new Error('請先選擇旅程');
+      const docRef = getTripDocRef(tripId, 'wallet', id);
       await updateDoc(docRef, {
         ...params,
         id,
+        ...(tripId ? { tripId } : {}),
         updatedAt: serverTimestamp(),
       });
       await updateWalletVersion();
@@ -110,7 +143,10 @@ export const patchWalletItem = (id, params) => {
 export const deleteWalletItem = (id) => {
   return new Promise(async (resolve, reject) => {
     try {
-      await deleteDoc(doc(db, 'wallet', id));
+      await assertCurrentTripWritable();
+      const tripId = await resolveTripId();
+      if (!tripId) throw new Error('請先選擇旅程');
+      await deleteDoc(getTripDocRef(tripId, 'wallet', id));
       await updateWalletVersion();
       resolve({ status: 200 });
     } catch (error) {

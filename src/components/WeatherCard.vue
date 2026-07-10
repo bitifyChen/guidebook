@@ -11,7 +11,7 @@ import {
 } from 'lucide-vue-next';
 
 const props = defineProps({
-  city: { type: String, default: 'Jeju-si' },
+  city: { type: String, default: '目前城市' },
   weather: { type: Object, required: true },
 });
 

@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { getWallet, getWalletVersion } from '@/api/wallet';
+import { useTripStore } from '@/store/tripStore';
 
 export const useExpensesStore = defineStore('expenses', {
   state: () => ({
@@ -15,7 +16,14 @@ export const useExpensesStore = defineStore('expenses', {
   actions: {
     // --- 核心：從 Firebase 初始化資料 ---
     async init() {
-      const CACHE_KEY = 'jeju_wallet_cache';
+      const tripStore = useTripStore();
+      if (!tripStore.currentTripId) await tripStore.init();
+      if (!tripStore.currentTripId) {
+        this.expenses = [];
+        return;
+      }
+      const cacheScope = tripStore.currentTripId || 'legacy';
+      const CACHE_KEY = `guidebook_${cacheScope}_wallet_cache`;
 
       // 1. 先抓取本地快取並立即呈現 (Stale-while-revalidate)
       let localCache = null;
@@ -64,6 +72,9 @@ export const useExpensesStore = defineStore('expenses', {
       } finally {
         this.isLoading = false;
       }
+    },
+    clear() {
+      this.expenses = [];
     },
   },
 });

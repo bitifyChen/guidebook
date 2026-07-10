@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useExpensesStore } from '@/store/expensesStore';
 import { useParticipantsStore } from '@/store/participantsStore';
 import { useTravelStore } from '@/store/travelStore';
+import { useTripStore } from '@/store/tripStore';
 import {
   User,
   X,
@@ -22,6 +23,7 @@ import dayjs from 'dayjs';
 const travelStore = useTravelStore();
 const expense = useExpensesStore();
 const participants = useParticipantsStore();
+const tripStore = useTripStore();
 
 const isParticipantsModalOpen = ref(false);
 const isPackingListOpen = ref(false);
@@ -38,7 +40,9 @@ watch([isParticipantsModalOpen, isPackingListOpen], ([p, l]) => {
 // 行李準備進度
 const packingProgress = ref(0);
 const updatePackingProgress = () => {
-  const saved = localStorage.getItem('jeju_packing_list_v2');
+  const saved =
+    localStorage.getItem('guidebook_packing_list_v2') ||
+    localStorage.getItem(['jeju', 'packing', 'list', 'v2'].join('_'));
   if (saved) {
     const list = JSON.parse(saved);
     let total = 0;
@@ -67,10 +71,11 @@ const currentTransit = computed(() => travelStore.currentTransit);
 const nextActivity = computed(() => travelStore.nextActivity);
 const nextSubActivity = computed(() => travelStore.nextSubActivity);
 
-//取得濟州島天氣
 const weather = ref({});
 const getWeather = async () => {
-  const CACHE_KEY = 'jeju_weather_cache';
+  const tripContext = tripStore.context;
+  const cacheScope = tripStore.currentTripId || 'default';
+  const CACHE_KEY = `guidebook_${cacheScope}_weather_cache`;
   const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
   try {
@@ -84,9 +89,14 @@ const getWeather = async () => {
       }
     }
 
-    const response = await fetch(
-      'https://api.open-meteo.com/v1/forecast?latitude=33.5097&longitude=126.5219&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,uv_index&timezone=Asia%2FSeoul'
-    );
+    const params = new URLSearchParams({
+      latitude: String(tripContext.latitude),
+      longitude: String(tripContext.longitude),
+      current:
+        'temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,uv_index',
+      timezone: tripContext.timezone,
+    });
+    const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`);
     const data = await response.json();
     weather.value = data;
 
@@ -112,7 +122,7 @@ onMounted(() => {
 
 <template>
   <div class="space-y-4">
-    <WeatherCard :weather="weather" />
+    <WeatherCard :weather="weather" :city="tripStore.context.weatherCity" />
     <section>
       <div class="grid grid-cols-2 gap-4">
         <router-link to="/wallet" class="block">
@@ -121,7 +131,7 @@ onMounted(() => {
           >
             <p class="text-xs text-slate-400 font-bold mb-1">已支出</p>
             <p class="text-xl font-bold text-slate-800">
-              ₩{{ expense.totalSpent.toLocaleString() }}
+              {{ tripStore.currencySymbol }}{{ expense.totalSpent.toLocaleString() }}
             </p>
           </div>
         </router-link>

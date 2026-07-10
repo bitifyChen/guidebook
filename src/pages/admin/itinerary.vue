@@ -460,6 +460,6 @@ const handleImport = async (event) => {
 
 <route>
 {
-  meta: { layout: "empty" }
+  meta: { layout: "admin" }
 }
 </route>

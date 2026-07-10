@@ -18,13 +18,15 @@ const props = defineProps({
 
 const emit = defineEmits(['update:visible']);
 
-const STORAGE_KEY = 'jeju_packing_list_v2'; // 升級版本號以避免格式衝突
+const STORAGE_KEY = 'guidebook_packing_list_v2';
+const LEGACY_STORAGE_KEY = ['jeju', 'packing', 'list', 'v2'].join('_');
 
 const list = ref([]);
 
 // 初始化資料
 onMounted(() => {
-  const saved = localStorage.getItem(STORAGE_KEY);
+  const saved =
+    localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
   if (saved) {
     list.value = JSON.parse(saved);
   } else {

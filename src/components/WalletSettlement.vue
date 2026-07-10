@@ -2,8 +2,10 @@
 import { computed } from 'vue';
 import { X, ArrowRightLeft, TrendingUp, TrendingDown, ArrowRight } from 'lucide-vue-next';
 import { useUserStore } from '@/store/userStore';
+import { useTripStore } from '@/store/tripStore';
 
 const userStore = useUserStore();
+const tripStore = useTripStore();
 
 const props = defineProps({
   visible: Boolean,
@@ -140,7 +142,7 @@ const close = () => emit('update:visible', false);
                 <span class="text-[10px] font-black uppercase tracking-widest">已支付總額</span>
               </div>
               <p class="text-xl font-black text-slate-800 tracking-tighter">
-                ₩{{ Math.round(myStats.paid).toLocaleString() }}
+                {{ tripStore.currencySymbol }}{{ Math.round(myStats.paid).toLocaleString() }}
               </p>
               <p class="text-[9px] font-bold text-slate-300 mt-1">實際墊付的金額</p>
             </div>
@@ -150,7 +152,7 @@ const close = () => emit('update:visible', false);
                 <span class="text-[10px] font-black uppercase tracking-widest">應支付總額</span>
               </div>
               <p class="text-xl font-black text-slate-800 tracking-tighter">
-                ₩{{ Math.round(myStats.owed).toLocaleString() }}
+                {{ tripStore.currencySymbol }}{{ Math.round(myStats.owed).toLocaleString() }}
               </p>
               <p class="text-[9px] font-bold text-slate-300 mt-1">我應分攤的總額</p>
             </div>
@@ -197,7 +199,7 @@ const close = () => emit('update:visible', false);
                     {{ t.from.id === userStore.myParticipant?.id ? '應支付' : '應收取' }}
                   </p>
                   <p class="text-lg font-black text-slate-800 tracking-tighter">
-                    ₩{{ t.amount.toLocaleString() }}
+                    {{ tripStore.currencySymbol }}{{ t.amount.toLocaleString() }}
                   </p>
                 </div>
               </div>
@@ -229,7 +231,7 @@ const close = () => emit('update:visible', false);
                 <span>{{ t.from.name }}</span>
                 <ArrowRight :size="10" />
                 <span>{{ t.to.name }}</span>
-                <span class="text-slate-600">₩{{ t.amount.toLocaleString() }}</span>
+                <span class="text-slate-600">{{ tripStore.currencySymbol }}{{ t.amount.toLocaleString() }}</span>
               </div>
             </div>
           </div>

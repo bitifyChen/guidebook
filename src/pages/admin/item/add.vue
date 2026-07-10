@@ -311,7 +311,7 @@ const handleSave = async () => {
   {
     name: "AdminItemAddPage",
     meta: {
-      layout: "empty"
+      layout: "admin"
     }
   }
 </route>

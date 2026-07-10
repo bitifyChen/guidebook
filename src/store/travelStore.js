@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { getItinerary, getDayConfigs, getGlobalVersion } from '@/api/itinerary';
+import { useTripStore } from '@/store/tripStore';
 import dayjs from 'dayjs';
 export const useTravelStore = defineStore('travel', {
   state: () => ({
@@ -32,6 +33,8 @@ export const useTravelStore = defineStore('travel', {
     },
     //行程日期-當天
     currentDay: (state) => {
+      const tripStore = useTripStore();
+      if (tripStore.isTimeLocked) return null;
       const today = dayjs().format('YYYY/MM/DD');
       const configForToday = state.config.find((c) => c.date === today);
       return configForToday ? configForToday.day : null;
@@ -105,7 +108,17 @@ export const useTravelStore = defineStore('travel', {
     },
     // --- 核心：從 Firebase 初始化資料 ---
     async init() {
-      const CACHE_KEY = 'jeju_travel_cache';
+      const tripStore = useTripStore();
+      if (!tripStore.currentTripId) await tripStore.init();
+      if (!tripStore.currentTripId) {
+        this.itinerary = [];
+        this.config = [];
+        this.selectedDay = 1;
+        return;
+      }
+      const cacheScope = tripStore.currentTripId || 'legacy';
+      const CACHE_KEY = `guidebook_${cacheScope}_travel_cache`;
+      const SELECTED_DAY_KEY = `guidebook_${cacheScope}_selected_day`;
 
       // 1. 先抓取本地快取並立即呈現 (Stale-while-revalidate)
       let localCache = null;
@@ -115,7 +128,9 @@ export const useTravelStore = defineStore('travel', {
           localCache = JSON.parse(raw);
           this.itinerary = localCache.itinerary;
           this.config = localCache.config;
-          this.selectedDay = this.currentDay;
+          const savedDay = Number(localStorage.getItem(SELECTED_DAY_KEY));
+          this.selectedDay =
+            savedDay || (tripStore.isTimeLocked ? this.selectedDay : this.currentDay) || 1;
         }
       } catch (e) {
         console.warn('Cache load failed', e);
@@ -146,7 +161,12 @@ export const useTravelStore = defineStore('travel', {
           const target = configRes.data.find((doc) => doc.id === 'dayConfigs');
           if (target && target.list) {
             this.config = target.list;
-            this.selectedDay = this.currentDay;
+            const savedDay = Number(localStorage.getItem(SELECTED_DAY_KEY));
+            this.selectedDay =
+              savedDay ||
+              (tripStore.isTimeLocked ? this.selectedDay : this.currentDay) ||
+              this.config[0]?.day ||
+              1;
           }
         }
 
@@ -169,6 +189,15 @@ export const useTravelStore = defineStore('travel', {
 
     setSelectedDay(day) {
       this.selectedDay = day;
+      const tripStore = useTripStore();
+      const cacheScope = tripStore.currentTripId || 'legacy';
+      localStorage.setItem(`guidebook_${cacheScope}_selected_day`, String(day));
+    },
+    clear() {
+      this.config = [];
+      this.itinerary = [];
+      this.selectedDay = 1;
+      this.imageStatus = {};
     },
     setNow(time) {
       this.now = time;

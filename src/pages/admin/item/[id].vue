@@ -486,7 +486,7 @@ const handleDelete = async () => {
   {
     name: "AdminItemDetailPage",
     meta: {
-      layout: "empty"
+      layout: "admin"
     }
   }
 </route>

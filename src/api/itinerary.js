@@ -9,10 +9,20 @@ import {
   updateDoc,
   deleteDoc,
   query,
-  orderBy,
+  where,
   serverTimestamp,
   writeBatch,
 } from 'firebase/firestore';
+import {
+  assertCurrentTripWritable,
+  getLegacyGlobalDayConfigRef,
+  getLegacyTripDayConfigRef,
+  getTripCollectionRef,
+  getTripDayConfigRef,
+  getTripDocRef,
+  getTripMetadataRef,
+  resolveTripId,
+} from '@/api/trips';
 
 const db = getFirestore(app);
 
@@ -21,7 +31,10 @@ const db = getFirestore(app);
 // 將此邏輯私有化或維持導出，但在寫入操作中自動呼叫
 export const updateGlobalVersion = async () => {
   try {
-    const docRef = doc(db, 'metadata', 'travel');
+    const tripId = await resolveTripId();
+    const docRef = tripId
+      ? getTripMetadataRef(tripId, 'travel')
+      : doc(db, 'metadata', 'travel');
     await setDoc(docRef, { lastUpdate: Date.now() }, { merge: true });
   } catch (e) {
     console.error('Failed to update version:', e);
@@ -30,8 +43,14 @@ export const updateGlobalVersion = async () => {
 
 export const getGlobalVersion = async () => {
   try {
-    const docRef = doc(db, 'metadata', 'travel');
-    const snap = await getDoc(docRef);
+    const tripId = await resolveTripId();
+    const docRef = tripId
+      ? getTripMetadataRef(tripId, 'travel')
+      : doc(db, 'metadata', 'travel');
+    let snap = await getDoc(docRef);
+    if (!snap.exists() && tripId) {
+      snap = await getDoc(doc(db, 'metadata', `travel_${tripId}`));
+    }
     return snap.exists() ? snap.data() : { lastUpdate: 0 };
   } catch (e) {
     return { lastUpdate: 0 };
@@ -47,12 +66,23 @@ export const getGlobalVersion = async () => {
 export const getItinerary = () => {
   return new Promise(async (resolve, reject) => {
     try {
-      const q = query(collection(db, 'itinerary'), orderBy('order', 'asc'));
-      const querySnapshot = await getDocs(q);
+      const tripId = await resolveTripId();
+      if (!tripId) {
+        resolve({ status: 200, data: [] });
+        return;
+      }
+      let querySnapshot = await getDocs(
+        getTripCollectionRef(tripId, 'itinerary')
+      );
+      if (querySnapshot.empty) {
+        querySnapshot = await getDocs(
+          query(collection(db, 'itinerary'), where('tripId', '==', tripId))
+        );
+      }
       const data = querySnapshot.docs.map((doc) => ({
         ...doc.data(),
         id: doc.id,
-      }));
+      })).sort((a, b) => (a.order || 0) - (b.order || 0));
       resolve({ status: 200, data });
     } catch (error) {
       reject(error);
@@ -67,10 +97,14 @@ export const getItinerary = () => {
 export const postItineraryItem = (params) => {
   return new Promise(async (resolve, reject) => {
     try {
-      const itineraryRef = collection(db, 'itinerary');
+      await assertCurrentTripWritable();
+      const tripId = await resolveTripId();
+      if (!tripId) throw new Error('請先選擇旅程');
+      const itineraryRef = getTripCollectionRef(tripId, 'itinerary');
       const docRef = doc(itineraryRef);
       await setDoc(docRef, {
         ...params,
+        ...(tripId ? { tripId } : {}),
         updatedAt: serverTimestamp(),
       });
       // 自動更新全域版本
@@ -88,10 +122,14 @@ export const postItineraryItem = (params) => {
 export const patchItineraryItem = (id, params) => {
   return new Promise(async (resolve, reject) => {
     try {
-      const docRef = doc(db, 'itinerary', id);
+      await assertCurrentTripWritable();
+      const tripId = await resolveTripId();
+      if (!tripId) throw new Error('請先選擇旅程');
+      const docRef = getTripDocRef(tripId, 'itinerary', id);
       await updateDoc(docRef, {
         ...params,
         id,
+        ...(tripId ? { tripId } : {}),
         updatedAt: serverTimestamp(),
       });
       // 自動更新全域版本
@@ -109,7 +147,10 @@ export const patchItineraryItem = (id, params) => {
 export const deleteItineraryItem = (id) => {
   return new Promise(async (resolve, reject) => {
     try {
-      await deleteDoc(doc(db, 'itinerary', id));
+      await assertCurrentTripWritable();
+      const tripId = await resolveTripId();
+      if (!tripId) throw new Error('請先選擇旅程');
+      await deleteDoc(getTripDocRef(tripId, 'itinerary', id));
       // 自動更新全域版本
       await updateGlobalVersion();
       resolve({ status: 200 });
@@ -125,10 +166,12 @@ export const deleteItineraryItem = (id) => {
  * @param {Array} newItems - 來自 JSON 的新行程陣列
  */
 export const bulkUpdateItinerary = async (newItems) => {
-  const batch = writeBatch(db);
-  const itineraryRef = collection(db, 'itinerary');
-
   try {
+    await assertCurrentTripWritable();
+    const tripId = await resolveTripId();
+    if (!tripId) throw new Error('請先選擇旅程');
+    const batch = writeBatch(db);
+    const itineraryRef = getTripCollectionRef(tripId, 'itinerary');
     // 1. 取得目前資料庫所有項目
     const { data: currentItems } = await getItinerary();
     const currentIds = currentItems.map((item) => item.id);
@@ -137,7 +180,7 @@ export const bulkUpdateItinerary = async (newItems) => {
     // 2. 處理刪除 (存在於 current 但不存在於 new)
     const toDelete = currentItems.filter((item) => !newIds.includes(item.id));
     toDelete.forEach((item) => {
-      const docRef = doc(db, 'itinerary', item.id);
+      const docRef = getTripDocRef(tripId, 'itinerary', item.id);
       batch.delete(docRef);
     });
 
@@ -147,9 +190,10 @@ export const bulkUpdateItinerary = async (newItems) => {
       if (id && currentIds.includes(id)) {
         // 更新 (排除不需要寫入的計算欄位，例如 startTime, endTime)
         const { startTime, endTime, ...rest } = content;
-        const docRef = doc(db, 'itinerary', id);
+        const docRef = getTripDocRef(tripId, 'itinerary', id);
         batch.update(docRef, {
           ...rest,
+          ...(tripId ? { tripId } : {}),
           updatedAt: serverTimestamp(),
         });
       } else {
@@ -157,6 +201,7 @@ export const bulkUpdateItinerary = async (newItems) => {
         const docRef = id ? doc(itineraryRef, id) : doc(itineraryRef);
         batch.set(docRef, {
           ...content,
+          ...(tripId ? { tripId } : {}),
           updatedAt: serverTimestamp(),
         });
       }
@@ -182,12 +227,23 @@ export const bulkUpdateItinerary = async (newItems) => {
 export const getDayConfigs = () => {
   return new Promise(async (resolve, reject) => {
     try {
-      const querySnapshot = await getDocs(collection(db, 'configs'));
-      const data = querySnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      resolve({ status: 200, data });
+      const tripId = await resolveTripId();
+      if (tripId) {
+        let snap = await getDoc(getTripDayConfigRef(tripId));
+        if (!snap.exists()) {
+          snap = await getDoc(getLegacyTripDayConfigRef(tripId));
+        }
+        if (!snap.exists()) {
+          snap = await getDoc(getLegacyGlobalDayConfigRef());
+        }
+        const data = snap.exists()
+          ? [{ id: 'dayConfigs', ...snap.data(), tripId }]
+          : [];
+        resolve({ status: 200, data });
+        return;
+      }
+
+      resolve({ status: 200, data: [] });
     } catch (error) {
       reject(error);
     }
@@ -202,8 +258,18 @@ export const getDayConfigs = () => {
 export const patchDayConfig = (id, params) => {
   return new Promise(async (resolve, reject) => {
     try {
-      const docRef = doc(db, 'configs', id);
-      await updateDoc(docRef, params);
+      await assertCurrentTripWritable();
+      const tripId = await resolveTripId();
+      const docRef = tripId ? getTripDayConfigRef(tripId) : doc(db, 'configs', id);
+      await setDoc(
+        docRef,
+        {
+          ...params,
+          ...(tripId ? { tripId } : {}),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
       // 自動更新全域版本
       await updateGlobalVersion();
       resolve({ status: 200 });

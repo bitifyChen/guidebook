@@ -10,6 +10,7 @@ import {
   deleteWalletItem,
 } from '@/api/wallet';
 import { useParticipantsStore } from '@/store/participantsStore';
+import { useTripStore } from '@/store/tripStore';
 import { lockScroll, unlockScroll } from '@/utils/scrollLock';
 import WalletAnalysis from '@/components/WalletAnalysis.vue';
 import WalletSettlement from '@/components/WalletSettlement.vue';
@@ -29,6 +30,7 @@ import {
 const expensesStore = useExpensesStore();
 const participants = useParticipantsStore();
 const userStore = useUserStore();
+const tripStore = useTripStore();
 
 // 全選邏輯
 const isIndeterminate = computed(() => {
@@ -172,7 +174,7 @@ const onClose = () => {
           </p>
         </div>
         <div class="flex items-baseline gap-2">
-          <span class="text-xl font-bold text-orange-400">₩</span>
+          <span class="text-xl font-bold text-orange-400">{{ tripStore.currencySymbol }}</span>
           <h2 class="text-4xl font-black tracking-tight">
             {{ expensesStore.totalSpent.toLocaleString() }}
           </h2>
@@ -301,7 +303,7 @@ const onClose = () => {
         <el-form label-position="top" class="custom-form">
           <el-form-item>
             <template #label
-              ><span class="label-custom">支出金額 (₩)</span></template
+              ><span class="label-custom">支出金額 ({{ tripStore.currencySymbol }})</span></template
             >
             <el-input
               v-model="form.amount"

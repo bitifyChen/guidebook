@@ -8,6 +8,10 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AdminDataTable: typeof import('./components/admin/AdminDataTable.vue')['default']
+    AdminFormPanel: typeof import('./components/admin/AdminFormPanel.vue')['default']
+    AdminNavMenuItem: typeof import('./components/admin/AdminNavMenuItem.vue')['default']
+    AdminTripSelector: typeof import('./components/AdminTripSelector.vue')['default']
     CurrencyConverter: typeof import('./components/CurrencyConverter.vue')['default']
     ElButton: typeof import('element-plus/es')['ElButton']
     ElCheckbox: typeof import('element-plus/es')['ElCheckbox']
