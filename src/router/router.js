@@ -3,7 +3,7 @@ import generatedRoutes from 'virtual:generated-pages';
 
 const routes = generatedRoutes;
 const router = createRouter({
-  history: createWebHistory('/guidebook/'),
+  history: createWebHistory('/'),
   routes,
 });
 
@@ -33,7 +33,8 @@ const resolveSingleUserTrip = async (userStore, tripStore) => {
   const seenTripIds = new Set();
 
   for (const membership of memberships) {
-    const tripIds = membership.tripIds || (membership.tripId ? [membership.tripId] : []);
+    const tripIds =
+      membership.tripIds || (membership.tripId ? [membership.tripId] : []);
     for (const tripId of tripIds) {
       if (!tripId || seenTripIds.has(tripId)) continue;
       const trip = await getTripById(tripId);
@@ -89,7 +90,10 @@ router.beforeEach(async (to, from, next) => {
       return next({ path: '/admin/login', query: { redirect: to.fullPath } });
     }
 
-    if (tripStore.currentTripId && participantsStore.participants.length === 0) {
+    if (
+      tripStore.currentTripId &&
+      participantsStore.participants.length === 0
+    ) {
       await participantsStore.init();
     }
 

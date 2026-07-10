@@ -13,7 +13,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  base: '/guidebook/',
+  base: '/',
   plugins: [
     vue(),
     MetaLayouts(),
@@ -56,7 +56,8 @@ export default defineConfig({
         skipWaiting: true,
         runtimeCaching: [
           {
-            urlPattern: /^https:\/\/(i\.ibb\.co|firebasestorage\.googleapis\.com)/,
+            urlPattern:
+              /^https:\/\/(i\.ibb\.co|firebasestorage\.googleapis\.com)/,
             handler: 'CacheFirst',
             options: {
               cacheName: 'external-images',
