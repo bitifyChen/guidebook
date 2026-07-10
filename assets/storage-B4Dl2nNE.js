@@ -1,0 +1,1 @@
+const t=async a=>{const s="3b8a790244de3e1c68ed273c740152fe",o=new FormData;o.append("image",a);try{const r=await(await fetch(`https://api.imgbb.com/1/upload?key=${s}`,{method:"POST",body:o})).json();if(r.success)return r.data.url;throw new Error(r.error.message||"上傳失敗")}catch(e){throw console.error("ImgBB Upload Error:",e),e}};export{t as u};
