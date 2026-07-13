@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: guidebook-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: FIREBASE_RTDB_URL
+        sync: false
+      - key: FIREBASE_CREDENTIALS_PATH
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
