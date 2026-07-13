@@ -64,7 +64,7 @@ Option B: create a Web Service manually:
 Environment variables:
 
 - `FIREBASE_RTDB_URL`
-- `FIREBASE_CREDENTIALS_PATH`
+- `FIREBASE_CREDENTIALS_PATH` (optional when the Render Secret File is named `firebase.json`)
 - `CORS_ALLOWED_ORIGINS`
 
 ## Render Secret File
@@ -78,5 +78,8 @@ Use Render Secret Files for the Firebase service account:
 ```text
 FIREBASE_CREDENTIALS_PATH=/etc/secrets/firebase.json
 ```
+
+If `FIREBASE_CREDENTIALS_PATH` is not set, the backend will still try
+`/etc/secrets/firebase.json` and then `firebase.json` before failing.
 
 Do not commit the service account JSON into this repository.
