@@ -123,7 +123,7 @@ onMounted(() => {
 <template>
   <div class="space-y-4">
     <WeatherCard :weather="weather" :city="tripStore.context.weatherCity" />
-    <section>
+    <section v-if="!tripStore.isPublicTrip">
       <div class="grid grid-cols-2 gap-4">
         <router-link to="/wallet" class="block">
           <div
@@ -322,13 +322,13 @@ onMounted(() => {
             <div class="flex flex-col items-center gap-2">
               <Leaf :size="40" class="text-white fill-white/20 mb-1" />
               <h3 class="text-3xl font-black text-white tracking-wider">
-                胖胖的夥伴
+                旅遊的夥伴
               </h3>
               <div class="bg-white/20 px-4 py-1 rounded-full">
                 <p
                   class="text-xs font-black text-white uppercase tracking-[0.2em]"
                 >
-                  {{ participants.participants.length }} 個人一起胖胖的旅行
+                  {{ participants.participants.length }} 個人一起的旅行
                 </p>
               </div>
             </div>

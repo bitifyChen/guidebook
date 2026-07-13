@@ -4,6 +4,7 @@ import { useParticipantsStore } from '@/store/participantsStore';
 import { useTripStore } from '@/store/tripStore';
 import { uploadImage } from '@/api/storage';
 import AdminDataTable from '@/components/admin/AdminDataTable.vue';
+import AdminDrawer from '@/components/admin/AdminDrawer.vue';
 import {
   Check,
   Copy,
@@ -14,9 +15,7 @@ import {
   Trash2,
   Upload,
   User,
-  X,
 } from 'lucide-vue-next';
-import { lockScroll, unlockScroll } from '@/utils/scrollLock';
 
 const participantsStore = useParticipantsStore();
 const tripStore = useTripStore();
@@ -25,6 +24,7 @@ const isDrawerOpen = ref(false);
 const isUploading = ref(false);
 const isSaving = ref(false);
 const copiedId = ref(null);
+const copiedToken = ref('');
 const editingId = ref('');
 const fileInput = ref(null);
 const tripSearch = ref('');
@@ -46,6 +46,7 @@ const columns = [
   { key: 'member', label: '成員' },
   { key: 'inviteCode', label: '邀請碼' },
   { key: 'trips', label: '參加旅程' },
+  { key: 'notification', label: '通知' },
   { key: 'role', label: '權限' },
 ];
 
@@ -98,6 +99,56 @@ const selectableTrips = computed(() => {
   );
 });
 
+const editingParticipant = computed(() =>
+  participantsStore.participants.find((participant) => participant.id === editingId.value)
+);
+
+const getNotificationTripId = () => appliedSearch.value.tripId || '';
+
+const getPushTokens = (participant, tripId = getNotificationTripId()) => {
+  if (!participant) return [];
+  const tokens = Array.isArray(participant.pushTokens)
+    ? participant.pushTokens
+    : participant.pushToken
+      ? [{ token: participant.pushToken, tripId }]
+      : [];
+  return tokens.filter(
+    (item) =>
+      item?.token &&
+      (!tripId || !item.tripId || item.tripId === tripId) &&
+      item.permission !== 'denied'
+  );
+};
+
+const getNotificationStatus = (participant, tripId = getNotificationTripId()) => {
+  if (getPushTokens(participant, tripId).length > 0) return 'enabled';
+  const preferences = participant?.notificationPreferences || {};
+  const tripPreference = tripId ? preferences[tripId] : '';
+  const hasDeniedPreference = tripId
+    ? tripPreference === 'denied'
+    : Object.values(preferences).includes('denied');
+  if (hasDeniedPreference) {
+    return 'denied';
+  }
+  return 'disabled';
+};
+
+const getNotificationLabel = (participant) => {
+  const status = getNotificationStatus(participant);
+  if (status === 'enabled') return '已啟用';
+  if (status === 'denied') return '拒絕';
+  return '未啟用';
+};
+
+const getNotificationClass = (participant) => {
+  const status = getNotificationStatus(participant);
+  if (status === 'enabled') return 'bg-green-100 text-green-700';
+  if (status === 'denied') return 'bg-red-100 text-red-700';
+  return 'bg-slate-100 text-slate-500';
+};
+
+const hasPushEnabled = (participant) => getNotificationStatus(participant) === 'enabled';
+
 const filteredParticipants = computed(() => {
   const filters = appliedSearch.value;
   const keyword = filters.keyword.trim().toLowerCase();
@@ -133,11 +184,6 @@ watch(
     };
   }
 );
-
-watch(isDrawerOpen, (value) => {
-  if (value) lockScroll();
-  else unlockScroll();
-});
 
 onMounted(async () => {
   await tripStore.init();
@@ -186,6 +232,15 @@ const copyInviteCode = (code, id) => {
   copiedId.value = id;
   setTimeout(() => {
     copiedId.value = null;
+  }, 2000);
+};
+
+const copyPushToken = async (token) => {
+  if (!token) return;
+  await navigator.clipboard.writeText(token);
+  copiedToken.value = token;
+  setTimeout(() => {
+    copiedToken.value = '';
   }, 2000);
 };
 
@@ -357,6 +412,15 @@ const deleteCurrentParticipant = async () => {
         </div>
       </template>
 
+      <template #notification="{ row }">
+        <span
+          class="inline-flex items-center rounded-lg px-2 py-1 text-[10px] font-black"
+          :class="getNotificationClass(row)"
+        >
+          {{ getNotificationLabel(row) }}
+        </span>
+      </template>
+
       <template #role="{ row }">
         <div class="flex flex-wrap gap-2">
           <span
@@ -391,18 +455,15 @@ const deleteCurrentParticipant = async () => {
       </template>
     </AdminDataTable>
 
-    <Teleport to="body">
-      <div v-if="isDrawerOpen" class="fixed inset-0 z-[80] flex justify-end">
-        <div class="absolute inset-0 bg-slate-950/40" @click="closeDrawer"></div>
-        <aside class="relative h-full w-full max-w-md bg-white shadow-2xl flex flex-col">
-          <header class="h-16 px-5 border-b border-slate-200 flex items-center justify-between">
-            <h3 class="font-black text-slate-900">{{ editingId ? '編輯成員' : '新增成員' }}</h3>
-            <button @click="closeDrawer" class="w-10 h-10 rounded-xl bg-slate-50 text-slate-400 flex items-center justify-center">
-              <X :size="20" />
-            </button>
-          </header>
-
-          <div class="flex-1 overflow-y-auto p-5 space-y-6">
+    <AdminDrawer
+      v-model="isDrawerOpen"
+      :title="editingId ? '編輯成員' : '新增成員'"
+      size="sm"
+      :z-index="80"
+      @close="closeDrawer"
+    >
+      <div class="flex h-full min-h-0 flex-col bg-white">
+        <div class="flex-1 overflow-y-auto p-5 space-y-6">
             <section class="flex flex-col items-center">
               <div class="w-24 h-24 rounded-2xl bg-slate-50 border border-slate-200 overflow-hidden flex items-center justify-center text-slate-300 relative">
                 <img
@@ -501,6 +562,61 @@ const deleteCurrentParticipant = async () => {
               </button>
             </section>
 
+            <section v-if="editingId" class="rounded-2xl border border-slate-100 bg-slate-50 p-4 space-y-3">
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <h4 class="font-black text-slate-800">推播通知</h4>
+                  <p class="text-xs font-bold text-slate-400 mt-1">
+                    {{
+                      getNotificationStatus(editingParticipant) === 'enabled'
+                        ? '此成員已綁定推播 Token'
+                        : getNotificationStatus(editingParticipant) === 'denied'
+                          ? '此成員已拒絕接收通知'
+                          : '此成員尚未啟用推播'
+                    }}
+                  </p>
+                </div>
+                <span
+                  class="rounded-lg px-2 py-1 text-[10px] font-black"
+                  :class="getNotificationClass(editingParticipant)"
+                >
+                  {{ getNotificationLabel(editingParticipant) }}
+                </span>
+              </div>
+
+              <div v-if="hasPushEnabled(editingParticipant)" class="space-y-2">
+                <div
+                  v-for="item in getPushTokens(editingParticipant)"
+                  :key="item.token"
+                  class="rounded-xl border border-slate-200 bg-white p-3 space-y-2"
+                >
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-[10px] font-black text-slate-400">
+                      {{ item.platform || 'web' }}
+                      <span v-if="item.updatedAt"> · {{ new Date(item.updatedAt).toLocaleString() }}</span>
+                    </span>
+                    <button
+                      @click="copyPushToken(item.token)"
+                      class="h-8 px-3 rounded-lg bg-slate-50 text-slate-600 text-xs font-black inline-flex items-center gap-1"
+                    >
+                      <component
+                        :is="copiedToken === item.token ? Check : Copy"
+                        :size="13"
+                        :class="copiedToken === item.token ? 'text-green-500' : 'text-slate-400'"
+                      />
+                      複製
+                    </button>
+                  </div>
+                  <textarea
+                    :value="item.token"
+                    readonly
+                    rows="3"
+                    class="w-full resize-none rounded-lg border border-slate-100 bg-slate-50 p-2 font-mono text-[11px] font-bold text-slate-500 outline-none"
+                  ></textarea>
+                </div>
+              </div>
+            </section>
+
             <section v-if="editingId" class="rounded-2xl border border-red-100 bg-red-50 p-4">
               <h4 class="font-black text-red-700 mb-2">刪除成員</h4>
               <p class="text-xs font-bold text-red-400 leading-relaxed mb-3">
@@ -514,25 +630,24 @@ const deleteCurrentParticipant = async () => {
                 刪除成員
               </button>
             </section>
-          </div>
+        </div>
 
-          <footer class="p-5 border-t border-slate-200 flex justify-end gap-3">
-            <button @click="closeDrawer" class="h-11 px-5 rounded-xl bg-slate-50 text-slate-600 font-black text-sm">
-              取消
-            </button>
-            <button
-              @click="saveParticipant"
-              :disabled="isSaving || isUploading"
-              class="h-11 px-5 rounded-xl bg-indigo-600 text-white font-black text-sm flex items-center gap-2 disabled:opacity-50 hover:bg-indigo-700"
-            >
-              <Loader2 v-if="isSaving" class="animate-spin" :size="16" />
-              <Save v-else :size="16" />
-              儲存
-            </button>
-          </footer>
-        </aside>
+        <footer class="p-5 border-t border-slate-200 flex justify-end gap-3">
+          <button @click="closeDrawer" class="h-11 px-5 rounded-xl bg-slate-50 text-slate-600 font-black text-sm">
+            取消
+          </button>
+          <button
+            @click="saveParticipant"
+            :disabled="isSaving || isUploading"
+            class="h-11 px-5 rounded-xl bg-indigo-600 text-white font-black text-sm flex items-center gap-2 disabled:opacity-50 hover:bg-indigo-700"
+          >
+            <Loader2 v-if="isSaving" class="animate-spin" :size="16" />
+            <Save v-else :size="16" />
+            儲存
+          </button>
+        </footer>
       </div>
-    </Teleport>
+    </AdminDrawer>
   </main>
 </template>
 

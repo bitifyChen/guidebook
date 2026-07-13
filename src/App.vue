@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, onUnmounted, computed, watch } from 'vue';
+import { onMounted, onUnmounted, computed, ref, watch } from 'vue';
 import { useTravelStore } from '@/store/travelStore';
 import { useExpensesStore } from '@/store/expensesStore';
 import { useParticipantsStore } from '@/store/participantsStore';
@@ -38,7 +38,11 @@ let hasInitializedFrontendStores = false;
 let manifestObjectUrl = '';
 
 let timer = null;
+const isAppBooting = ref(true);
 const isAdminLayout = computed(() => route.meta.layout === 'admin');
+const shouldShowAppBoot = computed(
+  () => isAppBooting.value && !isAdminLayout.value
+);
 
 const initFrontendStores = () => {
   if (isAdminLayout.value || hasInitializedFrontendStores) return;
@@ -50,6 +54,7 @@ const initFrontendStores = () => {
 
 const updateAppIdentity = () => {
   const appName = tripStore.currentTrip?.title || 'Guidebook';
+  const startUrl = tripStore.currentTrip ? '/' : '/settings';
   document.title = appName;
   const appleTitle = document.querySelector(
     'meta[name="apple-mobile-web-app-title"]'
@@ -60,7 +65,7 @@ const updateAppIdentity = () => {
     name: appName,
     short_name: appName.slice(0, 12),
     description: `${appName} 旅程手冊`,
-    start_url: '/',
+    start_url: startUrl,
     scope: '/',
     display: 'standalone',
     theme_color: '#FF8C00',
@@ -87,9 +92,13 @@ const updateAppIdentity = () => {
 };
 
 onMounted(async () => {
-  await tripStore.init();
-  updateAppIdentity();
-  initFrontendStores();
+  try {
+    await tripStore.init();
+    updateAppIdentity();
+    initFrontendStores();
+  } finally {
+    isAppBooting.value = false;
+  }
 
   // 每 30 秒更新一次全域時間
   timer = setInterval(() => {
@@ -118,6 +127,20 @@ onUnmounted(() => {
     <router-view />
   </component>
   <IOSInstallPrompt v-if="!isAdminLayout" />
+  <Transition name="boot-fade">
+    <div v-if="shouldShowAppBoot" class="app-loading-screen">
+      <div class="app-loading-card">
+        <img src="/192.png" alt="Guidebook" class="app-loading-icon" />
+        <div>
+          <div class="app-loading-title">
+            {{ tripStore.currentTrip?.title || 'Guidebook' }}
+          </div>
+          <div class="app-loading-text">正在載入旅程資料</div>
+        </div>
+        <div class="app-loading-spinner"></div>
+      </div>
+    </div>
+  </Transition>
 </template>
 
 <style>
@@ -126,5 +149,67 @@ body {
   width: 100%;
   overflow-x: hidden;
   overflow-y: auto;
+}
+
+.app-loading-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff4e6;
+  color: #1e293b;
+}
+
+.app-loading-card {
+  width: min(280px, calc(100vw - 48px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  text-align: center;
+}
+
+.app-loading-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 20px;
+  box-shadow: 0 16px 40px rgba(255, 140, 0, 0.25);
+}
+
+.app-loading-title {
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.app-loading-text {
+  font-size: 12px;
+  font-weight: 700;
+  color: #94a3b8;
+}
+
+.app-loading-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(255, 140, 0, 0.2);
+  border-top-color: #ff8c00;
+  border-radius: 999px;
+  animation: app-loading-spin 0.8s linear infinite;
+}
+
+.boot-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.boot-fade-leave-to {
+  opacity: 0;
+}
+
+@keyframes app-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

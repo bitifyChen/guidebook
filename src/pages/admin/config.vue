@@ -8,6 +8,9 @@ import dayjs from 'dayjs';
 
 const router = useRouter();
 const travelStore = useTravelStore();
+const props = defineProps({
+  embedded: { type: Boolean, default: false },
+});
 
 onMounted(() => travelStore.init());
 
@@ -47,9 +50,12 @@ const updateConfig = async () => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50 pb-20">
+  <div :class="props.embedded ? 'bg-slate-50 pb-8' : 'min-h-screen bg-slate-50 pb-20'">
     <!-- ... (導航列保持不變) ... -->
-    <nav class="p-6 sticky top-0 bg-slate-50/80 backdrop-blur-md z-40 flex items-center justify-between">
+    <nav
+      v-if="!props.embedded"
+      class="p-6 sticky top-0 bg-slate-50/80 backdrop-blur-md z-40 flex items-center justify-between"
+    >
       <button @click="router.push('/admin')" class="w-10 h-10 bg-white rounded-2xl flex items-center justify-center shadow-sm border border-slate-100">
         <ChevronLeft :size="20" />
       </button>
@@ -59,7 +65,7 @@ const updateConfig = async () => {
       </button>
     </nav>
 
-    <main class="max-w-4xl mx-auto p-6">
+    <main :class="props.embedded ? 'p-5' : 'max-w-4xl mx-auto p-6'">
       <div class="space-y-4">
         <div v-for="(conf, index) in travelStore.config" :key="conf.day" class="bg-white rounded-[24px] p-6 shadow-sm border border-slate-100 space-y-4">
           <div class="flex items-center gap-4 border-b border-slate-50 pb-4">

@@ -58,7 +58,7 @@ onBackgroundMessage(messaging, (payload) => {
   const title = payload.data?.title || '旅程新動態';
   const options = {
     body: payload.data?.body || '收到一則新訊息',
-    icon: '/192.png', // 使用你 manifest 裡定義的橘色 icon
+    icon: '/192.png', // 使用 manifest 裡定義的 app icon
     badge: '/192.png',
     image: payload.data?.image,
   };

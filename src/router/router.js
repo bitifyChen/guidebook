@@ -66,6 +66,9 @@ router.beforeEach(async (to, from, next) => {
   const userStore = useUserStore();
   const participantsStore = useParticipantsStore();
   const tripStore = useTripStore();
+  const isAdminRoute = to.path.startsWith('/admin');
+  const isAdminLoginRoute = to.path === '/admin/login';
+  const isGateRoute = isSettingsRoute(to.path) || isAdminLoginRoute;
 
   if (!userStore.isAuthReady) {
     await userStore.initAuth();
@@ -75,11 +78,9 @@ router.beforeEach(async (to, from, next) => {
     await tripStore.init();
   }
 
-  await resolveSingleUserTrip(userStore, tripStore);
-
-  const isAdminRoute = to.path.startsWith('/admin');
-  const isAdminLoginRoute = to.path === '/admin/login';
-  const isGateRoute = isSettingsRoute(to.path) || isAdminLoginRoute;
+  if (!isGateRoute) {
+    await resolveSingleUserTrip(userStore, tripStore);
+  }
 
   if (isAdminRoute) {
     if (isAdminLoginRoute) {
@@ -110,7 +111,15 @@ router.beforeEach(async (to, from, next) => {
     return next({ path: SETTINGS_PATH });
   }
 
-  if (tripStore.currentTripId && participantsStore.participants.length === 0) {
+  if (tripStore.isPublicTrip && to.path === '/wallet') {
+    return next({ path: '/' });
+  }
+
+  if (
+    tripStore.currentTripId &&
+    !tripStore.isPublicTrip &&
+    participantsStore.participants.length === 0
+  ) {
     await participantsStore.init();
   }
 

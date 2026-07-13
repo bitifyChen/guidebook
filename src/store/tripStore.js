@@ -7,21 +7,43 @@ import {
   getCurrentTripId,
   getTripByInviteCode,
   getTripById,
+  getTripByPublicCode,
   getTrips,
   patchTrip,
   setActiveTrip,
   setCurrentTripId,
 } from '@/api/trips';
 import {
+  getParticipantByGuestId,
   getParticipantByInviteCode,
+  getOrCreateTripInviteParticipant,
   patchParticipant,
 } from '@/api/participants';
+
+const GUEST_ID_KEY = 'guidebook_guest_id';
+const ACCESS_MODE_KEY = 'guidebook_access_mode';
+export const ACCESS_MODES = {
+  MEMBER: 'member',
+  PUBLIC_TRIP: 'publicTrip',
+};
+
+const getLocalGuestId = () => {
+  let guestId = localStorage.getItem(GUEST_ID_KEY);
+  if (!guestId) {
+    guestId = crypto.randomUUID
+      ? crypto.randomUUID()
+      : `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(GUEST_ID_KEY, guestId);
+  }
+  return guestId;
+};
 
 export const useTripStore = defineStore('trip', {
   state: () => ({
     trips: [],
     currentTrip: null,
     currentTripId: getCurrentTripId(),
+    accessMode: localStorage.getItem(ACCESS_MODE_KEY) || ACCESS_MODES.MEMBER,
     isLoading: false,
   }),
 
@@ -39,6 +61,7 @@ export const useTripStore = defineStore('trip', {
       state.currentTrip?.currencySymbol || DEFAULT_TRIP_CONTEXT.currencySymbol,
     currencyCode: (state) =>
       state.currentTrip?.currencyCode || DEFAULT_TRIP_CONTEXT.currencyCode,
+    isPublicTrip: (state) => state.accessMode === ACCESS_MODES.PUBLIC_TRIP,
   },
 
   actions: {
@@ -85,12 +108,28 @@ export const useTripStore = defineStore('trip', {
       this.currentTrip = trip;
       this.currentTripId = trip?.id || '';
       setCurrentTripId(this.currentTripId);
+      this.setAccessMode(ACCESS_MODES.MEMBER);
       return trip;
+    },
+
+    async switchPublicTrip(tripId) {
+      const trip = await getTripById(tripId);
+      this.currentTrip = trip;
+      this.currentTripId = trip?.id || '';
+      setCurrentTripId(this.currentTripId);
+      this.setAccessMode(ACCESS_MODES.PUBLIC_TRIP);
+      return trip;
+    },
+
+    setAccessMode(mode = ACCESS_MODES.MEMBER) {
+      this.accessMode = mode;
+      localStorage.setItem(ACCESS_MODE_KEY, mode);
     },
 
     clearCurrentTrip() {
       this.currentTrip = null;
       this.currentTripId = '';
+      this.setAccessMode(ACCESS_MODES.MEMBER);
       setCurrentTripId('');
     },
 
@@ -120,17 +159,50 @@ export const useTripStore = defineStore('trip', {
     },
 
     async joinByInviteCode(inviteCode, profile = {}) {
+      const publicTrip = await getTripByPublicCode(inviteCode);
+      if (publicTrip) {
+        if (publicTrip.status === 'archived') throw new Error('這個旅程已封存。');
+        const trip = await this.switchPublicTrip(publicTrip.id);
+        return {
+          status: 200,
+          mode: ACCESS_MODES.PUBLIC_TRIP,
+          trip,
+          participant: null,
+        };
+      }
+
       const trip = await getTripByInviteCode(inviteCode);
       if (trip) {
         if (trip.status === 'archived') throw new Error('這個旅程已封存。');
+        const guestId = profile.uid ? '' : getLocalGuestId();
+        const existingGuest = !profile.uid && guestId
+          ? await getParticipantByGuestId(guestId)
+          : null;
+        const guestName = profile.name?.trim() || existingGuest?.name || '';
+        if (!profile.uid && !guestName) {
+          return {
+            status: 301,
+            mode: 'guestNameRequired',
+            trip,
+          };
+        }
 
-        await this.switchTrip(trip.id);
+        const participant = await getOrCreateTripInviteParticipant(trip.id, {
+          ...profile,
+          guestId,
+          name: guestName || profile.email || '訪客',
+        });
+        const participantTrip = await this.switchTrip(trip.id);
 
         return {
           status: 200,
-          mode: 'guest',
-          trip,
-          participant: null,
+          mode: profile.uid ? 'participant' : 'guestParticipant',
+          trip: participantTrip,
+          participant: {
+            id: participant.id,
+            tripId: trip.id,
+          },
+          isNewParticipant: Boolean(participant.isNewParticipant),
         };
       }
 
@@ -138,6 +210,16 @@ export const useTripStore = defineStore('trip', {
       const participantTripIds =
         participant?.tripIds || (participant?.tripId ? [participant.tripId] : []);
       if (!participantTripIds.length) throw new Error('找不到這個 6 碼邀請碼。');
+
+      const currentParticipantId = localStorage.getItem(
+        `claimedParticipantId_${this.currentTripId}`
+      ) || localStorage.getItem('claimedParticipantId');
+      if (
+        (profile.uid || currentParticipantId) &&
+        currentParticipantId !== participant.id
+      ) {
+        throw new Error('目前已有登入身份，若要使用其他個人代碼，請先登出。');
+      }
 
       if (
         participant.isClaimed &&

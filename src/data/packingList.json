@@ -5,14 +5,14 @@
       { "name": "護照 (檢查效期)", "checked": false },
       { "name": "駕照與國際駕照", "checked": false },
       { "name": "機票與住宿憑證", "checked": false },
-      { "name": "美元現金(或韓元)", "checked": false },
+      { "name": "當地貨幣與備用現金", "checked": false },
       { "name": "海外刷卡信用卡", "checked": false }
     ]
   },
   {
     "category": "電子產品",
     "items": [
-      { "name": "轉接頭 (韓國用)", "checked": false },
+      { "name": "轉接頭 (依目的地規格)", "checked": false },
       { "name": "多孔充電頭", "checked": false },
       { "name": "行動電源", "checked": false },
       { "name": "各類充電線", "checked": false },

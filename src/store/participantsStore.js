@@ -20,7 +20,7 @@ export const useParticipantsStore = defineStore('participants', {
     async init() {
       const tripStore = useTripStore();
       if (!tripStore.currentTripId) await tripStore.init();
-      if (!tripStore.currentTripId) {
+      if (!tripStore.currentTripId || tripStore.isPublicTrip) {
         this.participants = [];
         return;
       }

@@ -9,7 +9,9 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     AdminDataTable: typeof import('./components/admin/AdminDataTable.vue')['default']
+    AdminDrawer: typeof import('./components/admin/AdminDrawer.vue')['default']
     AdminFormPanel: typeof import('./components/admin/AdminFormPanel.vue')['default']
+    AdminItineraryItemForm: typeof import('./components/admin/AdminItineraryItemForm.vue')['default']
     AdminNavMenuItem: typeof import('./components/admin/AdminNavMenuItem.vue')['default']
     AdminTripSelector: typeof import('./components/AdminTripSelector.vue')['default']
     CurrencyConverter: typeof import('./components/CurrencyConverter.vue')['default']

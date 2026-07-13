@@ -17,6 +17,8 @@ import {
 } from 'firebase/firestore';
 import {
   assertCurrentTripWritable,
+  getTripByInviteCode,
+  getTripByPublicCode,
   getTripMetadataRef,
   resolveTripId,
 } from '@/api/trips';
@@ -29,6 +31,38 @@ const withTripIds = (data) => ({
   ...data,
   tripIds: data.tripIds || (data.tripId ? [data.tripId] : []),
 });
+
+const createParticipantInviteCode = async () => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    let inviteCode = '';
+    for (let i = 0; i < 6; i += 1) {
+      inviteCode += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    const snap = await getDocs(
+      query(
+        collection(db, COLLECTION_NAME),
+        where('inviteCode', '==', inviteCode),
+        limit(1)
+      )
+    );
+    const [inviteTrip, publicTrip] = await Promise.all([
+      getTripByInviteCode(inviteCode),
+      getTripByPublicCode(inviteCode),
+    ]);
+    if (snap.empty && !inviteTrip && !publicTrip) return inviteCode;
+  }
+  throw new Error('Unable to generate a unique participant invite code.');
+};
+
+const updateParticipantsVersionForTrip = async (tripId) => {
+  if (!tripId) return updateParticipantsVersion();
+  await setDoc(
+    getTripMetadataRef(tripId, 'participants'),
+    { lastUpdate: Date.now(), updatedAt: serverTimestamp() },
+    { merge: true }
+  );
+};
 
 // ==========================================
 // 0. 版本號管理 (供快取控制)
@@ -265,6 +299,71 @@ export const upsertParticipantPushToken = async (
     pushToken: token,
     pushTokenUpdatedAt: now,
     notificationPermission: 'granted',
+    notificationPreferences: {
+      ...(participant.notificationPreferences || {}),
+      ...(tripId ? { [tripId]: 'granted' } : {}),
+    },
+    updatedAt: serverTimestamp(),
+  });
+  await updateParticipantsVersion();
+
+  return { status: 200 };
+};
+
+export const updateParticipantNotificationPreference = async (
+  id,
+  { tripId = '', permission = 'default' } = {}
+) => {
+  if (!id) throw new Error('缺少成員 ID。');
+
+  const docRef = doc(db, COLLECTION_NAME, id);
+  const snap = await getDoc(docRef);
+  if (!snap.exists()) throw new Error('找不到成員資料。');
+
+  const participant = snap.data();
+  await updateDoc(docRef, {
+    notificationPermission: permission,
+    notificationPreferences: {
+      ...(participant.notificationPreferences || {}),
+      ...(tripId ? { [tripId]: permission } : {}),
+    },
+    updatedAt: serverTimestamp(),
+  });
+  await updateParticipantsVersion();
+
+  return { status: 200 };
+};
+
+export const disableParticipantPushForTrip = async (
+  id,
+  { tripId = '', token = '' } = {}
+) => {
+  if (!id) throw new Error('缺少成員 ID。');
+
+  const docRef = doc(db, COLLECTION_NAME, id);
+  const snap = await getDoc(docRef);
+  if (!snap.exists()) throw new Error('找不到成員資料。');
+
+  const participant = snap.data();
+  const currentTokens = Array.isArray(participant.pushTokens)
+    ? participant.pushTokens
+    : [];
+  const nextTokens = currentTokens.filter((item) => {
+    if (!item?.token) return false;
+    if (token && item.token !== token) return true;
+    if (tripId && item.tripId !== tripId) return true;
+    return false;
+  });
+
+  await updateDoc(docRef, {
+    pushTokens: nextTokens,
+    pushToken: nextTokens.at(-1)?.token || '',
+    pushTokenUpdatedAt: Date.now(),
+    notificationPermission: 'denied',
+    notificationPreferences: {
+      ...(participant.notificationPreferences || {}),
+      ...(tripId ? { [tripId]: 'denied' } : {}),
+    },
     updatedAt: serverTimestamp(),
   });
   await updateParticipantsVersion();
@@ -333,6 +432,114 @@ export const getParticipantsByUid = async (uid) => {
     ...withTripIds(participantDoc.data()),
     id: participantDoc.id,
   }));
+};
+
+export const getParticipantByGuestId = async (guestId, tripId = '') => {
+  if (!guestId) return null;
+  const q = query(
+    collection(db, COLLECTION_NAME),
+    where('guestId', '==', guestId)
+  );
+  const querySnapshot = await getDocs(q);
+  const participantDoc = querySnapshot.docs.find((item) => {
+    const data = withTripIds(item.data());
+    return !tripId || data.tripIds.includes(tripId);
+  });
+  if (!participantDoc) return null;
+  return {
+    ...withTripIds(participantDoc.data()),
+    id: participantDoc.id,
+  };
+};
+
+export const getOrCreateTripInviteParticipant = async (
+  tripId,
+  profile = {}
+) => {
+  if (!tripId) throw new Error('tripId is required.');
+
+  const uid = profile.uid || null;
+  const guestId = profile.guestId || '';
+  const name = profile.name || profile.email || '訪客';
+  const avatar = profile.avatar || '';
+  const email = profile.email || '';
+
+  if (uid) {
+    const memberships = await getParticipantsByUid(uid);
+    const existingForTrip = memberships.find((participant) =>
+      participant.tripIds.includes(tripId)
+    );
+    if (existingForTrip) {
+      return { ...existingForTrip, isNewParticipant: false };
+    }
+
+    if (memberships.length) {
+      const target = memberships[0];
+      await updateDoc(doc(db, COLLECTION_NAME, target.id), {
+        tripIds: arrayUnion(tripId),
+        uid,
+        name: target.name || name,
+        avatar: target.avatar || avatar,
+        email: target.email || email,
+        isClaimed: true,
+        updatedAt: serverTimestamp(),
+      });
+      await updateParticipantsVersionForTrip(tripId);
+      return {
+        ...target,
+        tripIds: [...new Set([...target.tripIds, tripId])],
+        uid,
+        isClaimed: true,
+        isNewParticipant: false,
+      };
+    }
+  }
+
+  if (!uid && guestId) {
+    const existingGuest = await getParticipantByGuestId(guestId);
+    if (existingGuest) {
+      if (!existingGuest.tripIds.includes(tripId)) {
+        await updateDoc(doc(db, COLLECTION_NAME, existingGuest.id), {
+          tripIds: arrayUnion(tripId),
+          updatedAt: serverTimestamp(),
+        });
+        await updateParticipantsVersionForTrip(tripId);
+      }
+      return {
+        ...existingGuest,
+        tripIds: [...new Set([...existingGuest.tripIds, tripId])],
+        isNewParticipant: false,
+      };
+    }
+  }
+
+  const docRef = doc(collection(db, COLLECTION_NAME));
+  const participant = {
+    name,
+    avatar,
+    email,
+    uid,
+    guestId,
+    isGuest: !uid,
+    isClaimed: Boolean(uid),
+    source: 'tripInviteCode',
+    tripId,
+    tripIds: [tripId],
+    inviteCode: await createParticipantInviteCode(),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+
+  await setDoc(docRef, participant);
+  await updateParticipantsVersionForTrip(tripId);
+
+  return {
+    ...participant,
+    id: docRef.id,
+    createdAt: null,
+    updatedAt: null,
+    isNewParticipant: true,
+  };
 };
 
 export const getParticipantByInviteCode = async (inviteCode) => {

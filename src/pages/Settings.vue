@@ -7,13 +7,18 @@ import { useTripStore } from '@/store/tripStore';
 import { useTravelStore } from '@/store/travelStore';
 import { useExpensesStore } from '@/store/expensesStore';
 import {
+  disableParticipantPushForTrip,
+  getParticipantByGuestId,
   getParticipantsByUid,
+  updateParticipantNotificationPreference,
   upsertParticipantPushToken,
 } from '@/api/participants';
 import { getTripById } from '@/api/trips';
 import { loginWithGoogle } from '@/api/auth';
 import { uploadImage } from '@/api/storage';
 import { lockScroll, unlockScroll } from '@/utils/scrollLock';
+import app from '@/firebase/index.js';
+import { getAuth } from 'firebase/auth';
 import PackingList from '@/components/PackingList.vue';
 import {
   ShieldCheck,
@@ -51,6 +56,9 @@ const isTripPickerOpen = ref(false);
 const isGoogleLoggingIn = ref(false);
 const pendingTripSelection = ref(null);
 const tripPickerHint = ref('');
+const isGuestNameModalOpen = ref(false);
+const guestNameInput = ref('');
+let resolveGuestName = null;
 
 const displayUserName = computed(() => {
   return (
@@ -64,6 +72,15 @@ const displayUserName = computed(() => {
 const tripPickerRows = computed(() => {
   return pendingTripSelection.value?.rows || userTrips.value;
 });
+const shouldShowMyTripsSection = computed(() =>
+  Boolean(
+    userStore.user ||
+      userStore.myParticipant ||
+      tripStore.isPublicTrip ||
+      userTrips.value.length ||
+      isLoadingUserTrips.value
+  )
+);
 
 // PWA Install Logic
 const deferredPrompt = ref(null);
@@ -76,6 +93,7 @@ const fcmToken = ref('');
 const isGettingToken = ref(false);
 const isIOS = ref(false);
 const PUSH_TOKEN_STORAGE_KEY = 'guidebook_fcm_token';
+const GUEST_ID_KEY = 'guidebook_guest_id';
 
 const getNotificationPromptKey = () => {
   const participantId = userStore.myParticipant?.id || userStore.localParticipantId;
@@ -90,6 +108,38 @@ const getDevicePlatform = () => {
   if (/Android/i.test(navigator.userAgent)) return 'android';
   return 'web';
 };
+
+const getCurrentTripPushTokens = (participant = userStore.myParticipant) => {
+  if (!participant || !tripStore.currentTripId) return [];
+  const tokens = Array.isArray(participant.pushTokens)
+    ? participant.pushTokens
+    : participant.pushToken
+      ? [{ token: participant.pushToken, tripId: tripStore.currentTripId }]
+      : [];
+  return tokens.filter(
+    (item) =>
+      item?.token &&
+      (!item.tripId || item.tripId === tripStore.currentTripId) &&
+      item.permission !== 'denied'
+  );
+};
+
+const notificationStatus = computed(() => {
+  if (!userStore.myParticipant) return 'disabled';
+  if (getCurrentTripPushTokens().length > 0) return 'enabled';
+  const tripPreference =
+    userStore.myParticipant.notificationPreferences?.[tripStore.currentTripId];
+  if (tripPreference === 'denied') {
+    return 'denied';
+  }
+  return 'disabled';
+});
+
+const notificationStatusLabel = computed(() => {
+  if (notificationStatus.value === 'enabled') return '已啟用';
+  if (notificationStatus.value === 'denied') return '拒絕';
+  return '未啟用';
+});
 
 const handleInstallClick = async () => {
   if (deferredPrompt.value) {
@@ -118,7 +168,36 @@ const clearTripCaches = () => {
 
 const loadUserTrips = async () => {
   if (!userStore.user?.uid) {
-    userTrips.value = [];
+    const guestId = localStorage.getItem(GUEST_ID_KEY);
+    if (!guestId && !tripStore.currentTripId) {
+      userTrips.value = [];
+      tripPickerHint.value = '';
+      return;
+    }
+
+    const guestParticipant = guestId
+      ? await getParticipantByGuestId(guestId)
+      : null;
+    const guestTripIds =
+      guestParticipant?.tripIds ||
+      (guestParticipant?.tripId ? [guestParticipant.tripId] : []);
+    const rows = await Promise.all(
+      guestTripIds.map(async (tripId) => {
+        const trip = await getTripById(tripId);
+        return trip ? { trip, participant: guestParticipant } : null;
+      })
+    );
+
+    if (!rows.filter(Boolean).length && tripStore.currentTripId) {
+      if (!tripStore.currentTrip) await tripStore.init();
+      if (participantsStore.participants.length === 0) await participantsStore.init();
+      userTrips.value =
+        tripStore.currentTrip && userStore.myParticipant
+          ? [{ trip: tripStore.currentTrip, participant: userStore.myParticipant }]
+          : [];
+    } else {
+      userTrips.value = rows.filter(Boolean);
+    }
     tripPickerHint.value = '';
     return;
   }
@@ -166,9 +245,6 @@ const switchUserTrip = async (row, options = {}) => {
   clearTripCaches();
   await reloadTripData();
   isTripPickerOpen.value = false;
-  if (options.askNotification !== false) {
-    await promptNotificationAfterTripSelection();
-  }
   if (options.redirect !== false) {
     router.push('/');
   }
@@ -196,7 +272,6 @@ const selectTripFromPicker = async (row) => {
   await reloadTripData();
   await loadUserTrips();
   isTripPickerOpen.value = false;
-  await promptNotificationAfterTripSelection();
   router.push('/');
 };
 
@@ -276,21 +351,36 @@ const isEditModalOpen = ref(false);
 const isUploading = ref(false);
 const isSaving = ref(false);
 
-watch(isEditModalOpen, (val) => {
-  if (val) {
+watch([isEditModalOpen, isTripPickerOpen, isGuestNameModalOpen], (values) => {
+  if (values.some(Boolean)) {
     lockScroll();
   } else {
     unlockScroll();
   }
 });
 
-watch(isTripPickerOpen, (val) => {
-  if (val) {
-    lockScroll();
-  } else {
-    unlockScroll();
-  }
-});
+const requestGuestName = () => {
+  guestNameInput.value = '';
+  isGuestNameModalOpen.value = true;
+  return new Promise((resolve) => {
+    resolveGuestName = resolve;
+  });
+};
+
+const submitGuestName = () => {
+  const name = guestNameInput.value.trim();
+  if (!name) return;
+  isGuestNameModalOpen.value = false;
+  resolveGuestName?.(name);
+  resolveGuestName = null;
+};
+
+const cancelGuestName = () => {
+  isGuestNameModalOpen.value = false;
+  resolveGuestName?.('');
+  resolveGuestName = null;
+};
+
 const editForm = ref({
   name: '',
   avatar: '',
@@ -357,28 +447,41 @@ const handleClaim = async () => {
 
   isClaiming.value = true;
   try {
+    const firebaseUser = userStore.user || getAuth(app).currentUser;
+    if (firebaseUser && !userStore.user) {
+      userStore.user = firebaseUser;
+    }
     const profile = {
-      uid: userStore.user?.uid || null,
-      name: userStore.user?.displayName || userStore.user?.email || '',
-      email: userStore.user?.email || '',
-      avatar: userStore.user?.photoURL || '',
+      uid: firebaseUser?.uid || null,
+      name: firebaseUser?.displayName || firebaseUser?.email || '',
+      email: firebaseUser?.email || '',
+      avatar: firebaseUser?.photoURL || '',
     };
-    const res = await tripStore.joinByInviteCode(inviteCode.value.trim(), profile);
+    let res = await tripStore.joinByInviteCode(inviteCode.value.trim(), profile);
+    if (res.status === 301 && res.mode === 'guestNameRequired') {
+      const guestName = await requestGuestName();
+      if (!guestName?.trim()) return;
+      res = await tripStore.joinByInviteCode(inviteCode.value.trim(), {
+        ...profile,
+        name: guestName.trim(),
+      });
+    }
 
     if (res.status === 200) {
-      if (res.mode === 'guest') {
-        userStore.clearLocalParticipant();
-        alert('已進入訪客瀏覽模式。');
+      if (res.mode === 'publicTrip') {
+        alert('已進入行程瀏覽。');
       } else if (res.participant?.id) {
         userStore.setLocalParticipant(res.participant.id);
-        alert('認領成功！');
+        alert(res.mode === 'guestParticipant' ? '已加入旅程。' : '已綁定身份。');
       }
 
       inviteCode.value = '';
       clearTripCaches();
       await reloadTripData();
       await loadUserTrips();
-      await promptNotificationAfterTripSelection();
+      if (res.mode === 'guestParticipant' && res.isNewParticipant) {
+        await promptNotificationAfterNewParticipant();
+      }
       router.push('/');
     } else if (res.status === 300 && res.mode === 'participantTripSelection') {
       pendingTripSelection.value = {
@@ -490,6 +593,13 @@ const requestNotificationPermission = async ({ silent = false } = {}) => {
         }
       }
     } else if (permission === 'denied') {
+      if (userStore.myParticipant?.id) {
+        await updateParticipantNotificationPreference(userStore.myParticipant.id, {
+          tripId: tripStore.currentTripId,
+          permission: 'denied',
+        });
+        await participantsStore.init();
+      }
       if (!silent) {
         alert('已拒絕通知權限。若要接收推播，請到系統或瀏覽器設定重新開啟通知。');
       }
@@ -502,18 +612,13 @@ const requestNotificationPermission = async ({ silent = false } = {}) => {
   }
 };
 
-const promptNotificationAfterTripSelection = async () => {
+const promptNotificationAfterNewParticipant = async () => {
   checkNotificationStatus();
   if (!userStore.myParticipant) return;
   if (!('Notification' in window)) return;
 
-  if (notificationPermission.value === 'granted') {
-    await requestNotificationPermission({ silent: true });
-    return;
-  }
-
-  if (notificationPermission.value !== 'default') return;
-  if (isIOS.value && !isStandalone.value) return;
+  if (notificationPermission.value === 'denied') return;
+  if (notificationPermission.value === 'default' && isIOS.value && !isStandalone.value) return;
 
   const promptKey = getNotificationPromptKey();
   if (!promptKey || localStorage.getItem(promptKey)) return;
@@ -521,6 +626,12 @@ const promptNotificationAfterTripSelection = async () => {
   localStorage.setItem(promptKey, '1');
   if (confirm('是否允許接收此旅程的推播通知？')) {
     await requestNotificationPermission();
+  } else {
+    await updateParticipantNotificationPreference(userStore.myParticipant.id, {
+      tripId: tripStore.currentTripId,
+      permission: 'denied',
+    });
+    await participantsStore.init();
   }
 };
 
@@ -536,6 +647,30 @@ const copyFCMToken = async () => {
     document.execCommand('copy');
     document.body.removeChild(input);
     alert('FCM Token 已複製到剪貼簿！');
+  }
+};
+
+const disableNotificationForCurrentTrip = async () => {
+  if (!userStore.myParticipant?.id) return;
+  if (!confirm('確定要關閉此旅程在目前裝置的推播通知？')) return;
+
+  isGettingToken.value = true;
+  try {
+    const currentToken = fcmToken.value || localStorage.getItem(PUSH_TOKEN_STORAGE_KEY) || '';
+    await disableParticipantPushForTrip(userStore.myParticipant.id, {
+      tripId: tripStore.currentTripId,
+      token: currentToken,
+    });
+    if (currentToken) {
+      localStorage.removeItem(PUSH_TOKEN_STORAGE_KEY);
+    }
+    fcmToken.value = '';
+    await participantsStore.init();
+    alert('已關閉此旅程的推播通知。');
+  } catch (error) {
+    alert('關閉通知失敗: ' + error.message);
+  } finally {
+    isGettingToken.value = false;
   }
 };
 </script>
@@ -581,7 +716,7 @@ const copyFCMToken = async () => {
       </button>
     </header>
 
-    <section v-if="userTrips.length || isLoadingUserTrips" class="space-y-3">
+    <section v-if="shouldShowMyTripsSection" class="space-y-3">
       <h3
         class="px-4 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]"
       >
@@ -589,6 +724,7 @@ const copyFCMToken = async () => {
       </h3>
       <div class="bg-white rounded-[32px] border border-slate-100 overflow-hidden">
         <button
+          v-if="userTrips.length"
           @click="isTripPickerOpen = true"
           class="w-full p-5 flex items-center gap-4 hover:bg-indigo-50 transition-colors border-b border-slate-50 last:border-b-0 text-left"
         >
@@ -608,16 +744,52 @@ const copyFCMToken = async () => {
           <ChevronRight :size="20" class="text-slate-200" />
         </button>
         <div
+          v-else-if="!isLoadingUserTrips"
+          class="p-5 border-b border-slate-50 text-sm font-bold text-slate-400"
+        >
+          <template v-if="tripStore.isPublicTrip && tripStore.currentTrip">
+            正在瀏覽「{{ tripStore.currentTrip.title }}」
+          </template>
+          <template v-else>
+            目前尚未加入任何旅程。
+          </template>
+        </div>
+        <div
           v-if="isLoadingUserTrips"
           class="p-5 flex items-center justify-center text-slate-300"
         >
           <Loader2 class="animate-spin" :size="18" />
         </div>
+        <div class="p-5 space-y-3">
+          <div class="text-xs font-bold text-slate-500">
+            有新的 6 位代碼時，可在這裡加入或切換旅程。
+          </div>
+          <div class="relative">
+            <input
+              v-model="inviteCode"
+              type="text"
+              placeholder="輸入 6 位代碼"
+              class="w-full bg-slate-50 border-none rounded-2xl p-4 pr-12 font-mono font-black text-slate-700 placeholder:text-slate-300 focus:ring-2 focus:ring-purple-500/20 transition-all outline-none"
+              maxlength="6"
+            />
+            <div class="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300">
+              <Ticket :size="20" />
+            </div>
+          </div>
+          <button
+            @click="handleClaim"
+            :disabled="isClaiming || !inviteCode"
+            class="w-full bg-purple-500 text-white rounded-2xl py-4 font-black flex items-center justify-center gap-2 hover:bg-purple-600 disabled:opacity-50 transition-all shadow-lg shadow-purple-100"
+          >
+            <Loader2 v-if="isClaiming" class="animate-spin" :size="18" />
+            {{ isClaiming ? '驗證中...' : '加入旅程' }}
+          </button>
+        </div>
       </div>
     </section>
 
     <!-- Trip Access Section -->
-    <section class="space-y-3">
+    <section v-if="!shouldShowMyTripsSection" class="space-y-3">
       <h3
         class="px-4 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]"
       >
@@ -627,7 +799,7 @@ const copyFCMToken = async () => {
         class="bg-white p-6 rounded-[32px] border border-slate-100 space-y-4"
       >
         <p class="text-xs font-bold text-slate-500 leading-relaxed px-1">
-          可用 Google 登入管理自己的旅程，也可輸入旅程邀請碼以訪客模式瀏覽；輸入旅客邀請碼會綁定個人資料與角色。
+          輸入你拿到的 6 碼即可加入旅程。登入後可在不同裝置同步你的旅程與個人資料。
         </p>
         <button
           v-if="!userStore.user"
@@ -642,7 +814,7 @@ const copyFCMToken = async () => {
           <input
             v-model="inviteCode"
             type="text"
-            placeholder="輸入 6 位邀請碼"
+            placeholder="輸入 6 位代碼"
             class="w-full bg-slate-50 border-none rounded-2xl p-4 pr-12 font-mono font-black text-slate-700 placeholder:text-slate-300 focus:ring-2 focus:ring-purple-500/20 transition-all outline-none"
             maxlength="6"
           />
@@ -693,6 +865,7 @@ const copyFCMToken = async () => {
 
         <!-- Packing List Button -->
         <button
+          v-if="!tripStore.isPublicTrip"
           @click="isPackingListOpen = true"
           class="w-full p-6 flex items-center gap-4 hover:bg-lime-50 transition-colors group border-b border-slate-50"
         >
@@ -764,42 +937,54 @@ const copyFCMToken = async () => {
             <div class="flex-1 min-w-0">
               <span class="block font-bold text-slate-700">推播通知</span>
               <span class="block text-[10px] font-bold text-slate-400 uppercase tracking-tighter mt-0.5">
-                權限狀態: 
+                通知狀態:
                 <span :class="{
-                  'text-green-500': notificationPermission === 'granted',
-                  'text-red-500': notificationPermission === 'denied',
-                  'text-amber-500': notificationPermission === 'default'
+                  'text-green-500': notificationStatus === 'enabled',
+                  'text-red-500': notificationStatus === 'denied',
+                  'text-amber-500': notificationStatus === 'disabled'
                 }">
-                  {{ notificationPermission === 'granted' ? '已允許' : notificationPermission === 'denied' ? '已拒絕' : '未設定' }}
+                  {{ notificationStatusLabel }}
                 </span>
               </span>
             </div>
             
-            <button
-              v-if="notificationPermission !== 'granted'"
-              @click="requestNotificationPermission"
-              :disabled="isGettingToken"
-              class="bg-purple-500 text-white text-xs font-black px-4 py-2 rounded-xl hover:bg-purple-600 disabled:opacity-50 transition-colors flex items-center shrink-0"
-            >
-              <Loader2 v-if="isGettingToken" class="animate-spin mr-1" :size="12" />
-              啟用通知
-            </button>
-            <button
-              v-else-if="!fcmToken"
-              @click="requestNotificationPermission"
-              :disabled="isGettingToken"
-              class="bg-indigo-500 text-white text-xs font-black px-4 py-2 rounded-xl hover:bg-indigo-600 disabled:opacity-50 transition-colors flex items-center shrink-0"
-            >
-              <Loader2 v-if="isGettingToken" class="animate-spin mr-1" :size="12" />
-              取得 Token
-            </button>
-            <button
-              v-else
-              @click="copyFCMToken"
-              class="bg-green-500 text-white text-xs font-black px-4 py-2 rounded-xl hover:bg-green-600 transition-colors shrink-0"
-            >
-              複製 Token
-            </button>
+            <div class="flex flex-col gap-2 shrink-0">
+              <button
+                v-if="notificationStatus !== 'enabled'"
+                @click="requestNotificationPermission"
+                :disabled="isGettingToken"
+                class="bg-purple-500 text-white text-xs font-black px-4 py-2 rounded-xl hover:bg-purple-600 disabled:opacity-50 transition-colors flex items-center justify-center"
+              >
+                <Loader2 v-if="isGettingToken" class="animate-spin mr-1" :size="12" />
+                啟用通知
+              </button>
+              <template v-else>
+                <button
+                  @click="disableNotificationForCurrentTrip"
+                  :disabled="isGettingToken"
+                  class="bg-red-50 text-red-600 text-xs font-black px-4 py-2 rounded-xl hover:bg-red-100 disabled:opacity-50 transition-colors flex items-center justify-center"
+                >
+                  <Loader2 v-if="isGettingToken" class="animate-spin mr-1" :size="12" />
+                  關閉通知
+                </button>
+                <button
+                  v-if="!fcmToken"
+                  @click="requestNotificationPermission"
+                  :disabled="isGettingToken"
+                  class="bg-indigo-500 text-white text-xs font-black px-4 py-2 rounded-xl hover:bg-indigo-600 disabled:opacity-50 transition-colors flex items-center justify-center"
+                >
+                  <Loader2 v-if="isGettingToken" class="animate-spin mr-1" :size="12" />
+                  重新綁定
+                </button>
+                <button
+                  v-else
+                  @click="copyFCMToken"
+                  class="bg-green-500 text-white text-xs font-black px-4 py-2 rounded-xl hover:bg-green-600 transition-colors"
+                >
+                  複製 Token
+                </button>
+              </template>
+            </div>
           </div>
           
           <!-- iOS Standalone 警告說明 -->
@@ -926,6 +1111,53 @@ const copyFCMToken = async () => {
               />
             </button>
           </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <div
+        v-if="isGuestNameModalOpen"
+        class="fixed inset-0 z-[75] flex items-end sm:items-center justify-center p-4"
+      >
+        <div
+          class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+          @click="cancelGuestName"
+        ></div>
+        <div
+          class="relative w-full max-w-md bg-white rounded-[36px] shadow-2xl overflow-hidden animate-in slide-in-from-bottom duration-300"
+        >
+          <div class="p-6 border-b border-slate-100 flex items-center justify-between">
+            <div>
+              <h3 class="text-lg font-black text-slate-800">加入旅程</h3>
+              <p class="text-[10px] font-bold text-slate-400 mt-1">
+                請留下旅程中使用的姓名。
+              </p>
+            </div>
+            <button
+              @click="cancelGuestName"
+              class="w-9 h-9 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400"
+            >
+              <X :size="18" />
+            </button>
+          </div>
+          <form class="p-6 space-y-4" @submit.prevent="submitGuestName">
+            <input
+              v-model="guestNameInput"
+              type="text"
+              class="w-full bg-slate-50 border-none rounded-2xl p-4 font-black text-slate-700 placeholder:text-slate-300 focus:ring-2 focus:ring-purple-500/20 transition-all outline-none"
+              placeholder="輸入姓名"
+              autocomplete="name"
+              autofocus
+            />
+            <button
+              type="submit"
+              :disabled="!guestNameInput.trim()"
+              class="w-full bg-purple-500 text-white rounded-2xl py-4 font-black flex items-center justify-center gap-2 hover:bg-purple-600 disabled:opacity-50 transition-all shadow-lg shadow-purple-100"
+            >
+              加入旅程
+            </button>
+          </form>
         </div>
       </div>
     </Teleport>

@@ -38,7 +38,7 @@ export default defineConfig({
         name: 'Guidebook',
         short_name: 'Guidebook',
         description: '旅程手冊',
-        start_url: '/',
+        start_url: '/settings',
         scope: '/',
         display: 'standalone',
         theme_color: '#FF8C00',

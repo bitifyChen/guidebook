@@ -3,6 +3,8 @@ import { onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useTravelStore } from '@/store/travelStore';
 import { patchItineraryItem, bulkUpdateItinerary } from '@/api/itinerary';
+import AdminDrawer from '@/components/admin/AdminDrawer.vue';
+import AdminItineraryItemForm from '@/components/admin/AdminItineraryItemForm.vue';
 import draggable from 'vuedraggable';
 import {
   Calendar,
@@ -23,10 +25,48 @@ import {
 const router = useRouter();
 const travelStore = useTravelStore();
 const fileInput = ref(null);
+const props = defineProps({
+  embedded: { type: Boolean, default: false },
+});
 
 const localItinerary = ref([]);
 const hasChanges = ref(false);
 const isCheckingImages = ref(false);
+const itemDrawer = ref({
+  open: false,
+  mode: 'create',
+  item: null,
+});
+
+const openCreateItemDrawer = () => {
+  itemDrawer.value = {
+    open: true,
+    mode: 'create',
+    item: null,
+  };
+};
+
+const openEditItemDrawer = (item) => {
+  itemDrawer.value = {
+    open: true,
+    mode: 'edit',
+    item,
+  };
+};
+
+const closeItemDrawer = () => {
+  itemDrawer.value = {
+    open: false,
+    mode: 'create',
+    item: null,
+  };
+};
+
+const handleItemDrawerDone = () => {
+  closeItemDrawer();
+  hasChanges.value = false;
+  initLocalItinerary();
+};
 
 const handleCopyItem = (item, dayGroup) => {
   const index = dayGroup.items.findIndex((i) => i.id === item.id);
@@ -162,7 +202,7 @@ const handleEditItem = (item) => {
     alert('請先點擊下方的「儲存更新排序」按鈕，以完成複製行程的建立，之後才能編輯詳細資訊。');
     return;
   }
-  router.push(`/admin/item/${item.id}`);
+  openEditItemDrawer(item);
 };
 
 const updateItem = async (item) => {
@@ -242,8 +282,9 @@ const handleImport = async (event) => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50 pb-32">
+  <div :class="props.embedded ? 'bg-slate-50 pb-24' : 'min-h-screen bg-slate-50 pb-32'">
     <nav
+      v-if="!props.embedded"
       class="p-6 sticky top-0 bg-slate-50/80 backdrop-blur-md z-40 flex items-center justify-between"
     >
       <button
@@ -253,33 +294,35 @@ const handleImport = async (event) => {
         <ChevronLeft :size="20" />
       </button>
       <h2 class="font-black text-slate-800 text-lg">行程進度管理</h2>
-      <button
-        @click="router.push('/admin/item/add')"
-        class="w-10 h-10 bg-orange-500 text-white rounded-2xl flex items-center justify-center shadow-sm"
-      >
-        <Plus :size="20" />
-      </button>
+      <div class="w-10"></div>
     </nav>
 
-    <main class="max-w-4xl mx-auto p-6 space-y-8">
+    <main :class="props.embedded ? 'p-5 space-y-6' : 'max-w-4xl mx-auto p-6 space-y-8'">
       <!-- 工具列 -->
-      <div class="flex gap-2 px-2">
+      <div class="flex flex-wrap gap-2 px-2">
+        <button
+          @click="openCreateItemDrawer"
+          class="h-10 px-4 bg-indigo-600 text-white rounded-xl flex items-center justify-center gap-2 font-black text-sm shadow-sm hover:bg-indigo-700 active:scale-95 transition-transform"
+        >
+          <Plus :size="16" />
+          新增景點
+        </button>
         <button
           @click="handleExport"
-          class="flex-1 bg-white p-3 rounded-2xl border border-slate-100 flex items-center justify-center gap-2 font-bold text-slate-500 text-xs shadow-sm active:scale-95 transition-transform"
+          class="h-10 px-4 bg-white rounded-xl border border-slate-100 flex items-center justify-center gap-2 font-bold text-slate-500 text-xs shadow-sm active:scale-95 transition-transform"
         >
           <Download :size="14" /> 匯出
         </button>
         <button
           @click="fileInput.click()"
-          class="flex-1 bg-white p-3 rounded-2xl border border-slate-100 flex items-center justify-center gap-2 font-bold text-slate-500 text-xs shadow-sm active:scale-95 transition-transform"
+          class="h-10 px-4 bg-white rounded-xl border border-slate-100 flex items-center justify-center gap-2 font-bold text-slate-500 text-xs shadow-sm active:scale-95 transition-transform"
         >
           <Upload :size="14" /> 匯入
         </button>
         <button
           @click="handleCheckImages"
           :disabled="isCheckingImages"
-          class="flex-1 bg-white p-3 rounded-2xl border border-slate-100 flex items-center justify-center gap-2 font-bold text-slate-500 text-xs shadow-sm active:scale-95 transition-transform disabled:opacity-50"
+          class="h-10 px-4 bg-white rounded-xl border border-slate-100 flex items-center justify-center gap-2 font-bold text-slate-500 text-xs shadow-sm active:scale-95 transition-transform disabled:opacity-50"
         >
           <Image
             :size="14"
@@ -455,6 +498,23 @@ const handleImport = async (event) => {
         </button>
       </div>
     </Transition>
+
+    <AdminDrawer
+      v-model="itemDrawer.open"
+      bare
+      size="md"
+      :z-index="90"
+      @close="closeItemDrawer"
+    >
+      <AdminItineraryItemForm
+        :mode="itemDrawer.mode"
+        :item="itemDrawer.item"
+        compact
+        @cancel="closeItemDrawer"
+        @saved="handleItemDrawerDone"
+        @deleted="handleItemDrawerDone"
+      />
+    </AdminDrawer>
   </div>
 </template>
 

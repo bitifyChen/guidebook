@@ -18,7 +18,7 @@ export const useExpensesStore = defineStore('expenses', {
     async init() {
       const tripStore = useTripStore();
       if (!tripStore.currentTripId) await tripStore.init();
-      if (!tripStore.currentTripId) {
+      if (!tripStore.currentTripId || tripStore.isPublicTrip) {
         this.expenses = [];
         return;
       }

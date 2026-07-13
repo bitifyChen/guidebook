@@ -2,14 +2,11 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
-  CalendarDays,
   ExternalLink,
   LayoutDashboard,
   LogOut,
   Menu,
   Plane,
-  PlusCircle,
-  Settings,
   User,
   Users,
   X,
@@ -29,16 +26,6 @@ const isMobileOpen = ref(false);
 const baseMenu = [
   { label: '總覽', path: '/admin', icon: LayoutDashboard },
   { label: '旅程管理', path: '/admin/trips', icon: Plane, superOnly: true },
-  {
-    label: '行程內容',
-    path: '',
-    icon: CalendarDays,
-    children: [
-      { label: '行程列表', path: '/admin/itinerary', icon: CalendarDays },
-      { label: '新增景點', path: '/admin/item/add', icon: PlusCircle },
-      { label: '每日設定', path: '/admin/config', icon: Settings },
-    ],
-  },
   { label: '成員管理', path: '/admin/participants', icon: Users, superOnly: true },
 ];
 
@@ -72,7 +59,10 @@ const pageTitle = computed(() => {
   );
 });
 
-const adminViewKey = computed(() => `${route.fullPath}:${tripStore.currentTripId || 'no-trip'}`);
+const adminViewKey = computed(() => {
+  if (route.path === '/admin/trips') return route.fullPath;
+  return `${route.fullPath}:${tripStore.currentTripId || 'no-trip'}`;
+});
 
 const handleLogout = async () => {
   await userStore.logout();

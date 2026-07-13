@@ -4,10 +4,7 @@ import { useRouter } from 'vue-router';
 import { useUserStore } from '@/store/userStore';
 import { useTripStore } from '@/store/tripStore';
 import {
-  CalendarDays,
-  Clock,
   Plane,
-  PlusCircle,
   Users,
 } from 'lucide-vue-next';
 
@@ -25,30 +22,6 @@ const cards = computed(() =>
       color: 'text-indigo-600',
       bg: 'bg-indigo-50',
       superOnly: true,
-    },
-    {
-      title: '行程排序',
-      desc: '調整每日項目、停留時間、延遲與匯入匯出',
-      icon: CalendarDays,
-      path: '/admin/itinerary',
-      color: 'text-orange-600',
-      bg: 'bg-orange-50',
-    },
-    {
-      title: '每日設定',
-      desc: '設定每日日期、標題與起始時間',
-      icon: Clock,
-      path: '/admin/config',
-      color: 'text-blue-600',
-      bg: 'bg-blue-50',
-    },
-    {
-      title: '新增行程項目',
-      desc: '為目前旅程新增景點、交通或自由時間',
-      icon: PlusCircle,
-      path: '/admin/item/add',
-      color: 'text-green-600',
-      bg: 'bg-green-50',
     },
     {
       title: '成員管理',

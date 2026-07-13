@@ -8,9 +8,11 @@ import {
   Settings,
   RefreshCw,
 } from 'lucide-vue-next';
+import { useTripStore } from '@/store/tripStore';
 
 const route = useRoute();
 const router = useRouter();
+const tripStore = useTripStore();
 const scrollbarRef = ref(null); // 用於操作捲動條
 
 // 1. 監聽換頁：換頁後回到頂部
@@ -126,6 +128,10 @@ const menuItems = [
   { name: 'settings', path: '/settings', icon: Settings, label: '我的' },
 ];
 
+const visibleMenuItems = computed(() =>
+  menuItems.filter((item) => !(tripStore.isPublicTrip && item.name === 'wallet'))
+);
+
 const isPageActive = (item) => {
   return route.name === item.name || route.path === item.path;
 };
@@ -144,12 +150,12 @@ const navigate = (path) => {
 };
 
 const activeIndex = computed(() => {
-  const index = menuItems.findIndex((item) => isPageActive(item));
+  const index = visibleMenuItems.value.findIndex((item) => isPageActive(item));
   return index === -1 ? 0 : index;
 });
 
 const indicatorStyle = computed(() => {
-  const count = menuItems.length;
+  const count = visibleMenuItems.value.length;
   const width = 100 / count;
   return {
     width: `${width}%`,
@@ -217,21 +223,8 @@ const indicatorStyle = computed(() => {
           ></div>
         </div>
 
-        <div
-          class="absolute -top-2 -left-1 z-30 pointer-events-none select-none"
-        >
-          <div
-            class="relative w-7 h-7 bg-orange-500 rounded-full shadow-lg flex items-center justify-center transform -rotate-12 border border-white/20 animate-wiggle"
-          >
-            <div
-              class="absolute -top-1.5 right-1 w-3 h-2 bg-green-500 rounded-full rotate-[30deg]"
-            ></div>
-            <div class="w-1.5 h-1.5 bg-white/40 rounded-full -mt-1 -ml-1"></div>
-          </div>
-        </div>
-
         <button
-          v-for="item in menuItems"
+          v-for="item in visibleMenuItems"
           :key="item.name"
           @click="navigate(item.path)"
           :class="[
@@ -278,17 +271,5 @@ nav {
 .nav-container {
   /* 使用 cubic-bezier 增加一點點果凍感的回彈 */
   transition: all 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-}
-@keyframes wiggle {
-  0%,
-  100% {
-    transform: rotate(-12deg) scale(1);
-  }
-  50% {
-    transform: rotate(5deg) scale(1.1);
-  }
-}
-.animate-wiggle {
-  animation: wiggle 3s ease-in-out infinite;
 }
 </style>

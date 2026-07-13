@@ -1,10 +1,14 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import AdminDataTable from '@/components/admin/AdminDataTable.vue';
+import AdminDrawer from '@/components/admin/AdminDrawer.vue';
+import AdminItinerary from '@/pages/admin/itinerary.vue';
+import AdminConfig from '@/pages/admin/config.vue';
 import { useTripStore } from '@/store/tripStore';
 import { useUserStore } from '@/store/userStore';
 import {
   Archive,
+  CalendarDays,
   CheckCircle2,
   Copy,
   Loader2,
@@ -12,9 +16,12 @@ import {
   Plane,
   Plus,
   Save,
-  X,
+  Settings,
 } from 'lucide-vue-next';
-import { lockScroll, unlockScroll } from '@/utils/scrollLock';
+import {
+  ensureTripDayConfigsForDateRange,
+  getTripDayConfigSyncPreview,
+} from '@/api/trips';
 import {
   COUNTRY_OPTIONS,
   getCountryOption,
@@ -26,8 +33,17 @@ const tripStore = useTripStore();
 const userStore = useUserStore();
 
 const isDrawerOpen = ref(false);
+const toolDrawer = ref({
+  open: false,
+  type: '',
+  title: '',
+});
 const isSaving = ref(false);
 const editingId = ref('');
+const originalDateRange = ref({
+  startDate: '',
+  endDate: '',
+});
 const appliedSearch = ref({
   keyword: '',
   status: '',
@@ -43,6 +59,7 @@ const form = reactive({
   weatherCity: '',
   startDate: '',
   endDate: '',
+  publicCode: '',
   inviteCode: '',
 });
 
@@ -50,11 +67,17 @@ const columns = [
   { key: 'trip', label: '旅程' },
   { key: 'dates', label: '日期' },
   { key: 'status', label: '狀態' },
-  { key: 'inviteCode', label: '邀請碼' },
+  { key: 'publicCode', label: '公開碼' },
+  { key: 'inviteCode', label: '加入碼' },
   { key: 'weather', label: '天氣座標' },
 ];
 
 const isEditing = computed(() => Boolean(editingId.value));
+const activeToolComponent = computed(() => {
+  if (toolDrawer.value.type === 'itinerary') return AdminItinerary;
+  if (toolDrawer.value.type === 'config') return AdminConfig;
+  return null;
+});
 const selectedCountry = computed(() => getCountryOption(form.countryCode));
 const weatherCityOptions = computed(() => getWeatherCitiesByCountry(form.countryCode));
 const selectedWeatherCity = computed(() =>
@@ -69,7 +92,7 @@ const searchFields = computed(() => [
     name: 'keyword',
     label: '關鍵字',
     type: 'text',
-    placeholder: '旅程、目的地、邀請碼',
+    placeholder: '旅程、目的地、公開碼、加入碼',
   },
   {
     name: 'status',
@@ -108,6 +131,7 @@ const filteredTrips = computed(() => {
       trip.destination,
       trip.country,
       trip.countryCode,
+      trip.publicCode,
       trip.inviteCode,
       trip.weatherCity,
     ]
@@ -124,11 +148,6 @@ const applyWeatherCity = (city) => {
   form.latitude = city.latitude;
   form.longitude = city.longitude;
 };
-
-watch(isDrawerOpen, (value) => {
-  if (value) lockScroll();
-  else unlockScroll();
-});
 
 watch(
   () => form.countryCode,
@@ -158,6 +177,10 @@ const resetForm = () => {
   const defaultCountry = COUNTRY_OPTIONS[0];
   const defaultCity = getDefaultWeatherCity(defaultCountry.code);
   editingId.value = '';
+  originalDateRange.value = {
+    startDate: '',
+    endDate: '',
+  };
   Object.assign(form, {
     title: '',
     destination: '',
@@ -167,6 +190,7 @@ const resetForm = () => {
     weatherCity: defaultCity.name,
     startDate: '',
     endDate: '',
+    publicCode: '',
     inviteCode: '',
   });
 };
@@ -180,6 +204,10 @@ const openEditDrawer = (trip) => {
   const countryCode = trip.countryCode || 'KR';
   const defaultCity = getDefaultWeatherCity(countryCode);
   editingId.value = trip.id;
+  originalDateRange.value = {
+    startDate: trip.startDate || '',
+    endDate: trip.endDate || '',
+  };
   Object.assign(form, {
     title: trip.title || '',
     destination: trip.destination || '',
@@ -189,6 +217,7 @@ const openEditDrawer = (trip) => {
     weatherCity: trip.weatherCity || defaultCity.name,
     startDate: trip.startDate || '',
     endDate: trip.endDate || '',
+    publicCode: trip.publicCode || '',
     inviteCode: trip.inviteCode || '',
   });
   isDrawerOpen.value = true;
@@ -221,6 +250,40 @@ const refreshTrips = async () => {
   await tripStore.refreshTrips();
 };
 
+const maybeSyncDayConfigs = async (tripId, payload) => {
+  const dateChanged =
+    payload.startDate !== originalDateRange.value.startDate ||
+    payload.endDate !== originalDateRange.value.endDate;
+  if (!tripId || !dateChanged) return;
+
+  const preview = await getTripDayConfigSyncPreview(tripId, {
+    startDate: payload.startDate,
+    endDate: payload.endDate,
+  });
+  if (!preview?.changed) return;
+
+  const details = [
+    `目前每日設定：${preview.currentDays} 天`,
+    `旅程日期區間：${preview.targetDays} 天`,
+  ];
+  if (preview.addCount > 0) details.push(`將補足：${preview.addCount} 天`);
+  if (preview.removeCount > 0) details.push(`將刪除超出：${preview.removeCount} 天`);
+
+  const shouldSync = confirm(
+    `旅程起訖日期已變更，是否同步調整每日設定？\n\n${details.join('\n')}`
+  );
+  if (!shouldSync) return;
+
+  await ensureTripDayConfigsForDateRange(
+    tripId,
+    {
+      startDate: payload.startDate,
+      endDate: payload.endDate,
+    },
+    { pruneExcess: true }
+  );
+};
+
 const applySearch = (filters) => {
   appliedSearch.value = {
     keyword: filters.keyword || '',
@@ -244,6 +307,11 @@ const saveTrip = async () => {
   isSaving.value = true;
   try {
     const payload = buildTripPayload();
+    const publicCode = form.publicCode.trim().toUpperCase();
+    if (publicCode) {
+      if (publicCode.length !== 6) return alert('公開瀏覽碼必須為 6 碼');
+      payload.publicCode = publicCode;
+    }
     const inviteCode = form.inviteCode.trim().toUpperCase();
     if (inviteCode) {
       if (inviteCode.length !== 6) return alert('邀請碼必須為 6 碼');
@@ -252,6 +320,8 @@ const saveTrip = async () => {
 
     if (editingId.value) {
       await tripStore.updateTrip(editingId.value, payload);
+      await maybeSyncDayConfigs(editingId.value, payload);
+      await tripStore.refreshTrips();
     } else {
       await tripStore.createTrip({ ...payload, setActive: true });
     }
@@ -266,6 +336,25 @@ const saveTrip = async () => {
 const copyCode = async (code) => {
   await navigator.clipboard.writeText(code);
   alert('已複製邀請碼');
+};
+
+const openTripToolDrawer = async (trip, type) => {
+  if (trip?.id && trip.id !== tripStore.currentTripId) {
+    await tripStore.switchTrip(trip.id);
+  }
+  toolDrawer.value = {
+    open: true,
+    type,
+    title: type === 'itinerary' ? '行程管理' : '每日設定',
+  };
+};
+
+const closeToolDrawer = () => {
+  toolDrawer.value = {
+    open: false,
+    type: '',
+    title: '',
+  };
 };
 
 const getStatusLabel = (status) => {
@@ -349,6 +438,18 @@ const archiveCurrent = async () => {
         </span>
       </template>
 
+      <template #publicCode="{ row }">
+        <button
+          v-if="row.publicCode"
+          @click="copyCode(row.publicCode)"
+          class="inline-flex items-center gap-1 bg-slate-50 border border-slate-100 rounded-lg px-2 py-1"
+        >
+          <span class="font-mono text-[11px] font-black text-slate-600">{{ row.publicCode }}</span>
+          <Copy :size="12" class="text-slate-300" />
+        </button>
+        <span v-else class="text-xs font-bold text-slate-300">未建立</span>
+      </template>
+
       <template #inviteCode="{ row }">
         <button
           @click="copyCode(row.inviteCode)"
@@ -369,28 +470,61 @@ const archiveCurrent = async () => {
       </template>
 
       <template #actions="{ row }">
-        <button
-          @click="openEditDrawer(row)"
-          class="w-10 h-10 rounded-xl bg-slate-50 text-slate-500 inline-flex items-center justify-center"
-          title="編輯"
-        >
-          <Pencil :size="18" />
-        </button>
+        <div class="inline-flex items-center justify-end gap-2">
+          <button
+            @click="openTripToolDrawer(row, 'itinerary')"
+            class="h-10 px-3 rounded-xl bg-slate-50 text-slate-600 inline-flex items-center justify-center gap-1.5 text-xs font-black hover:bg-indigo-50 hover:text-indigo-600"
+            title="行程管理"
+          >
+            <CalendarDays :size="16" />
+            行程
+          </button>
+          <button
+            @click="openTripToolDrawer(row, 'config')"
+            class="h-10 px-3 rounded-xl bg-slate-50 text-slate-600 inline-flex items-center justify-center gap-1.5 text-xs font-black hover:bg-indigo-50 hover:text-indigo-600"
+            title="每日設定"
+          >
+            <Settings :size="16" />
+            每日
+          </button>
+          <button
+            @click="openEditDrawer(row)"
+            class="h-10 px-3 rounded-xl bg-slate-50 text-slate-600 inline-flex items-center justify-center gap-1.5 text-xs font-black hover:bg-indigo-50 hover:text-indigo-600"
+            title="基本資料"
+          >
+            <Pencil :size="16" />
+            基本
+          </button>
+        </div>
       </template>
     </AdminDataTable>
 
-    <Teleport to="body">
-      <div v-if="isDrawerOpen" class="fixed inset-0 z-[80] flex justify-end">
-        <div class="absolute inset-0 bg-slate-950/40" @click="closeDrawer"></div>
-        <aside class="relative h-full w-full max-w-xl bg-white shadow-2xl flex flex-col">
-          <header class="h-16 px-5 border-b border-slate-200 flex items-center justify-between">
-            <h3 class="font-black text-slate-900">{{ isEditing ? '編輯旅程' : '新增旅程' }}</h3>
-            <button @click="closeDrawer" class="w-10 h-10 rounded-xl bg-slate-50 text-slate-400 flex items-center justify-center">
-              <X :size="20" />
-            </button>
-          </header>
+    <AdminDrawer
+      v-model="toolDrawer.open"
+      :title="toolDrawer.title"
+      :subtitle="tripStore.currentTrip?.title || '目前旅程'"
+      size="lg"
+      :z-index="80"
+      @close="closeToolDrawer"
+    >
+      <div class="h-full min-h-0 overflow-y-auto">
+        <component
+          :is="activeToolComponent"
+          v-if="activeToolComponent"
+          embedded
+        />
+      </div>
+    </AdminDrawer>
 
-          <div class="flex-1 overflow-y-auto p-5 space-y-4">
+    <AdminDrawer
+      v-model="isDrawerOpen"
+      :title="isEditing ? '編輯旅程' : '新增旅程'"
+      size="md"
+      :z-index="80"
+      @close="closeDrawer"
+    >
+      <div class="flex h-full min-h-0 flex-col bg-white">
+        <div class="flex-1 overflow-y-auto p-5 space-y-4">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <label class="space-y-1 md:col-span-2">
                 <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">旅程名稱</span>
@@ -449,8 +583,12 @@ const archiveCurrent = async () => {
                 <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">結束日期</span>
                 <input v-model="form.endDate" type="date" class="admin-input" />
               </label>
-              <label class="space-y-1 md:col-span-2">
-                <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">旅程邀請碼</span>
+              <label class="space-y-1">
+                <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">公開瀏覽碼</span>
+                <input v-model="form.publicCode" maxlength="6" class="admin-input font-mono uppercase" placeholder="空白時自動產生 6 碼" />
+              </label>
+              <label class="space-y-1">
+                <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">加入旅程碼</span>
                 <input v-model="form.inviteCode" maxlength="6" class="admin-input font-mono uppercase" placeholder="空白時自動產生 6 碼" />
               </label>
             </div>
@@ -468,25 +606,24 @@ const archiveCurrent = async () => {
                 </button>
               </div>
             </section>
-          </div>
+        </div>
 
-          <footer class="p-5 border-t border-slate-200 flex justify-end gap-3">
-            <button @click="closeDrawer" class="h-11 px-5 rounded-xl bg-slate-50 text-slate-600 font-black text-sm">
-              取消
-            </button>
-            <button
-              @click="saveTrip"
-              :disabled="isSaving"
-              class="h-11 px-5 rounded-xl bg-indigo-600 text-white font-black text-sm flex items-center gap-2 disabled:opacity-50 hover:bg-indigo-700"
-            >
-              <Loader2 v-if="isSaving" class="animate-spin" :size="16" />
-              <Save v-else :size="16" />
-              儲存
-            </button>
-          </footer>
-        </aside>
+        <footer class="p-5 border-t border-slate-200 flex justify-end gap-3">
+          <button @click="closeDrawer" class="h-11 px-5 rounded-xl bg-slate-50 text-slate-600 font-black text-sm">
+            取消
+          </button>
+          <button
+            @click="saveTrip"
+            :disabled="isSaving"
+            class="h-11 px-5 rounded-xl bg-indigo-600 text-white font-black text-sm flex items-center gap-2 disabled:opacity-50 hover:bg-indigo-700"
+          >
+            <Loader2 v-if="isSaving" class="animate-spin" :size="16" />
+            <Save v-else :size="16" />
+            儲存
+          </button>
+        </footer>
       </div>
-    </Teleport>
+    </AdminDrawer>
   </main>
 </template>
 
