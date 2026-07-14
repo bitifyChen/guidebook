@@ -1,0 +1,6 @@
+import{e as p,O as g,Q as h,R as u,T as y,V as k,W as m,Y as a,Z as l}from"./index-NDsJccmA.js";/**
+ * @license lucide-vue-next v0.378.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const N=p("SendIcon",[["path",{d:"m22 2-7 20-4-9-9-4Z",key:"1q3vgg"}],["path",{d:"M22 2 11 13",key:"nzbqef"}]]),w=l(a),A="notificationLogs",T=()=>"https://guidebook-hoju.onrender.com".replace(/\/$/,""),b=async()=>{const t=m(a).currentUser;if(!t)throw new Error("請先登入後台。");return t.getIdToken()},r=t=>t?typeof t=="number"?t:typeof t.toMillis=="function"?t.toMillis():0:0,I=async({limitCount:t=100}={})=>(await g(h(k(w,A),y("createdAt","desc"),u(t)))).docs.map(o=>({id:o.id,...o.data()})),M=async({title:t,body:e,imageUrl:o="",clickUrl:i="",tripId:c="",participantIds:d=[]})=>{const f=await b(),n=await fetch(`${T()}/notifications/send`,{method:"POST",headers:{Authorization:`Bearer ${f}`,"Content-Type":"application/json"},body:JSON.stringify({title:t,body:e,imageUrl:o,clickUrl:i,tripId:c,participantIds:d})}),s=await n.json().catch(()=>({}));if(!n.ok)throw new Error(s.message||"推播發送失敗。");return s},O=(t=[])=>[...t].sort((e,o)=>r(o.createdAt)-r(e.createdAt));export{N as S,O as a,I as g,M as s};
