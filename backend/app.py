@@ -3,6 +3,7 @@ import os
 from flask import Flask, request
 
 from views.health import health_response
+from views.notifications import handle_send_notification
 from views.tracking import handle_traccar_location
 
 
@@ -47,6 +48,13 @@ def create_app():
         if request.method == "OPTIONS":
             return ("", 204)
         return handle_traccar_location(request)
+
+    @app.route("/notifications/send", methods=["POST", "OPTIONS"])
+    @app.route("/api/notifications/send", methods=["POST", "OPTIONS"])
+    def send_notification():
+        if request.method == "OPTIONS":
+            return ("", 204)
+        return handle_send_notification(request)
 
     return app
 

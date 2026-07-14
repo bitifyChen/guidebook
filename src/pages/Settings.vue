@@ -15,8 +15,9 @@ import {
 } from '@/api/participants';
 import { getTripById } from '@/api/trips';
 import {
+  deleteTrackingTokensByParticipant,
   ensureParticipantTrackingToken,
-  getTrackingEndpointUrl,
+  getActiveTrackingTokenByParticipant,
   getTraccarConfigUrl,
 } from '@/api/tracking';
 import { loginWithGoogle } from '@/api/auth';
@@ -67,6 +68,8 @@ const isGuestNameModalOpen = ref(false);
 const guestNameInput = ref('');
 const isTrackingSetupLoading = ref(false);
 const trackingSetupToken = ref('');
+const trackingSetupHash = ref('');
+const trackingSetupNeedsRebind = ref(false);
 const copiedTrackingSetup = ref('');
 let resolveGuestName = null;
 
@@ -121,28 +124,27 @@ const getDevicePlatform = () => {
 };
 
 const getCurrentTripPushTokens = (participant = userStore.myParticipant) => {
-  if (!participant || !tripStore.currentTripId) return [];
+  if (!participant) return [];
   const tokens = Array.isArray(participant.pushTokens)
     ? participant.pushTokens
     : participant.pushToken
-      ? [{ token: participant.pushToken, tripId: tripStore.currentTripId }]
+      ? [{ token: participant.pushToken }]
       : [];
   return tokens.filter(
     (item) =>
       item?.token &&
-      (!item.tripId || item.tripId === tripStore.currentTripId) &&
       item.permission !== 'denied'
   );
 };
 
 const notificationStatus = computed(() => {
   if (!userStore.myParticipant) return 'disabled';
-  if (getCurrentTripPushTokens().length > 0) return 'enabled';
   const tripPreference =
     userStore.myParticipant.notificationPreferences?.[tripStore.currentTripId];
   if (tripPreference === 'denied') {
     return 'denied';
   }
+  if (getCurrentTripPushTokens().length > 0) return 'enabled';
   return 'disabled';
 });
 
@@ -160,18 +162,23 @@ const trackingDeviceId = computed(() => {
     : 'guidebook-device';
 });
 
-const trackingEndpointUrl = computed(() =>
-  trackingSetupToken.value
-    ? getTrackingEndpointUrl(trackingSetupToken.value)
-    : ''
-);
+const trackingSetupStorageKey = computed(() => {
+  const participantId = userStore.myParticipant?.id || userStore.localParticipantId || '';
+  return participantId ? `guidebook_tracking_setup_hash_${participantId}` : '';
+});
+
+const trackingSetupStatusText = computed(() => {
+  if (trackingSetupNeedsRebind.value) return '定位設定已更新，請重新綁定';
+  if (trackingSetupToken.value) return '可重新綁定 Traccar';
+  return '尚未啟用定位設定';
+});
 
 const traccarConfigUrl = computed(() =>
   trackingSetupToken.value
     ? getTraccarConfigUrl({
         token: trackingSetupToken.value,
         deviceId: trackingDeviceId.value,
-        accuracy: 'high',
+        accuracy: 'highest',
         distance: 10,
         interval: 30,
         wakelock: true,
@@ -180,17 +187,53 @@ const traccarConfigUrl = computed(() =>
     : ''
 );
 
+const rememberTrackingSetupHash = () => {
+  if (!trackingSetupStorageKey.value || !trackingSetupHash.value) return;
+  localStorage.setItem(trackingSetupStorageKey.value, trackingSetupHash.value);
+  trackingSetupNeedsRebind.value = false;
+};
+
+const loadCurrentTrackingSetup = async () => {
+  if (!userStore.myParticipant?.id) return;
+  isTrackingSetupLoading.value = true;
+  try {
+    const activeToken = await getActiveTrackingTokenByParticipant(
+      userStore.myParticipant.id
+    );
+    const savedHash = trackingSetupStorageKey.value
+      ? localStorage.getItem(trackingSetupStorageKey.value) || ''
+      : '';
+    trackingSetupToken.value = activeToken?.token || '';
+    trackingSetupHash.value = activeToken?.id || '';
+    trackingSetupNeedsRebind.value = Boolean(
+      savedHash && savedHash !== trackingSetupHash.value
+    );
+  } catch (error) {
+    console.error('定位設定讀取失敗:', error);
+  } finally {
+    isTrackingSetupLoading.value = false;
+  }
+};
+
 const ensureCurrentTrackingSetup = async () => {
-  if (!userStore.myParticipant?.id || !tripStore.currentTripId) return;
+  if (!userStore.myParticipant?.id) return;
+  if (trackingSetupToken.value && trackingSetupHash.value) return;
+
   isTrackingSetupLoading.value = true;
   try {
     const result = await ensureParticipantTrackingToken({
       participantId: userStore.myParticipant.id,
-      tripId: tripStore.currentTripId,
       deviceId: trackingDeviceId.value,
       minIntervalSeconds: 30,
     });
     trackingSetupToken.value = result.token || '';
+    trackingSetupHash.value = result.tokenHash || '';
+    const savedHash = trackingSetupStorageKey.value
+      ? localStorage.getItem(trackingSetupStorageKey.value) || ''
+      : '';
+    trackingSetupNeedsRebind.value = Boolean(
+      savedHash && savedHash !== trackingSetupHash.value
+    );
   } catch (error) {
     console.error('定位設定讀取失敗:', error);
   } finally {
@@ -199,19 +242,42 @@ const ensureCurrentTrackingSetup = async () => {
 };
 
 const openTraccarSetup = async () => {
-  if (!traccarConfigUrl.value) await ensureCurrentTrackingSetup();
+  await ensureCurrentTrackingSetup();
   if (!traccarConfigUrl.value)
     return alert('目前無法建立定位設定，請稍後再試。');
+  rememberTrackingSetupHash();
   window.location.href = traccarConfigUrl.value;
 };
 
 const copyTrackingSetup = async (value, label = '設定') => {
   if (!value) return;
   await navigator.clipboard.writeText(value);
+  if (label === 'app') rememberTrackingSetupHash();
   copiedTrackingSetup.value = label;
   setTimeout(() => {
     copiedTrackingSetup.value = '';
   }, 2000);
+};
+
+const removeCurrentTrackingSetup = async () => {
+  if (!userStore.myParticipant?.id) return;
+  if (!confirm('確定要移除目前的手機定位設定？之後可重新建立。')) return;
+
+  isTrackingSetupLoading.value = true;
+  try {
+    await deleteTrackingTokensByParticipant(userStore.myParticipant.id);
+    trackingSetupToken.value = '';
+    trackingSetupHash.value = '';
+    trackingSetupNeedsRebind.value = false;
+    if (trackingSetupStorageKey.value) {
+      localStorage.removeItem(trackingSetupStorageKey.value);
+    }
+    alert('已移除手機定位設定。');
+  } catch (error) {
+    alert('移除定位設定失敗：' + error.message);
+  } finally {
+    isTrackingSetupLoading.value = false;
+  }
 };
 
 const handleInstallClick = async () => {
@@ -355,7 +421,7 @@ const selectTripFromPicker = async (row) => {
   clearTripCaches();
   await reloadTripData();
   await loadUserTrips();
-  await ensureCurrentTrackingSetup();
+  await loadCurrentTrackingSetup();
   isTripPickerOpen.value = false;
   router.push('/');
 };
@@ -371,6 +437,7 @@ onMounted(async () => {
     await userStore.initAuth();
   }
   await loadUserTrips();
+  await loadCurrentTrackingSetup();
 
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
@@ -388,7 +455,9 @@ watch(
   () => [userStore.myParticipant?.id, tripStore.currentTripId],
   () => {
     trackingSetupToken.value = '';
-    ensureCurrentTrackingSetup();
+    trackingSetupHash.value = '';
+    trackingSetupNeedsRebind.value = false;
+    loadCurrentTrackingSetup();
   }
 );
 
@@ -643,7 +712,9 @@ const bindPushTokenToCurrentParticipant = async (
   const participantTokens = Array.isArray(userStore.myParticipant.pushTokens)
     ? userStore.myParticipant.pushTokens
     : [];
-  const alreadyBound = participantTokens.some((item) => item.token === token);
+  const alreadyBound = participantTokens.some(
+    (item) => item.token === token && item.permission !== 'denied'
+  );
 
   if (alreadyBound && previousToken === token) return false;
 
@@ -657,7 +728,7 @@ const bindPushTokenToCurrentParticipant = async (
   await participantsStore.init();
 
   if (previousToken && previousToken !== token) {
-    alert('偵測到此裝置的推播 Token 已更新，已重新綁定目前成員。');
+    alert('偵測到此裝置的推播設定已更新，已重新綁定目前成員。');
   }
 
   return true;
@@ -694,7 +765,7 @@ const requestNotificationPermission = async ({ silent = false } = {}) => {
       } else {
         if (!silent) {
           alert(
-            '取得推播 Token 失敗，請確認 Firebase 設定（特別是 VAPID 金鑰）是否正確。'
+            '取得通知設定失敗，請確認 Firebase 設定（特別是 VAPID 金鑰）是否正確。'
           );
         }
       }
@@ -748,21 +819,6 @@ const promptNotificationAfterNewParticipant = async () => {
       permission: 'denied',
     });
     await participantsStore.init();
-  }
-};
-
-const copyFCMToken = async () => {
-  try {
-    await navigator.clipboard.writeText(fcmToken.value);
-    alert('FCM Token 已複製到剪貼簿！');
-  } catch (err) {
-    const input = document.createElement('input');
-    input.value = fcmToken.value;
-    document.body.appendChild(input);
-    input.select();
-    document.execCommand('copy');
-    document.body.removeChild(input);
-    alert('FCM Token 已複製到剪貼簿！');
   }
 };
 
@@ -1115,7 +1171,6 @@ const disableNotificationForCurrentTrip = async () => {
                   關閉通知
                 </button>
                 <button
-                  v-if="!fcmToken"
                   @click="requestNotificationPermission"
                   :disabled="isGettingToken"
                   class="bg-indigo-500 text-white text-xs font-black px-4 py-2 rounded-xl hover:bg-indigo-600 disabled:opacity-50 transition-colors flex items-center justify-center"
@@ -1126,13 +1181,6 @@ const disableNotificationForCurrentTrip = async () => {
                     :size="12"
                   />
                   重新綁定
-                </button>
-                <button
-                  v-else
-                  @click="copyFCMToken"
-                  class="bg-green-500 text-white text-xs font-black px-4 py-2 rounded-xl hover:bg-green-600 transition-colors"
-                >
-                  複製 Token
                 </button>
               </template>
             </div>
@@ -1148,22 +1196,6 @@ const disableNotificationForCurrentTrip = async () => {
             應用程式，才能啟用並接收推播通知。
           </div>
 
-          <!-- Token 顯示與手動發送提示 -->
-          <div
-            v-if="fcmToken"
-            class="mt-4 p-4 bg-slate-50 rounded-2xl text-xs space-y-2 border border-slate-100 text-left"
-          >
-            <div class="font-black text-slate-700">您的推播 Token：</div>
-            <div
-              class="font-mono bg-white p-2 rounded-xl border border-slate-200 break-all select-all text-slate-500"
-            >
-              {{ fcmToken }}
-            </div>
-            <div class="text-[10px] text-slate-400 leading-normal">
-              提示：您可以複製上述 Token，搭配你的 Firebase
-              專案憑證，從電腦執行手動推送測試。
-            </div>
-          </div>
         </div>
 
         <!-- Location Tracking Setup -->
@@ -1182,7 +1214,7 @@ const disableNotificationForCurrentTrip = async () => {
               <span
                 class="block text-[10px] font-bold text-slate-400 uppercase tracking-tighter mt-0.5"
               >
-                {{ trackingSetupToken ? '可設定 Traccar' : '準備定位設定中' }}
+                {{ trackingSetupStatusText }}
               </span>
 
               <div class="mt-4 grid grid-cols-1 gap-2">
@@ -1197,7 +1229,13 @@ const disableNotificationForCurrentTrip = async () => {
                     :size="14"
                   />
                   <MapPin v-else :size="14" />
-                  開啟 Traccar 設定
+                  {{
+                    trackingSetupNeedsRebind
+                      ? '重新綁定 Traccar'
+                      : trackingSetupToken
+                        ? '重新開啟 Traccar'
+                        : '開啟 Traccar 設定'
+                  }}
                 </button>
                 <div class="grid grid-cols-2 gap-2">
                   <button
@@ -1211,16 +1249,12 @@ const disableNotificationForCurrentTrip = async () => {
                     }}
                   </button>
                   <button
-                    @click="copyTrackingSetup(trackingEndpointUrl, 'server')"
-                    :disabled="!trackingEndpointUrl"
-                    class="h-10 rounded-xl bg-slate-100 text-slate-600 text-xs font-black flex items-center justify-center gap-1 disabled:opacity-50"
+                    @click="removeCurrentTrackingSetup"
+                    :disabled="!trackingSetupToken || isTrackingSetupLoading"
+                    class="h-10 rounded-xl bg-red-50 text-red-600 text-xs font-black flex items-center justify-center gap-1 disabled:opacity-50"
                   >
-                    <Copy :size="13" />
-                    {{
-                      copiedTrackingSetup === 'server'
-                        ? '已複製'
-                        : '複製 Server URL'
-                    }}
+                    <X :size="13" />
+                    移除設定
                   </button>
                 </div>
               </div>

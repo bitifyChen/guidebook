@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import { useUserStore } from '@/store/userStore';
 import { useTripStore } from '@/store/tripStore';
 import {
+  Bell,
   Plane,
   Users,
 } from 'lucide-vue-next';
@@ -30,6 +31,15 @@ const cards = computed(() =>
       path: '/admin/participants',
       color: 'text-purple-600',
       bg: 'bg-purple-50',
+      superOnly: true,
+    },
+    {
+      title: '推播管理',
+      desc: '建立推播、選擇旅程成員並查看發送紀錄',
+      icon: Bell,
+      path: '/admin/notifications',
+      color: 'text-emerald-600',
+      bg: 'bg-emerald-50',
       superOnly: true,
     },
   ].filter((card) => !card.superOnly || userStore.isSuperAdmin)

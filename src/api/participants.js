@@ -36,22 +36,15 @@ const withTripIds = (data) => ({
   tripIds: data.tripIds || (data.tripId ? [data.tripId] : []),
 });
 
-const ensureTrackingTokensForParticipantTrips = async (
+const ensureTrackingTokenForParticipant = async (
   participantId,
-  tripIds = [],
   deviceName = ''
 ) => {
-  const uniqueTripIds = [...new Set(tripIds.filter(Boolean))];
-  await Promise.all(
-    uniqueTripIds.map((tripId) =>
-      ensureParticipantTrackingToken({
-        participantId,
-        tripId,
-        deviceId: deviceName,
-        minIntervalSeconds: 30,
-      })
-    )
-  );
+  await ensureParticipantTrackingToken({
+    participantId,
+    deviceId: deviceName,
+    minIntervalSeconds: 30,
+  });
 };
 
 const createParticipantInviteCode = async () => {
@@ -249,7 +242,7 @@ export const postParticipant = async (params) => {
       createdAt: serverTimestamp(),
     };
     await setDoc(docRef, data);
-    await ensureTrackingTokensForParticipantTrips(docRef.id, tripIds, data.name || '');
+    await ensureTrackingTokenForParticipant(docRef.id, data.name || '');
     await updateParticipantsVersion();
     return { status: 200, id: docRef.id };
   } catch (error) {
@@ -299,27 +292,25 @@ export const upsertParticipantPushToken = async (
   const now = Date.now();
   const existingTokens = Array.isArray(participant.pushTokens)
     ? participant.pushTokens
-    : [];
-  const existingToken = existingTokens.find((item) => item.token === token);
-  const nextTokens = existingTokens.filter(
-    (item) =>
-      item.token &&
-      item.token !== token &&
-      (!previousToken || item.token !== previousToken)
-  );
+    : participant.pushToken
+      ? [{ token: participant.pushToken }]
+      : [];
+  const existingToken =
+    existingTokens.find((item) => item.token === token) ||
+    existingTokens.find((item) => previousToken && item.token === previousToken) ||
+    existingTokens[0];
 
-  nextTokens.push({
+  const nextToken = {
     token,
-    tripId,
     userAgent,
     platform,
     permission: 'granted',
     createdAt: existingToken?.createdAt || now,
     updatedAt: now,
-  });
+  };
 
   await updateDoc(docRef, {
-    pushTokens: nextTokens,
+    pushTokens: [nextToken],
     pushToken: token,
     pushTokenUpdatedAt: now,
     notificationPermission: 'granted',
@@ -369,20 +360,28 @@ export const disableParticipantPushForTrip = async (
   if (!snap.exists()) throw new Error('找不到成員資料。');
 
   const participant = snap.data();
+  const now = Date.now();
   const currentTokens = Array.isArray(participant.pushTokens)
     ? participant.pushTokens
-    : [];
-  const nextTokens = currentTokens.filter((item) => {
-    if (!item?.token) return false;
-    if (token && item.token !== token) return true;
-    if (tripId && item.tripId !== tripId) return true;
-    return false;
-  });
+    : participant.pushToken
+      ? [{ token: participant.pushToken }]
+      : [];
+  const nextTokens = currentTokens
+    .filter((item) => item?.token)
+    .map((item) => {
+      if (token && item.token !== token) return item;
+      return {
+        ...item,
+        permission: 'denied',
+        disabledAt: now,
+        updatedAt: now,
+      };
+    });
 
   await updateDoc(docRef, {
     pushTokens: nextTokens,
-    pushToken: nextTokens.at(-1)?.token || '',
-    pushTokenUpdatedAt: Date.now(),
+    pushToken: nextTokens.at(-1)?.token || participant.pushToken || '',
+    pushTokenUpdatedAt: now,
     notificationPermission: 'denied',
     notificationPreferences: {
       ...(participant.notificationPreferences || {}),
@@ -497,7 +496,6 @@ export const getOrCreateTripInviteParticipant = async (
     if (existingForTrip) {
       await ensureParticipantTrackingToken({
         participantId: existingForTrip.id,
-        tripId,
         deviceId: existingForTrip.name || name,
         minIntervalSeconds: 30,
       });
@@ -517,7 +515,6 @@ export const getOrCreateTripInviteParticipant = async (
       });
       await ensureParticipantTrackingToken({
         participantId: target.id,
-        tripId,
         deviceId: target.name || name,
         minIntervalSeconds: 30,
       });
@@ -542,7 +539,6 @@ export const getOrCreateTripInviteParticipant = async (
         });
         await ensureParticipantTrackingToken({
           participantId: existingGuest.id,
-          tripId,
           deviceId: existingGuest.name || name,
           minIntervalSeconds: 30,
         });
@@ -550,7 +546,6 @@ export const getOrCreateTripInviteParticipant = async (
       } else {
         await ensureParticipantTrackingToken({
           participantId: existingGuest.id,
-          tripId,
           deviceId: existingGuest.name || name,
           minIntervalSeconds: 30,
         });
@@ -583,7 +578,6 @@ export const getOrCreateTripInviteParticipant = async (
   await setDoc(docRef, participant);
   await ensureParticipantTrackingToken({
     participantId: docRef.id,
-    tripId,
     deviceId: name,
     minIntervalSeconds: 30,
   });

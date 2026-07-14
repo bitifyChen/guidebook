@@ -46,36 +46,42 @@ export const getTrackingTokensByParticipant = async (participantId) => {
   }));
 };
 
-export const getTrackingTokensByParticipantTrip = async (participantId, tripId) => {
-  if (!participantId || !tripId) return [];
-  const snapshot = await getDocs(
-    query(
-      collection(db, TOKEN_COLLECTION),
-      where('participantId', '==', participantId),
-      where('tripId', '==', tripId)
-    )
-  );
-  return snapshot.docs.map((item) => ({
-    id: item.id,
-    ...item.data(),
-  }));
+export const getActiveTrackingTokenByParticipant = async (participantId) => {
+  const tokens = await getTrackingTokensByParticipant(participantId);
+  return tokens.find((item) => item.enabled !== false && item.token) || null;
 };
 
 export const createParticipantTrackingToken = async ({
   participantId,
-  tripId,
   deviceId = '',
   minIntervalSeconds = 30,
 }) => {
   if (!participantId) throw new Error('participantId is required.');
-  if (!tripId) throw new Error('tripId is required.');
+
+  const existingTokens = await getTrackingTokensByParticipant(participantId);
+  const existingToken = existingTokens.find((item) => item.token);
+  if (existingToken) {
+    await updateDoc(doc(db, TOKEN_COLLECTION, existingToken.id), {
+      participantId,
+      deviceId: deviceId.trim(),
+      enabled: true,
+      revokedAt: null,
+      minIntervalSeconds: Number(minIntervalSeconds) || 30,
+      updatedAt: serverTimestamp(),
+    });
+
+    return {
+      token: existingToken.token,
+      tokenHash: existingToken.id,
+      existing: true,
+    };
+  }
 
   const token = createRawTrackingToken();
   const tokenHash = await hashTrackingToken(token);
   await setDoc(doc(db, TOKEN_COLLECTION, tokenHash), {
     token,
     participantId,
-    tripId,
     deviceId: deviceId.trim(),
     enabled: true,
     minIntervalSeconds: Number(minIntervalSeconds) || 30,
@@ -88,13 +94,21 @@ export const createParticipantTrackingToken = async ({
 
 export const ensureParticipantTrackingToken = async ({
   participantId,
-  tripId,
   deviceId = '',
   minIntervalSeconds = 30,
 }) => {
-  const existingTokens = await getTrackingTokensByParticipantTrip(participantId, tripId);
+  const existingTokens = await getTrackingTokensByParticipant(participantId);
   const activeToken = existingTokens.find((item) => item.enabled !== false && item.token);
   if (activeToken) {
+    await updateDoc(doc(db, TOKEN_COLLECTION, activeToken.id), {
+      participantId,
+      deviceId: deviceId.trim(),
+      enabled: true,
+      revokedAt: null,
+      minIntervalSeconds: Number(minIntervalSeconds) || 30,
+      updatedAt: serverTimestamp(),
+    });
+
     return {
       token: activeToken.token,
       tokenHash: activeToken.id,
@@ -104,18 +118,8 @@ export const ensureParticipantTrackingToken = async ({
 
   return createParticipantTrackingToken({
     participantId,
-    tripId,
     deviceId,
     minIntervalSeconds,
-  });
-};
-
-export const revokeTrackingToken = async (tokenHash) => {
-  if (!tokenHash) return;
-  await updateDoc(doc(db, TOKEN_COLLECTION, tokenHash), {
-    enabled: false,
-    revokedAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
   });
 };
 
@@ -136,7 +140,7 @@ export const getTrackingEndpointUrl = (token) => {
 export const getTraccarConfigUrl = ({
   token,
   deviceId = '',
-  accuracy = 'high',
+  accuracy = 'highest',
   distance = 10,
   interval = 30,
   wakelock = true,

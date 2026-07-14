@@ -4,11 +4,10 @@ import { useParticipantsStore } from '@/store/participantsStore';
 import { useTripStore } from '@/store/tripStore';
 import { uploadImage } from '@/api/storage';
 import {
-  createParticipantTrackingToken,
-  getTrackingEndpointUrl,
+  deleteTrackingTokensByParticipant,
+  ensureParticipantTrackingToken,
   getTrackingTokensByParticipant,
   getTraccarConfigUrl,
-  revokeTrackingToken,
 } from '@/api/tracking';
 import AdminDataTable from '@/components/admin/AdminDataTable.vue';
 import AdminDrawer from '@/components/admin/AdminDrawer.vue';
@@ -20,10 +19,12 @@ import {
   Pencil,
   Plus,
   Save,
+  Send,
   Trash2,
   Upload,
   User,
 } from 'lucide-vue-next';
+import { sendGuidebookNotification } from '@/api/notifications';
 
 const participantsStore = useParticipantsStore();
 const tripStore = useTripStore();
@@ -31,14 +32,14 @@ const tripStore = useTripStore();
 const isDrawerOpen = ref(false);
 const isUploading = ref(false);
 const isSaving = ref(false);
+const isTestPushSending = ref(false);
+const isTrackingRemoving = ref(false);
 const copiedId = ref(null);
-const copiedToken = ref('');
 const copiedTrackingUrl = ref('');
 const editingId = ref('');
 const fileInput = ref(null);
 const tripSearch = ref('');
 const trackingTokens = ref([]);
-const generatedTrackingUrl = ref('');
 const isTrackingLoading = ref(false);
 const isTrackingCreating = ref(false);
 const appliedSearch = ref({
@@ -53,11 +54,6 @@ const form = ref({
   isAdmin: false,
   isSuperAdmin: false,
   tripIds: [],
-});
-
-const trackingForm = ref({
-  deviceId: '',
-  minIntervalSeconds: 30,
 });
 
 const columns = [
@@ -118,7 +114,9 @@ const selectableTrips = computed(() => {
 });
 
 const editingParticipant = computed(() =>
-  participantsStore.participants.find((participant) => participant.id === editingId.value)
+  participantsStore.participants.find(
+    (participant) => participant.id === editingId.value
+  )
 );
 
 const getNotificationTripId = () => appliedSearch.value.tripId || '';
@@ -128,18 +126,15 @@ const getPushTokens = (participant, tripId = getNotificationTripId()) => {
   const tokens = Array.isArray(participant.pushTokens)
     ? participant.pushTokens
     : participant.pushToken
-      ? [{ token: participant.pushToken, tripId }]
+      ? [{ token: participant.pushToken }]
       : [];
-  return tokens.filter(
-    (item) =>
-      item?.token &&
-      (!tripId || !item.tripId || item.tripId === tripId) &&
-      item.permission !== 'denied'
-  );
+  return tokens.filter((item) => item?.token && item.permission !== 'denied');
 };
 
-const getNotificationStatus = (participant, tripId = getNotificationTripId()) => {
-  if (getPushTokens(participant, tripId).length > 0) return 'enabled';
+const getNotificationStatus = (
+  participant,
+  tripId = getNotificationTripId()
+) => {
   const preferences = participant?.notificationPreferences || {};
   const tripPreference = tripId ? preferences[tripId] : '';
   const hasDeniedPreference = tripId
@@ -148,6 +143,7 @@ const getNotificationStatus = (participant, tripId = getNotificationTripId()) =>
   if (hasDeniedPreference) {
     return 'denied';
   }
+  if (getPushTokens(participant, tripId).length > 0) return 'enabled';
   return 'disabled';
 };
 
@@ -165,19 +161,22 @@ const getNotificationClass = (participant) => {
   return 'bg-slate-100 text-slate-500';
 };
 
-const hasPushEnabled = (participant) => getNotificationStatus(participant) === 'enabled';
+const hasPushEnabled = (participant) =>
+  getNotificationStatus(participant) === 'enabled';
 
-const getTrackingTripId = () => appliedSearch.value.tripId || tripStore.currentTripId || '';
+const activeTrackingToken = computed(() =>
+  trackingTokens.value.find((item) => item.enabled !== false && item.token)
+);
 
-const activeTrackingTokens = computed(() => {
-  const tripId = getTrackingTripId();
-  return trackingTokens.value.filter((item) => !tripId || item.tripId === tripId);
-});
+const trackingStatusLabel = computed(() =>
+  activeTrackingToken.value ? '已啟用' : '未啟用'
+);
 
-const trackingTripName = computed(() => {
-  const tripId = getTrackingTripId();
-  return tripId ? tripNameById.value[tripId] || tripId : '全部旅程';
-});
+const trackingStatusClass = computed(() =>
+  activeTrackingToken.value
+    ? 'bg-green-100 text-green-700'
+    : 'bg-slate-100 text-slate-500'
+);
 
 const filteredParticipants = computed(() => {
   const filters = appliedSearch.value;
@@ -187,9 +186,18 @@ const filteredParticipants = computed(() => {
     const tripIds = participant.tripIds || [];
     if (filters.tripId && !tripIds.includes(filters.tripId)) return false;
 
-    if (filters.role === 'superAdmin' && !participant.isSuperAdmin) return false;
-    if (filters.role === 'admin' && (!participant.isAdmin || participant.isSuperAdmin)) return false;
-    if (filters.role === 'member' && (participant.isAdmin || participant.isSuperAdmin)) return false;
+    if (filters.role === 'superAdmin' && !participant.isSuperAdmin)
+      return false;
+    if (
+      filters.role === 'admin' &&
+      (!participant.isAdmin || participant.isSuperAdmin)
+    )
+      return false;
+    if (
+      filters.role === 'member' &&
+      (participant.isAdmin || participant.isSuperAdmin)
+    )
+      return false;
 
     if (!keyword) return true;
     const haystack = [
@@ -226,12 +234,7 @@ const resetForm = () => {
   editingId.value = '';
   tripSearch.value = '';
   trackingTokens.value = [];
-  generatedTrackingUrl.value = '';
   copiedTrackingUrl.value = '';
-  trackingForm.value = {
-    deviceId: '',
-    minIntervalSeconds: 30,
-  };
   form.value = {
     name: '',
     avatar: '',
@@ -273,16 +276,21 @@ const copyInviteCode = (code, id) => {
   }, 2000);
 };
 
-const copyPushToken = async (token) => {
-  if (!token) return;
-  await navigator.clipboard.writeText(token);
-  copiedToken.value = token;
-  setTimeout(() => {
-    copiedToken.value = '';
-  }, 2000);
+const getTrackingSetupUrl = (item = activeTrackingToken.value) => {
+  if (!item?.token) return '';
+  return getTraccarConfigUrl({
+    token: item.token,
+    deviceId: item.deviceId || `guidebook-${editingId.value.slice(0, 8)}`,
+    accuracy: 'highest',
+    distance: 10,
+    interval: item.minIntervalSeconds || 30,
+    wakelock: true,
+    buffer: true,
+  });
 };
 
-const copyTrackingUrl = async (url) => {
+const copyTrackingSetupUrl = async () => {
+  const url = getTrackingSetupUrl();
   if (!url) return;
   await navigator.clipboard.writeText(url);
   copiedTrackingUrl.value = url;
@@ -290,21 +298,6 @@ const copyTrackingUrl = async (url) => {
     copiedTrackingUrl.value = '';
   }, 2000);
 };
-
-const getTrackingServerUrl = (item) => (item?.token ? getTrackingEndpointUrl(item.token) : '');
-
-const getTrackingAppUrl = (item) =>
-  item?.token
-    ? getTraccarConfigUrl({
-        token: item.token,
-        deviceId: item.deviceId || `guidebook-${editingId.value.slice(0, 8)}`,
-        accuracy: 'high',
-        distance: 10,
-        interval: item.minIntervalSeconds || 30,
-        wakelock: true,
-        buffer: true,
-      })
-    : '';
 
 const triggerFileUpload = () => {
   fileInput.value?.click();
@@ -372,36 +365,61 @@ const loadTrackingTokens = async (participantId = editingId.value) => {
   }
 };
 
-const createTrackingToken = async () => {
+const enableTrackingForParticipant = async () => {
   if (!editingId.value) return;
-  const tripId = getTrackingTripId();
-  if (!tripId) return alert('請先選擇要綁定定位的旅程');
-
   isTrackingCreating.value = true;
   try {
-    const result = await createParticipantTrackingToken({
+    await ensureParticipantTrackingToken({
       participantId: editingId.value,
-      tripId,
-      deviceId: trackingForm.value.deviceId.trim(),
-      minIntervalSeconds: Number(trackingForm.value.minIntervalSeconds) || 30,
+      deviceId:
+        form.value.name?.trim() || `guidebook-${editingId.value.slice(0, 8)}`,
+      minIntervalSeconds: 30,
     });
-    generatedTrackingUrl.value = getTrackingEndpointUrl(result.token);
     await loadTrackingTokens(editingId.value);
   } catch (error) {
-    alert('定位連結建立失敗：' + error.message);
+    alert('定位設定建立失敗：' + error.message);
   } finally {
     isTrackingCreating.value = false;
   }
 };
 
-const disableTrackingToken = async (tokenHash) => {
-  if (!tokenHash) return;
-  if (!confirm('確定要停用這組定位連結？已設定的手機將無法再上傳位置。')) return;
+const removeTrackingForParticipant = async () => {
+  if (!editingId.value) return;
+  if (!confirm('確定要移除此成員目前的位置分享設定？成員需要重新綁定手機。')) return;
+
+  isTrackingRemoving.value = true;
   try {
-    await revokeTrackingToken(tokenHash);
-    await loadTrackingTokens(editingId.value);
+    await deleteTrackingTokensByParticipant(editingId.value);
+    trackingTokens.value = [];
+    copiedTrackingUrl.value = '';
   } catch (error) {
-    alert('停用失敗：' + error.message);
+    alert('移除位置分享失敗：' + error.message);
+  } finally {
+    isTrackingRemoving.value = false;
+  }
+};
+
+const sendTestPush = async () => {
+  if (!editingId.value) return;
+  isTestPushSending.value = true;
+  try {
+    const result = await sendGuidebookNotification({
+      title: '測試推播',
+      body: `${form.value.name || '成員'}，這是一則後台測試通知。`,
+      tripId:
+        appliedSearch.value.tripId ||
+        form.value.tripIds[0] ||
+        tripStore.currentTripId ||
+        '',
+      participantIds: [editingId.value],
+    });
+    alert(
+      `測試推播已送出：成功 ${result.successCount}，失敗 ${result.failureCount}`
+    );
+  } catch (error) {
+    alert('測試推播失敗：' + error.message);
+  } finally {
+    isTestPushSending.value = false;
   }
 };
 
@@ -470,7 +488,9 @@ const deleteCurrentParticipant = async () => {
 
       <template #member="{ row }">
         <div class="flex items-center gap-3 min-w-0">
-          <div class="w-12 h-12 rounded-xl bg-slate-100 overflow-hidden flex items-center justify-center text-slate-300 shrink-0">
+          <div
+            class="w-12 h-12 rounded-xl bg-slate-100 overflow-hidden flex items-center justify-center text-slate-300 shrink-0"
+          >
             <img
               v-if="row.avatar"
               :src="row.avatar"
@@ -492,7 +512,9 @@ const deleteCurrentParticipant = async () => {
           @click="copyInviteCode(row.inviteCode, row.id)"
           class="inline-flex items-center gap-1 bg-slate-50 border border-slate-100 rounded-lg px-2 py-1"
         >
-          <span class="font-mono text-[11px] font-black text-slate-600">{{ row.inviteCode || 'N/A' }}</span>
+          <span class="font-mono text-[11px] font-black text-slate-600">{{
+            row.inviteCode || 'N/A'
+          }}</span>
           <component
             :is="copiedId === row.id ? Check : Copy"
             :size="12"
@@ -571,302 +593,317 @@ const deleteCurrentParticipant = async () => {
     >
       <div class="flex h-full min-h-0 flex-col bg-white">
         <div class="flex-1 overflow-y-auto p-5 space-y-6">
-            <section class="flex flex-col items-center">
-              <div class="w-24 h-24 rounded-2xl bg-slate-50 border border-slate-200 overflow-hidden flex items-center justify-center text-slate-300 relative">
-                <img
-                  v-if="form.avatar"
-                  :src="form.avatar"
-                  class="w-full h-full object-cover"
-                />
-                <User v-else :size="34" />
-                <div
-                  v-if="isUploading"
-                  class="absolute inset-0 bg-white/80 flex items-center justify-center"
+          <section class="flex flex-col items-center">
+            <div
+              class="w-24 h-24 rounded-2xl bg-slate-50 border border-slate-200 overflow-hidden flex items-center justify-center text-slate-300 relative"
+            >
+              <img
+                v-if="form.avatar"
+                :src="form.avatar"
+                class="w-full h-full object-cover"
+              />
+              <User v-else :size="34" />
+              <div
+                v-if="isUploading"
+                class="absolute inset-0 bg-white/80 flex items-center justify-center"
+              >
+                <Loader2 class="animate-spin text-indigo-500" :size="24" />
+              </div>
+            </div>
+            <input
+              ref="fileInput"
+              type="file"
+              class="hidden"
+              accept="image/*"
+              @change="handleFileUpload"
+            />
+            <div class="flex gap-4 mt-3">
+              <button
+                @click="triggerFileUpload"
+                class="text-xs font-black text-indigo-600"
+              >
+                <Upload :size="14" class="inline mr-1" />
+                {{ form.avatar ? '更換照片' : '上傳照片' }}
+              </button>
+              <button
+                v-if="form.avatar"
+                @click="form.avatar = ''"
+                class="text-xs font-black text-red-500"
+              >
+                移除
+              </button>
+            </div>
+          </section>
+
+          <label class="space-y-1 block">
+            <span
+              class="text-[11px] font-black text-slate-400 uppercase tracking-widest"
+              >成員名稱</span
+            >
+            <input
+              v-model="form.name"
+              class="admin-input"
+              placeholder="例如：陳陳"
+            />
+          </label>
+
+          <section class="space-y-2">
+            <div
+              class="text-[11px] font-black text-slate-400 uppercase tracking-widest"
+            >
+              參加旅程
+            </div>
+            <input
+              v-model="tripSearch"
+              class="admin-input"
+              placeholder="搜尋旅程名稱、目的地、邀請碼"
+            />
+            <div
+              class="max-h-72 overflow-y-auto rounded-2xl border border-slate-100 bg-slate-50 p-2 space-y-2"
+            >
+              <button
+                v-for="trip in selectableTrips"
+                :key="trip.id"
+                @click="toggleTrip(trip.id)"
+                class="w-full rounded-xl border p-3 text-left flex items-center justify-between gap-3"
+                :class="
+                  form.tripIds.includes(trip.id)
+                    ? 'border-indigo-200 bg-indigo-50'
+                    : 'border-slate-100 bg-white'
+                "
+              >
+                <span class="min-w-0">
+                  <span
+                    class="block font-black text-sm text-slate-700 truncate"
+                    >{{ trip.title }}</span
+                  >
+                  <span
+                    class="block text-[10px] font-bold text-slate-400 truncate"
+                  >
+                    {{ trip.destination || '未設定目的地' }} ·
+                    {{ trip.inviteCode || '未設定邀請碼' }}
+                  </span>
+                </span>
+                <span
+                  class="text-[10px] font-black px-2 py-1 rounded-lg shrink-0"
+                  :class="
+                    form.tripIds.includes(trip.id)
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-white text-slate-400'
+                  "
                 >
-                  <Loader2 class="animate-spin text-indigo-500" :size="24" />
+                  {{ form.tripIds.includes(trip.id) ? '已加入' : '未加入' }}
+                </span>
+              </button>
+              <div
+                v-if="selectableTrips.length === 0"
+                class="py-8 text-center text-xs font-bold text-slate-400"
+              >
+                沒有符合條件的旅程
+              </div>
+            </div>
+          </section>
+
+          <section class="grid grid-cols-2 gap-3">
+            <button
+              @click="form.isAdmin = !form.isAdmin"
+              class="rounded-xl border-2 p-4 text-left"
+              :class="
+                form.isAdmin
+                  ? 'border-blue-500 bg-blue-50'
+                  : 'border-slate-100 bg-slate-50'
+              "
+            >
+              <span
+                class="block text-[11px] font-black"
+                :class="form.isAdmin ? 'text-blue-600' : 'text-slate-400'"
+                >Admin</span
+              >
+              <span class="block text-[10px] font-bold text-slate-400 mt-1"
+                >可管理旅程資料</span
+              >
+            </button>
+            <button
+              @click="form.isSuperAdmin = !form.isSuperAdmin"
+              class="rounded-xl border-2 p-4 text-left"
+              :class="
+                form.isSuperAdmin
+                  ? 'border-indigo-500 bg-indigo-50'
+                  : 'border-slate-100 bg-slate-50'
+              "
+            >
+              <span
+                class="block text-[11px] font-black"
+                :class="
+                  form.isSuperAdmin ? 'text-indigo-600' : 'text-slate-400'
+                "
+                >Super Admin</span
+              >
+              <span class="block text-[10px] font-bold text-slate-400 mt-1"
+                >可管理旅程與成員</span
+              >
+            </button>
+          </section>
+
+          <section
+            v-if="editingId"
+            class="rounded-2xl border border-slate-100 bg-slate-50 p-4 space-y-3"
+          >
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <h4 class="font-black text-slate-800">推播通知</h4>
+              </div>
+              <span
+                class="rounded-lg px-2 py-1 text-[10px] font-black"
+                :class="getNotificationClass(editingParticipant)"
+              >
+                {{ getNotificationLabel(editingParticipant) }}
+              </span>
+            </div>
+
+            <div v-if="hasPushEnabled(editingParticipant)" class="space-y-2">
+              <div
+                v-for="item in getPushTokens(editingParticipant)"
+                :key="item.token"
+                class="rounded-xl border border-slate-200 bg-white p-3 flex items-center justify-between gap-3"
+              >
+                <div class="min-w-0">
+                  <div class="text-xs font-black text-slate-700">
+                    {{ item.platform || 'Web 裝置' }}
+                  </div>
+                  <div class="text-[10px] font-bold text-slate-400 mt-1">
+                    {{
+                      item.updatedAt
+                        ? new Date(item.updatedAt).toLocaleString()
+                        : '尚未記錄更新時間'
+                    }}
+                  </div>
+                </div>
+                <span
+                  class="rounded-lg bg-green-100 px-2 py-1 text-[10px] font-black text-green-700 shrink-0"
+                >
+                  可測試
+                </span>
+              </div>
+            </div>
+
+            <button
+              @click="sendTestPush"
+              :disabled="
+                isTestPushSending || !hasPushEnabled(editingParticipant)
+              "
+              class="h-10 w-full rounded-xl bg-indigo-600 text-white text-xs font-black flex items-center justify-center gap-2 disabled:opacity-50 hover:bg-indigo-700"
+            >
+              <Loader2
+                v-if="isTestPushSending"
+                class="animate-spin"
+                :size="14"
+              />
+              <Send v-else :size="14" />
+              發送測試推播
+            </button>
+          </section>
+
+          <section
+            v-if="editingId"
+            class="rounded-2xl border border-slate-100 bg-slate-50 p-4 space-y-4"
+          >
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <h4 class="font-black text-slate-800 flex items-center gap-2">
+                  位置分享
+                </h4>
+              </div>
+              <span
+                class="rounded-lg px-2 py-1 text-[10px] font-black"
+                :class="trackingStatusClass"
+              >
+                {{ trackingStatusLabel }}
+              </span>
+            </div>
+
+            <div
+              v-if="isTrackingLoading"
+              class="py-5 text-center text-xs font-black text-slate-400"
+            >
+              載入位置分享狀態中...
+            </div>
+
+            <div
+              v-else-if="activeTrackingToken"
+              class="rounded-xl border border-orange-100 bg-white p-3 flex items-center justify-between gap-3"
+            >
+              <div class="min-w-0">
+                <div class="text-xs font-black text-slate-700 truncate">
+                  {{ activeTrackingToken.deviceId || '未設定裝置名稱' }}
+                </div>
+                <div class="text-[10px] font-bold text-slate-400 mt-1">
+                  每 {{ activeTrackingToken.minIntervalSeconds || 30 }} 秒更新
                 </div>
               </div>
-              <input
-                ref="fileInput"
-                type="file"
-                class="hidden"
-                accept="image/*"
-                @change="handleFileUpload"
-              />
-              <div class="flex gap-4 mt-3">
-                <button @click="triggerFileUpload" class="text-xs font-black text-indigo-600">
-                  <Upload :size="14" class="inline mr-1" />
-                  {{ form.avatar ? '更換照片' : '上傳照片' }}
+              <div class="flex shrink-0 gap-2">
+                <button
+                  @click="copyTrackingSetupUrl"
+                  class="h-9 px-3 rounded-xl bg-orange-500 text-white text-xs font-black inline-flex items-center gap-1"
+                >
+                  <component :is="copiedTrackingUrl ? Check : Copy" :size="13" />
+                  {{ copiedTrackingUrl ? '已複製' : '複製連結' }}
                 </button>
                 <button
-                  v-if="form.avatar"
-                  @click="form.avatar = ''"
-                  class="text-xs font-black text-red-500"
+                  @click="removeTrackingForParticipant"
+                  :disabled="isTrackingRemoving"
+                  class="h-9 px-3 rounded-xl bg-red-50 text-red-600 text-xs font-black inline-flex items-center gap-1 disabled:opacity-50"
                 >
+                  <Loader2
+                    v-if="isTrackingRemoving"
+                    class="animate-spin"
+                    :size="13"
+                  />
+                  <Trash2 v-else :size="13" />
                   移除
                 </button>
               </div>
-            </section>
+            </div>
 
-            <label class="space-y-1 block">
-              <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">成員名稱</span>
-              <input v-model="form.name" class="admin-input" placeholder="例如：陳陳" />
-            </label>
-
-            <section class="space-y-2">
-              <div class="text-[11px] font-black text-slate-400 uppercase tracking-widest">參加旅程</div>
-              <input
-                v-model="tripSearch"
-                class="admin-input"
-                placeholder="搜尋旅程名稱、目的地、邀請碼"
+            <button
+              v-else
+              @click="enableTrackingForParticipant"
+              :disabled="isTrackingCreating"
+              class="h-10 w-full rounded-xl bg-orange-500 text-white text-xs font-black flex items-center justify-center gap-2 disabled:opacity-50 hover:bg-orange-600"
+            >
+              <Loader2
+                v-if="isTrackingCreating"
+                class="animate-spin"
+                :size="14"
               />
-              <div class="max-h-72 overflow-y-auto rounded-2xl border border-slate-100 bg-slate-50 p-2 space-y-2">
-                <button
-                  v-for="trip in selectableTrips"
-                  :key="trip.id"
-                  @click="toggleTrip(trip.id)"
-                  class="w-full rounded-xl border p-3 text-left flex items-center justify-between gap-3"
-                  :class="form.tripIds.includes(trip.id) ? 'border-indigo-200 bg-indigo-50' : 'border-slate-100 bg-white'"
-                >
-                  <span class="min-w-0">
-                    <span class="block font-black text-sm text-slate-700 truncate">{{ trip.title }}</span>
-                    <span class="block text-[10px] font-bold text-slate-400 truncate">
-                      {{ trip.destination || '未設定目的地' }} · {{ trip.inviteCode || '未設定邀請碼' }}
-                    </span>
-                  </span>
-                  <span
-                    class="text-[10px] font-black px-2 py-1 rounded-lg shrink-0"
-                    :class="form.tripIds.includes(trip.id) ? 'bg-indigo-600 text-white' : 'bg-white text-slate-400'"
-                  >
-                    {{ form.tripIds.includes(trip.id) ? '已加入' : '未加入' }}
-                  </span>
-                </button>
-                <div
-                  v-if="selectableTrips.length === 0"
-                  class="py-8 text-center text-xs font-bold text-slate-400"
-                >
-                  沒有符合條件的旅程
-                </div>
-              </div>
-            </section>
+              <MapPin v-else :size="14" />
+              啟用位置分享
+            </button>
+          </section>
 
-            <section class="grid grid-cols-2 gap-3">
-              <button
-                @click="form.isAdmin = !form.isAdmin"
-                class="rounded-xl border-2 p-4 text-left"
-                :class="form.isAdmin ? 'border-blue-500 bg-blue-50' : 'border-slate-100 bg-slate-50'"
-              >
-                <span class="block text-[11px] font-black" :class="form.isAdmin ? 'text-blue-600' : 'text-slate-400'">Admin</span>
-                <span class="block text-[10px] font-bold text-slate-400 mt-1">可管理旅程資料</span>
-              </button>
-              <button
-                @click="form.isSuperAdmin = !form.isSuperAdmin"
-                class="rounded-xl border-2 p-4 text-left"
-                :class="form.isSuperAdmin ? 'border-indigo-500 bg-indigo-50' : 'border-slate-100 bg-slate-50'"
-              >
-                <span class="block text-[11px] font-black" :class="form.isSuperAdmin ? 'text-indigo-600' : 'text-slate-400'">Super Admin</span>
-                <span class="block text-[10px] font-bold text-slate-400 mt-1">可管理旅程與成員</span>
-              </button>
-            </section>
-
-            <section v-if="editingId" class="rounded-2xl border border-slate-100 bg-slate-50 p-4 space-y-3">
-              <div class="flex items-center justify-between gap-3">
-                <div>
-                  <h4 class="font-black text-slate-800">推播通知</h4>
-                  <p class="text-xs font-bold text-slate-400 mt-1">
-                    {{
-                      getNotificationStatus(editingParticipant) === 'enabled'
-                        ? '此成員已綁定推播 Token'
-                        : getNotificationStatus(editingParticipant) === 'denied'
-                          ? '此成員已拒絕接收通知'
-                          : '此成員尚未啟用推播'
-                    }}
-                  </p>
-                </div>
-                <span
-                  class="rounded-lg px-2 py-1 text-[10px] font-black"
-                  :class="getNotificationClass(editingParticipant)"
-                >
-                  {{ getNotificationLabel(editingParticipant) }}
-                </span>
-              </div>
-
-              <div v-if="hasPushEnabled(editingParticipant)" class="space-y-2">
-                <div
-                  v-for="item in getPushTokens(editingParticipant)"
-                  :key="item.token"
-                  class="rounded-xl border border-slate-200 bg-white p-3 space-y-2"
-                >
-                  <div class="flex items-center justify-between gap-2">
-                    <span class="text-[10px] font-black text-slate-400">
-                      {{ item.platform || 'web' }}
-                      <span v-if="item.updatedAt"> · {{ new Date(item.updatedAt).toLocaleString() }}</span>
-                    </span>
-                    <button
-                      @click="copyPushToken(item.token)"
-                      class="h-8 px-3 rounded-lg bg-slate-50 text-slate-600 text-xs font-black inline-flex items-center gap-1"
-                    >
-                      <component
-                        :is="copiedToken === item.token ? Check : Copy"
-                        :size="13"
-                        :class="copiedToken === item.token ? 'text-green-500' : 'text-slate-400'"
-                      />
-                      複製
-                    </button>
-                  </div>
-                  <textarea
-                    :value="item.token"
-                    readonly
-                    rows="3"
-                    class="w-full resize-none rounded-lg border border-slate-100 bg-slate-50 p-2 font-mono text-[11px] font-bold text-slate-500 outline-none"
-                  ></textarea>
-                </div>
-              </div>
-            </section>
-
-            <section v-if="editingId" class="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-4 space-y-4">
-              <div class="flex items-center justify-between gap-3">
-                <div>
-                  <h4 class="font-black text-slate-800 flex items-center gap-2">
-                    <MapPin :size="16" class="text-indigo-500" />
-                    位置分享
-                  </h4>
-                  <p class="text-xs font-bold text-slate-400 mt-1">
-                    目前綁定：{{ trackingTripName }}
-                  </p>
-                </div>
-                <span class="rounded-lg bg-white px-2 py-1 text-[10px] font-black text-indigo-600">
-                  {{ activeTrackingTokens.some((item) => item.enabled !== false) ? '已啟用' : '未啟用' }}
-                </span>
-              </div>
-
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <label class="space-y-1 block">
-                  <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">裝置名稱</span>
-                  <input
-                    v-model="trackingForm.deviceId"
-                    class="admin-input"
-                    placeholder="例如：Ruru iPhone"
-                  />
-                </label>
-                <label class="space-y-1 block">
-                  <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">最短間隔秒數</span>
-                  <input
-                    v-model.number="trackingForm.minIntervalSeconds"
-                    type="number"
-                    min="10"
-                    class="admin-input"
-                  />
-                </label>
-              </div>
-
-              <button
-                @click="createTrackingToken"
-                :disabled="isTrackingCreating"
-                class="h-11 w-full rounded-xl bg-indigo-600 text-white font-black text-sm flex items-center justify-center gap-2 disabled:opacity-50 hover:bg-indigo-700"
-              >
-                <Loader2 v-if="isTrackingCreating" class="animate-spin" :size="16" />
-                <MapPin v-else :size="16" />
-                建立定位上傳連結
-              </button>
-
-              <div v-if="generatedTrackingUrl" class="rounded-xl border border-indigo-100 bg-white p-3 space-y-2">
-                <div class="flex items-center justify-between gap-2">
-                  <span class="text-xs font-black text-indigo-700">已建立連結</span>
-                  <button
-                    @click="copyTrackingUrl(generatedTrackingUrl)"
-                    class="h-8 px-3 rounded-lg bg-indigo-50 text-indigo-600 text-xs font-black inline-flex items-center gap-1"
-                  >
-                    <component
-                      :is="copiedTrackingUrl === generatedTrackingUrl ? Check : Copy"
-                      :size="13"
-                    />
-                    複製
-                  </button>
-                </div>
-                <textarea
-                  :value="generatedTrackingUrl"
-                  readonly
-                  rows="3"
-                  class="w-full resize-none rounded-lg border border-slate-100 bg-slate-50 p-2 font-mono text-[11px] font-bold text-slate-500 outline-none"
-                ></textarea>
-              </div>
-
-              <div class="space-y-2">
-                <div v-if="isTrackingLoading" class="py-5 text-center text-xs font-black text-slate-400">
-                  載入定位連結中...
-                </div>
-                <div
-                  v-for="item in activeTrackingTokens"
-                  :key="item.id"
-                  class="rounded-xl border border-slate-200 bg-white p-3 flex items-center justify-between gap-3"
-                >
-                  <div class="min-w-0">
-                    <div class="flex items-center gap-2">
-                      <span
-                        class="rounded-lg px-2 py-1 text-[10px] font-black"
-                        :class="item.enabled === false ? 'bg-slate-100 text-slate-400' : 'bg-green-100 text-green-700'"
-                      >
-                        {{ item.enabled === false ? '已停用' : '啟用中' }}
-                      </span>
-                      <span class="font-mono text-[11px] font-black text-slate-400 truncate">
-                        {{ item.id.slice(0, 12) }}
-                      </span>
-                    </div>
-                    <p class="mt-1 text-[11px] font-bold text-slate-400 truncate">
-                      {{ item.deviceId || '未設定裝置名稱' }} · {{ item.minIntervalSeconds || 30 }} 秒
-                    </p>
-                  </div>
-                  <div class="flex flex-col gap-2 shrink-0">
-                    <button
-                      v-if="item.token"
-                      @click="copyTrackingUrl(getTrackingAppUrl(item))"
-                      class="h-8 px-3 rounded-lg bg-indigo-50 text-indigo-600 text-xs font-black"
-                    >
-                      App
-                    </button>
-                    <button
-                      v-if="item.token"
-                      @click="copyTrackingUrl(getTrackingServerUrl(item))"
-                      class="h-8 px-3 rounded-lg bg-slate-50 text-slate-600 text-xs font-black"
-                    >
-                      URL
-                    </button>
-                    <button
-                      v-if="item.enabled !== false"
-                      @click="disableTrackingToken(item.id)"
-                      class="h-8 px-3 rounded-lg bg-red-50 text-red-600 text-xs font-black"
-                    >
-                      停用
-                    </button>
-                  </div>
-                </div>
-                <div
-                  v-if="!isTrackingLoading && activeTrackingTokens.length === 0"
-                  class="rounded-xl border border-dashed border-indigo-200 bg-white/70 py-5 text-center text-xs font-black text-slate-400"
-                >
-                  尚未建立定位上傳連結
-                </div>
-              </div>
-            </section>
-
-            <section v-if="editingId" class="rounded-2xl border border-red-100 bg-red-50 p-4">
-              <h4 class="font-black text-red-700 mb-2">刪除成員</h4>
-              <p class="text-xs font-bold text-red-400 leading-relaxed mb-3">
-                刪除後這位成員不能再用原邀請碼登入，既有錢包資料不會自動刪除。
-              </p>
-              <button
-                @click="deleteCurrentParticipant"
-                class="h-11 w-full rounded-xl bg-white text-red-600 font-black text-sm flex items-center justify-center gap-2"
-              >
-                <Trash2 :size="16" />
-                刪除成員
-              </button>
-            </section>
+          <section
+            v-if="editingId"
+            class="rounded-2xl border border-red-100 bg-red-50 p-4"
+          >
+            <h4 class="font-black text-red-700 mb-2">刪除成員</h4>
+            <p class="text-xs font-bold text-red-400 leading-relaxed mb-3">
+              刪除後這位成員不能再用原邀請碼登入，既有錢包資料不會自動刪除。
+            </p>
+            <button
+              @click="deleteCurrentParticipant"
+              class="h-11 w-full rounded-xl bg-white text-red-600 font-black text-sm flex items-center justify-center gap-2"
+            >
+              <Trash2 :size="16" />
+              刪除成員
+            </button>
+          </section>
         </div>
 
         <footer class="p-5 border-t border-slate-200 flex justify-end gap-3">
-          <button @click="closeDrawer" class="h-11 px-5 rounded-xl bg-slate-50 text-slate-600 font-black text-sm">
+          <button
+            @click="closeDrawer"
+            class="h-11 px-5 rounded-xl bg-slate-50 text-slate-600 font-black text-sm"
+          >
             取消
           </button>
           <button

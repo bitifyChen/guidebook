@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
+  Bell,
   ExternalLink,
   LayoutDashboard,
   LogOut,
@@ -27,6 +28,7 @@ const baseMenu = [
   { label: '總覽', path: '/admin', icon: LayoutDashboard },
   { label: '旅程管理', path: '/admin/trips', icon: Plane, superOnly: true },
   { label: '成員管理', path: '/admin/participants', icon: Users, superOnly: true },
+  { label: '推播管理', path: '/admin/notifications', icon: Bell, superOnly: true },
 ];
 
 const sideMenu = computed(() =>

@@ -85,6 +85,22 @@ def _is_enabled_token(token_data):
     return bool(token_data and token_data.get("enabled", True) and not token_data.get("revokedAt"))
 
 
+def _load_participant_trip_ids(participant_id, fallback_trip_id=None):
+    if not participant_id:
+        return []
+
+    snapshot = get_firestore_client().collection("participants").document(participant_id).get()
+    if not snapshot.exists:
+        return [fallback_trip_id] if fallback_trip_id else []
+
+    data = snapshot.to_dict() or {}
+    trip_ids = data.get("tripIds") or ([data.get("tripId")] if data.get("tripId") else [])
+    if fallback_trip_id:
+        trip_ids.append(fallback_trip_id)
+
+    return list(dict.fromkeys([trip_id for trip_id in trip_ids if trip_id]))
+
+
 def _should_throttle(path, min_interval_seconds):
     if not min_interval_seconds:
         return False
@@ -104,9 +120,9 @@ def handle_traccar_location(request):
     if not _is_enabled_token(token_data):
         return {"status": "error", "message": "Invalid tracking token"}, 403
 
-    trip_id = token_data.get("tripId")
     participant_id = token_data.get("participantId")
-    if not trip_id or not participant_id:
+    trip_ids = _load_participant_trip_ids(participant_id, token_data.get("tripId"))
+    if not participant_id or not trip_ids:
         return {"status": "error", "message": "Tracking token is incomplete"}, 403
 
     try:
@@ -117,9 +133,9 @@ def handle_traccar_location(request):
 
     device_id = _first_value(payload, "id", "deviceId", "deviceid") or token_data.get("deviceId")
     min_interval_seconds = int(token_data.get("minIntervalSeconds") or 0)
-    location_path = f"tripLocations/{trip_id}/{participant_id}"
+    throttle_path = f"trackingThrottle/{participant_id}"
 
-    if _should_throttle(location_path, min_interval_seconds):
+    if _should_throttle(throttle_path, min_interval_seconds):
         return {"status": "ignored", "reason": "throttled"}, 200
 
     timestamp_ms = _to_timestamp_ms(_first_value(payload, "timestamp", "time", "ts", "fixTime"))
@@ -140,11 +156,13 @@ def handle_traccar_location(request):
     if device_id:
         location["deviceId"] = str(device_id)
 
-    get_rtdb_reference(location_path).set(location)
+    for trip_id in trip_ids:
+        get_rtdb_reference(f"tripLocations/{trip_id}/{participant_id}").set(location)
+    get_rtdb_reference(throttle_path).set({"updatedAt": location["updatedAt"]})
 
     return {
         "status": "ok",
-        "tripId": trip_id,
+        "tripIds": trip_ids,
         "participantId": participant_id,
         "updatedAt": location["updatedAt"],
     }, 200
