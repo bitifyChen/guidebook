@@ -82,6 +82,15 @@ Environment variables:
 - `FIREBASE_CREDENTIALS_PATH` (optional when the Render Secret File is named `firebase.json`)
 - `CORS_ALLOWED_ORIGINS`
 
+Default allowed browser origins include local Vite development URLs and Firebase
+Hosting:
+
+- `https://guidebook-jeju.web.app`
+- `https://guidebook-jeju.firebaseapp.com`
+
+Add custom domains or temporary ngrok domains to `CORS_ALLOWED_ORIGINS` as a
+comma-separated list.
+
 ## Render Secret File
 
 Use Render Secret Files for the Firebase service account:
