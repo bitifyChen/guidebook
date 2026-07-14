@@ -22,6 +22,10 @@ import {
   getTripMetadataRef,
   resolveTripId,
 } from '@/api/trips';
+import {
+  deleteTrackingTokensByParticipant,
+  ensureParticipantTrackingToken,
+} from '@/api/tracking';
 
 const db = getFirestore(app);
 
@@ -31,6 +35,24 @@ const withTripIds = (data) => ({
   ...data,
   tripIds: data.tripIds || (data.tripId ? [data.tripId] : []),
 });
+
+const ensureTrackingTokensForParticipantTrips = async (
+  participantId,
+  tripIds = [],
+  deviceName = ''
+) => {
+  const uniqueTripIds = [...new Set(tripIds.filter(Boolean))];
+  await Promise.all(
+    uniqueTripIds.map((tripId) =>
+      ensureParticipantTrackingToken({
+        participantId,
+        tripId,
+        deviceId: deviceName,
+        minIntervalSeconds: 30,
+      })
+    )
+  );
+};
 
 const createParticipantInviteCode = async () => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -218,14 +240,16 @@ export const postParticipant = async (params) => {
       inviteCode += chars.charAt(Math.floor(Math.random() * chars.length));
     }
 
+    const tripIds = params.tripIds || (tripId ? [tripId] : []);
     const data = {
       ...params,
-      tripIds: params.tripIds || (tripId ? [tripId] : []),
+      tripIds,
       ...(tripId ? { tripId } : {}),
       inviteCode, // 加入邀請碼
       createdAt: serverTimestamp(),
     };
     await setDoc(docRef, data);
+    await ensureTrackingTokensForParticipantTrips(docRef.id, tripIds, data.name || '');
     await updateParticipantsVersion();
     return { status: 200, id: docRef.id };
   } catch (error) {
@@ -377,6 +401,7 @@ export const disableParticipantPushForTrip = async (
 export const deleteParticipant = async (id) => {
   try {
     await assertCurrentTripWritable();
+    await deleteTrackingTokensByParticipant(id);
     await deleteDoc(doc(db, COLLECTION_NAME, id));
     await updateParticipantsVersion();
     return { status: 200 };
@@ -470,6 +495,12 @@ export const getOrCreateTripInviteParticipant = async (
       participant.tripIds.includes(tripId)
     );
     if (existingForTrip) {
+      await ensureParticipantTrackingToken({
+        participantId: existingForTrip.id,
+        tripId,
+        deviceId: existingForTrip.name || name,
+        minIntervalSeconds: 30,
+      });
       return { ...existingForTrip, isNewParticipant: false };
     }
 
@@ -483,6 +514,12 @@ export const getOrCreateTripInviteParticipant = async (
         email: target.email || email,
         isClaimed: true,
         updatedAt: serverTimestamp(),
+      });
+      await ensureParticipantTrackingToken({
+        participantId: target.id,
+        tripId,
+        deviceId: target.name || name,
+        minIntervalSeconds: 30,
       });
       await updateParticipantsVersionForTrip(tripId);
       return {
@@ -503,7 +540,20 @@ export const getOrCreateTripInviteParticipant = async (
           tripIds: arrayUnion(tripId),
           updatedAt: serverTimestamp(),
         });
+        await ensureParticipantTrackingToken({
+          participantId: existingGuest.id,
+          tripId,
+          deviceId: existingGuest.name || name,
+          minIntervalSeconds: 30,
+        });
         await updateParticipantsVersionForTrip(tripId);
+      } else {
+        await ensureParticipantTrackingToken({
+          participantId: existingGuest.id,
+          tripId,
+          deviceId: existingGuest.name || name,
+          minIntervalSeconds: 30,
+        });
       }
       return {
         ...existingGuest,
@@ -531,6 +581,12 @@ export const getOrCreateTripInviteParticipant = async (
   };
 
   await setDoc(docRef, participant);
+  await ensureParticipantTrackingToken({
+    participantId: docRef.id,
+    tripId,
+    deviceId: name,
+    minIntervalSeconds: 30,
+  });
   await updateParticipantsVersionForTrip(tripId);
 
   return {

@@ -3,12 +3,20 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useParticipantsStore } from '@/store/participantsStore';
 import { useTripStore } from '@/store/tripStore';
 import { uploadImage } from '@/api/storage';
+import {
+  createParticipantTrackingToken,
+  getTrackingEndpointUrl,
+  getTrackingTokensByParticipant,
+  getTraccarConfigUrl,
+  revokeTrackingToken,
+} from '@/api/tracking';
 import AdminDataTable from '@/components/admin/AdminDataTable.vue';
 import AdminDrawer from '@/components/admin/AdminDrawer.vue';
 import {
   Check,
   Copy,
   Loader2,
+  MapPin,
   Pencil,
   Plus,
   Save,
@@ -25,9 +33,14 @@ const isUploading = ref(false);
 const isSaving = ref(false);
 const copiedId = ref(null);
 const copiedToken = ref('');
+const copiedTrackingUrl = ref('');
 const editingId = ref('');
 const fileInput = ref(null);
 const tripSearch = ref('');
+const trackingTokens = ref([]);
+const generatedTrackingUrl = ref('');
+const isTrackingLoading = ref(false);
+const isTrackingCreating = ref(false);
 const appliedSearch = ref({
   tripId: '',
   keyword: '',
@@ -40,6 +53,11 @@ const form = ref({
   isAdmin: false,
   isSuperAdmin: false,
   tripIds: [],
+});
+
+const trackingForm = ref({
+  deviceId: '',
+  minIntervalSeconds: 30,
 });
 
 const columns = [
@@ -149,6 +167,18 @@ const getNotificationClass = (participant) => {
 
 const hasPushEnabled = (participant) => getNotificationStatus(participant) === 'enabled';
 
+const getTrackingTripId = () => appliedSearch.value.tripId || tripStore.currentTripId || '';
+
+const activeTrackingTokens = computed(() => {
+  const tripId = getTrackingTripId();
+  return trackingTokens.value.filter((item) => !tripId || item.tripId === tripId);
+});
+
+const trackingTripName = computed(() => {
+  const tripId = getTrackingTripId();
+  return tripId ? tripNameById.value[tripId] || tripId : '全部旅程';
+});
+
 const filteredParticipants = computed(() => {
   const filters = appliedSearch.value;
   const keyword = filters.keyword.trim().toLowerCase();
@@ -195,6 +225,13 @@ onMounted(async () => {
 const resetForm = () => {
   editingId.value = '';
   tripSearch.value = '';
+  trackingTokens.value = [];
+  generatedTrackingUrl.value = '';
+  copiedTrackingUrl.value = '';
+  trackingForm.value = {
+    deviceId: '',
+    minIntervalSeconds: 30,
+  };
   form.value = {
     name: '',
     avatar: '',
@@ -220,6 +257,7 @@ const openEditDrawer = (participant) => {
     tripIds: [...(participant.tripIds || [])],
   };
   isDrawerOpen.value = true;
+  loadTrackingTokens(participant.id);
 };
 
 const closeDrawer = () => {
@@ -243,6 +281,30 @@ const copyPushToken = async (token) => {
     copiedToken.value = '';
   }, 2000);
 };
+
+const copyTrackingUrl = async (url) => {
+  if (!url) return;
+  await navigator.clipboard.writeText(url);
+  copiedTrackingUrl.value = url;
+  setTimeout(() => {
+    copiedTrackingUrl.value = '';
+  }, 2000);
+};
+
+const getTrackingServerUrl = (item) => (item?.token ? getTrackingEndpointUrl(item.token) : '');
+
+const getTrackingAppUrl = (item) =>
+  item?.token
+    ? getTraccarConfigUrl({
+        token: item.token,
+        deviceId: item.deviceId || `guidebook-${editingId.value.slice(0, 8)}`,
+        accuracy: 'high',
+        distance: 10,
+        interval: item.minIntervalSeconds || 30,
+        wakelock: true,
+        buffer: true,
+      })
+    : '';
 
 const triggerFileUpload = () => {
   fileInput.value?.click();
@@ -296,6 +358,51 @@ const resetSearch = () => {
     keyword: '',
     role: '',
   };
+};
+
+const loadTrackingTokens = async (participantId = editingId.value) => {
+  if (!participantId) return;
+  isTrackingLoading.value = true;
+  try {
+    trackingTokens.value = await getTrackingTokensByParticipant(participantId);
+  } catch (error) {
+    alert('定位資料讀取失敗：' + error.message);
+  } finally {
+    isTrackingLoading.value = false;
+  }
+};
+
+const createTrackingToken = async () => {
+  if (!editingId.value) return;
+  const tripId = getTrackingTripId();
+  if (!tripId) return alert('請先選擇要綁定定位的旅程');
+
+  isTrackingCreating.value = true;
+  try {
+    const result = await createParticipantTrackingToken({
+      participantId: editingId.value,
+      tripId,
+      deviceId: trackingForm.value.deviceId.trim(),
+      minIntervalSeconds: Number(trackingForm.value.minIntervalSeconds) || 30,
+    });
+    generatedTrackingUrl.value = getTrackingEndpointUrl(result.token);
+    await loadTrackingTokens(editingId.value);
+  } catch (error) {
+    alert('定位連結建立失敗：' + error.message);
+  } finally {
+    isTrackingCreating.value = false;
+  }
+};
+
+const disableTrackingToken = async (tokenHash) => {
+  if (!tokenHash) return;
+  if (!confirm('確定要停用這組定位連結？已設定的手機將無法再上傳位置。')) return;
+  try {
+    await revokeTrackingToken(tokenHash);
+    await loadTrackingTokens(editingId.value);
+  } catch (error) {
+    alert('停用失敗：' + error.message);
+  }
 };
 
 const saveParticipant = async () => {
@@ -613,6 +720,132 @@ const deleteCurrentParticipant = async () => {
                     rows="3"
                     class="w-full resize-none rounded-lg border border-slate-100 bg-slate-50 p-2 font-mono text-[11px] font-bold text-slate-500 outline-none"
                   ></textarea>
+                </div>
+              </div>
+            </section>
+
+            <section v-if="editingId" class="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-4 space-y-4">
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <h4 class="font-black text-slate-800 flex items-center gap-2">
+                    <MapPin :size="16" class="text-indigo-500" />
+                    位置分享
+                  </h4>
+                  <p class="text-xs font-bold text-slate-400 mt-1">
+                    目前綁定：{{ trackingTripName }}
+                  </p>
+                </div>
+                <span class="rounded-lg bg-white px-2 py-1 text-[10px] font-black text-indigo-600">
+                  {{ activeTrackingTokens.some((item) => item.enabled !== false) ? '已啟用' : '未啟用' }}
+                </span>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label class="space-y-1 block">
+                  <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">裝置名稱</span>
+                  <input
+                    v-model="trackingForm.deviceId"
+                    class="admin-input"
+                    placeholder="例如：Ruru iPhone"
+                  />
+                </label>
+                <label class="space-y-1 block">
+                  <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">最短間隔秒數</span>
+                  <input
+                    v-model.number="trackingForm.minIntervalSeconds"
+                    type="number"
+                    min="10"
+                    class="admin-input"
+                  />
+                </label>
+              </div>
+
+              <button
+                @click="createTrackingToken"
+                :disabled="isTrackingCreating"
+                class="h-11 w-full rounded-xl bg-indigo-600 text-white font-black text-sm flex items-center justify-center gap-2 disabled:opacity-50 hover:bg-indigo-700"
+              >
+                <Loader2 v-if="isTrackingCreating" class="animate-spin" :size="16" />
+                <MapPin v-else :size="16" />
+                建立定位上傳連結
+              </button>
+
+              <div v-if="generatedTrackingUrl" class="rounded-xl border border-indigo-100 bg-white p-3 space-y-2">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-black text-indigo-700">已建立連結</span>
+                  <button
+                    @click="copyTrackingUrl(generatedTrackingUrl)"
+                    class="h-8 px-3 rounded-lg bg-indigo-50 text-indigo-600 text-xs font-black inline-flex items-center gap-1"
+                  >
+                    <component
+                      :is="copiedTrackingUrl === generatedTrackingUrl ? Check : Copy"
+                      :size="13"
+                    />
+                    複製
+                  </button>
+                </div>
+                <textarea
+                  :value="generatedTrackingUrl"
+                  readonly
+                  rows="3"
+                  class="w-full resize-none rounded-lg border border-slate-100 bg-slate-50 p-2 font-mono text-[11px] font-bold text-slate-500 outline-none"
+                ></textarea>
+              </div>
+
+              <div class="space-y-2">
+                <div v-if="isTrackingLoading" class="py-5 text-center text-xs font-black text-slate-400">
+                  載入定位連結中...
+                </div>
+                <div
+                  v-for="item in activeTrackingTokens"
+                  :key="item.id"
+                  class="rounded-xl border border-slate-200 bg-white p-3 flex items-center justify-between gap-3"
+                >
+                  <div class="min-w-0">
+                    <div class="flex items-center gap-2">
+                      <span
+                        class="rounded-lg px-2 py-1 text-[10px] font-black"
+                        :class="item.enabled === false ? 'bg-slate-100 text-slate-400' : 'bg-green-100 text-green-700'"
+                      >
+                        {{ item.enabled === false ? '已停用' : '啟用中' }}
+                      </span>
+                      <span class="font-mono text-[11px] font-black text-slate-400 truncate">
+                        {{ item.id.slice(0, 12) }}
+                      </span>
+                    </div>
+                    <p class="mt-1 text-[11px] font-bold text-slate-400 truncate">
+                      {{ item.deviceId || '未設定裝置名稱' }} · {{ item.minIntervalSeconds || 30 }} 秒
+                    </p>
+                  </div>
+                  <div class="flex flex-col gap-2 shrink-0">
+                    <button
+                      v-if="item.token"
+                      @click="copyTrackingUrl(getTrackingAppUrl(item))"
+                      class="h-8 px-3 rounded-lg bg-indigo-50 text-indigo-600 text-xs font-black"
+                    >
+                      App
+                    </button>
+                    <button
+                      v-if="item.token"
+                      @click="copyTrackingUrl(getTrackingServerUrl(item))"
+                      class="h-8 px-3 rounded-lg bg-slate-50 text-slate-600 text-xs font-black"
+                    >
+                      URL
+                    </button>
+                    <button
+                      v-if="item.enabled !== false"
+                      @click="disableTrackingToken(item.id)"
+                      class="h-8 px-3 rounded-lg bg-red-50 text-red-600 text-xs font-black"
+                    >
+                      停用
+                    </button>
+                  </div>
+                </div>
+                <div
+                  v-if="!isTrackingLoading && activeTrackingTokens.length === 0"
+                  class="rounded-xl border border-dashed border-indigo-200 bg-white/70 py-5 text-center text-xs font-black text-slate-400"
+                >
+                  尚未建立定位上傳連結
                 </div>
               </div>
             </section>

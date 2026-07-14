@@ -2,6 +2,7 @@ import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore'; // 導入 Firestore
 import { getAuth } from 'firebase/auth'; // 導入 Auth
 import { getMessaging, getToken, isSupported } from 'firebase/messaging';
+import { getDatabase } from 'firebase/database';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -19,6 +20,8 @@ const app = initializeApp(firebaseConfig);
 // 初始化各項服務
 const db = getFirestore(app);
 const auth = getAuth(app);
+const rtdbUrl = (import.meta.env.VITE_FIREBASE_RTDB_URL || '').trim();
+const rtdb = rtdbUrl ? getDatabase(app, rtdbUrl) : getDatabase(app);
 
 let messaging = null;
 try {
@@ -104,5 +107,5 @@ export const getFCMToken = async () => {
 };
 
 // EXPORT
-export { db, auth }; // 導出常用實例
+export { db, auth, rtdb }; // 導出常用實例
 export default app;

@@ -1,11 +1,12 @@
 <script setup>
-import { ref, watch, computed, onMounted } from 'vue';
+import { ref, watch, computed, nextTick } from 'vue';
 import { ElMessage } from 'element-plus';
 import ItineraryCard from '@/components/ItineraryCard.vue';
 import { useTravelStore } from '@/store/travelStore';
 
 const travelStore = useTravelStore();
 const activeDay = ref(travelStore.currentDay || 1);
+const dayTabsRef = ref(null);
 const days = computed(() => travelStore.totalDays);
 const itinerary = computed(() => {
   const items = travelStore.dailyItinerary;
@@ -57,6 +58,16 @@ watch(
     travelStore.setSelectedDay(parseInt(val));
     // 切換天數時回到最上方
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    nextTick(() => {
+      const activeTab = dayTabsRef.value?.$el?.querySelector(
+        '.el-tabs__item.is-active'
+      );
+      activeTab?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+        inline: 'center',
+      });
+    });
   },
   { immediate: true }
 );
@@ -102,9 +113,11 @@ const handleTouchEnd = (e) => {
     class="min-h-screen"
   >
     <div
-      class="fixed top-[8px] left-[16px] right-[16px] z-30 bg-slate-900/90 backdrop-blur-md px-4 shadow-sm rounded-[28px]"
+      class="itinerary-day-glass fixed top-[8px] left-[16px] right-[16px] z-30 px-4 rounded-[28px]"
+      @touchstart.stop
+      @touchend.stop
     >
-      <el-tabs v-model="activeDay" class="custom-tabs">
+      <el-tabs ref="dayTabsRef" v-model="activeDay" class="custom-tabs">
         <el-tab-pane
           :label="`D${day}`"
           :name="day"
@@ -133,30 +146,103 @@ const handleTouchEnd = (e) => {
 </template>
 
 <style>
+.itinerary-day-glass {
+  position: fixed;
+  isolation: isolate;
+  overflow: hidden;
+  background:
+    linear-gradient(135deg, rgb(30 41 59 / 52%), rgb(15 23 42 / 38%)),
+    rgb(15 23 42 / 62%);
+  -webkit-backdrop-filter: blur(3px) saturate(145%) contrast(1.04)
+    url('#guidebook-liquid-glass');
+  backdrop-filter: blur(3px) saturate(145%) contrast(1.04)
+    url('#guidebook-liquid-glass');
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 24%),
+    inset 0 -1px 0 rgb(255 255 255 / 10%),
+    inset 7px 7px 18px rgb(255 255 255 / 8%),
+    0 18px 38px rgb(15 23 42 / 32%);
+}
+
+.itinerary-day-glass::before {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  content: '';
+  background:
+    radial-gradient(circle at 16% 0%, rgb(255 255 255 / 18%), transparent 34%),
+    linear-gradient(
+      105deg,
+      rgb(255 255 255 / 10%),
+      transparent 42%,
+      rgb(255 255 255 / 5%)
+    );
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.itinerary-day-glass::after {
+  position: absolute;
+  inset: 1px;
+  z-index: 1;
+  content: '';
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.itinerary-day-glass .custom-tabs {
+  position: relative;
+  z-index: 2;
+}
+
 /* 1. 基礎樣式 (保留你原本的邏輯並優化) */
 .custom-tabs .el-tabs__item {
   font-weight: bold;
-  flex: 1;
+  flex: 0 0 20%;
+  min-width: 20%;
+  padding: 0;
   text-align: center;
   transition: transform 0.1s ease; /* 加入輕微的縮放動畫 */
   -webkit-tap-highlight-color: transparent; /* 移除手機預設點擊藍框 */
-  color: var(--primary-orange-light);
+  color: rgb(226 232 240 / 76%);
+  text-shadow: 0 1px 10px rgb(15 23 42 / 45%);
 }
 
 .custom-tabs .el-tabs__nav {
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   display: flex;
+}
+
+.custom-tabs .el-tabs__nav-wrap {
+  overflow: hidden;
+}
+
+.custom-tabs .el-tabs__nav-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.custom-tabs .el-tabs__nav-scroll::-webkit-scrollbar {
+  display: none;
 }
 
 /* 2. 選中狀態樣式 */
 .custom-tabs .el-tabs__active-bar {
-  background-color: #ff8c00;
+  background-color: #fb923c;
   height: 3px;
   border-radius: 3px;
+  box-shadow: 0 0 16px rgb(251 146 60 / 55%);
 }
 
 .custom-tabs .el-tabs__item.is-active {
-  color: #ff8c00 !important;
+  color: #fdba74 !important;
+  text-shadow:
+    0 1px 10px rgb(15 23 42 / 34%),
+    0 0 18px rgb(251 146 60 / 42%);
 }
 
 /* --- 核心優化：解決手機點擊問題 --- */
@@ -164,7 +250,7 @@ const handleTouchEnd = (e) => {
 /* 3. 解決手機 Hover 殘留：僅在支援懸停的裝置上觸發 hover */
 @media (hover: hover) {
   .custom-tabs .el-tabs__item:hover {
-    color: #ff8c00;
+    color: #fdba74;
   }
 }
 
@@ -181,5 +267,13 @@ const handleTouchEnd = (e) => {
 }
 .custom-tabs .el-tabs__header {
   margin-bottom: 0px;
+}
+
+@supports not (
+  (backdrop-filter: blur(2px)) or (-webkit-backdrop-filter: blur(2px))
+) {
+  .itinerary-day-glass {
+    background: rgb(15 23 42 / 92%);
+  }
 }
 </style>

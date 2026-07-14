@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import {
   LayoutDashboard,
   CalendarDays,
+  MapPin,
   Wallet,
   Settings,
   RefreshCw,
@@ -124,12 +125,16 @@ const menuItems = [
   { name: 'home', path: '/', icon: LayoutDashboard, label: '概覽' },
   { name: 'itinerary', path: '/itinerary', icon: CalendarDays, label: '行程' },
   { name: 'wallet', path: '/wallet', icon: Wallet, label: '記帳' },
+  { name: 'locations', path: '/locations', icon: MapPin, label: '位置' },
   { name: 'Converter', path: '/Converter', icon: RefreshCw, label: '換算' },
   { name: 'settings', path: '/settings', icon: Settings, label: '我的' },
 ];
 
 const visibleMenuItems = computed(() =>
-  menuItems.filter((item) => !(tripStore.isPublicTrip && item.name === 'wallet'))
+  menuItems.filter(
+    (item) =>
+      !(tripStore.isPublicTrip && ['wallet', 'locations'].includes(item.name))
+  )
 );
 
 const isPageActive = (item) => {
@@ -166,11 +171,46 @@ const indicatorStyle = computed(() => {
 
 <template>
   <div
-    class="mx-auto min-h-screen max-w-md flex flex-col bg-[var(--primary-orange-light)] relative font-sans touch-pan-y pt-[env(safe-area-inset-top)]"
+    class="frontend-shell mx-auto min-h-screen max-w-md flex flex-col bg-[var(--primary-orange-light)] relative font-sans touch-pan-y pt-[env(safe-area-inset-top)]"
     @touchstart="handleTouchStart"
     @touchmove="handleTouchMove"
     @touchend="handleTouchEnd"
   >
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      class="liquid-glass-filter-svg"
+      width="0"
+      height="0"
+    >
+      <defs>
+        <filter
+          id="guidebook-liquid-glass"
+          x="0%"
+          y="0%"
+          width="100%"
+          height="100%"
+          filterUnits="objectBoundingBox"
+        >
+          <feTurbulence
+            type="fractalNoise"
+            baseFrequency="0.004"
+            numOctaves="2"
+            seed="7"
+            result="noise"
+          />
+          <feGaussianBlur in="noise" stdDeviation="1.4" result="map" />
+          <feDisplacementMap
+            in="SourceGraphic"
+            in2="map"
+            scale="88"
+            xChannelSelector="R"
+            yChannelSelector="B"
+          />
+        </filter>
+      </defs>
+    </svg>
+
     <!-- 下拉刷新指示器 -->
     <div
       class="absolute top-0 left-0 right-0 flex justify-center pointer-events-none z-[100] transition-all duration-75"
@@ -204,7 +244,18 @@ const indicatorStyle = computed(() => {
     </div>
 
     <main class="flex-1 relative">
-      <div class="p-4 pb-32 pt-2">
+      <div
+        :class="
+          route.meta?.fullBleed
+            ? 'h-full min-h-0 overflow-hidden'
+            : 'p-4 pb-32 pt-2'
+        "
+        :style="
+          route.meta?.fullBleed
+            ? { height: 'calc(100dvh - env(safe-area-inset-top))' }
+            : undefined
+        "
+      >
         <slot />
       </div>
     </main>
@@ -215,10 +266,10 @@ const indicatorStyle = computed(() => {
     >
       <nav class="relative flex justify-around py-2 px-4 pointer-events-auto">
         <div
-          class="absolute inset-0 bg-slate-900/95 backdrop-blur-xl rounded-[28px] shadow-[0_15px_30px_rgba(0,0,0,0.3)] border border-white/5 overflow-hidden pointer-events-none"
+          class="liquid-glass-nav absolute inset-0 rounded-[28px] overflow-hidden pointer-events-none"
         >
           <div
-            class="absolute bottom-0 h-[3px] bg-orange-400 rounded-full transition-all duration-300 ease-out"
+            class="absolute bottom-1 z-10 h-[3px] bg-orange-400 rounded-full transition-all duration-300 ease-out shadow-[0_0_16px_rgba(251,146,60,0.55)]"
             :style="indicatorStyle"
           ></div>
         </div>
@@ -228,8 +279,10 @@ const indicatorStyle = computed(() => {
           :key="item.name"
           @click="navigate(item.path)"
           :class="[
-            'flex flex-col items-center gap-1 transition-all duration-500 relative z-10 py-[4px] w-full',
-            isPageActive(item) ? 'text-orange-400 scale-110' : 'text-slate-400',
+            'nav-tab flex flex-col items-center gap-1 transition-all duration-500 relative z-10 py-[4px] w-full',
+            isPageActive(item)
+              ? 'nav-tab--active text-orange-300 scale-110'
+              : 'nav-tab--idle',
           ]"
         >
           <component
@@ -248,6 +301,93 @@ const indicatorStyle = computed(() => {
 </template>
 
 <style scoped>
+.frontend-shell {
+  --liquid-highlight: rgb(255 255 255 / 46%);
+  --liquid-edge: rgb(255 255 255 / 18%);
+  --liquid-shadow: rgb(15 23 42 / 26%);
+}
+
+.liquid-glass-filter-svg {
+  position: fixed;
+  top: -9999px;
+  left: -9999px;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.liquid-glass-nav {
+  position: absolute;
+  isolation: isolate;
+  background:
+    linear-gradient(135deg, rgb(30 41 59 / 52%), rgb(15 23 42 / 38%)),
+    rgb(15 23 42 / 62%);
+  -webkit-backdrop-filter: blur(3px) saturate(145%) contrast(1.04)
+    url('#guidebook-liquid-glass');
+  backdrop-filter: blur(3px) saturate(145%) contrast(1.04)
+    url('#guidebook-liquid-glass');
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 24%),
+    inset 0 -1px 0 rgb(255 255 255 / 10%),
+    inset 7px 7px 18px rgb(255 255 255 / 8%),
+    0 18px 38px rgb(15 23 42 / 32%);
+}
+
+.liquid-glass-nav {
+  color: rgb(248 250 252 / 92%);
+}
+
+.liquid-glass-nav::before {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  content: '';
+  background:
+    radial-gradient(circle at 16% 0%, rgb(255 255 255 / 18%), transparent 34%),
+    linear-gradient(
+      105deg,
+      rgb(255 255 255 / 10%),
+      transparent 42%,
+      rgb(255 255 255 / 5%)
+    );
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.liquid-glass-nav::after {
+  position: absolute;
+  inset: 1px;
+  z-index: 1;
+  content: '';
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.nav-tab {
+  text-shadow: 0 1px 10px rgb(15 23 42 / 45%);
+}
+
+.nav-tab--idle {
+  color: rgb(226 232 240 / 76%);
+  mix-blend-mode: normal;
+}
+
+.nav-tab--active {
+  mix-blend-mode: normal;
+  text-shadow:
+    0 1px 10px rgb(15 23 42 / 34%),
+    0 0 18px rgb(251 146 60 / 42%);
+}
+
+@supports not (
+  (backdrop-filter: blur(2px)) or (-webkit-backdrop-filter: blur(2px))
+) {
+  .liquid-glass-nav {
+    background: rgb(15 23 42 / 92%);
+  }
+}
+
 /* 滾動條優化 */
 :deep(.el-scrollbar__bar.is-vertical) {
   width: 4px !important;
