@@ -87,6 +87,7 @@ Hosting:
 
 - `https://guidebook-jeju.web.app`
 - `https://guidebook-jeju.firebaseapp.com`
+- `https://guidebook.chenchenworkshop.com`
 
 Add custom domains or temporary ngrok domains to `CORS_ALLOWED_ORIGINS` as a
 comma-separated list.
