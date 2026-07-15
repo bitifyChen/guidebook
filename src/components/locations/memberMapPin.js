@@ -24,8 +24,16 @@ export const createMemberMapPinHtml = ({
       <div class="member-map-marker__avatar-ring">
         <div class="member-map-marker__avatar">${avatarHtml}</div>
       </div>
-      <div class="member-map-marker__shape">
-      </div>
+      <div class="member-map-marker__shape"></div>
     </div>
   `;
 };
+
+export const createGatheringMapPinHtml = ({ label = '集合', isActive = false }) => `
+  <div class="gathering-map-marker ${isActive ? 'is-active' : ''}">
+    <div class="gathering-map-marker__label">${escapeHtml(label || '集合')}</div>
+    <div class="gathering-map-marker__shape">
+      <span>集合</span>
+    </div>
+  </div>
+`;

@@ -1,33 +1,25 @@
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { RefreshCw, ShieldAlert } from 'lucide-vue-next';
 import {
-  Battery,
-  Clock,
-  Compass,
-  Crosshair,
-  Flag,
-  LocateFixed,
-  Loader2,
-  MapPin,
-  Navigation,
-  Navigation2,
-  NavigationOff,
-  RefreshCw,
-  ShieldAlert,
-  Trash2,
-  Users,
-  X,
-} from 'lucide-vue-next';
-import {
-  clearTripGatheringPoint,
-  setTripGatheringPoint,
-  subscribeTripGatheringPoint,
+  removeTripGatheringPoint,
+  saveTripGatheringPoint,
+  subscribeTripGatheringPoints,
   subscribeTripLocations,
   updateParticipantLocation,
 } from '@/api/locations';
-import { createMemberMapPinHtml } from '@/components/locations/memberMapPin';
+import GatheringPointEditor from '@/components/locations/GatheringPointEditor.vue';
+import GatheringPointSheet from '@/components/locations/GatheringPointSheet.vue';
+import LocationActionBar from '@/components/locations/LocationActionBar.vue';
+import LocationNavigationCard from '@/components/locations/LocationNavigationCard.vue';
+import MemberLocationSheet from '@/components/locations/MemberLocationSheet.vue';
+import SelectedMemberCard from '@/components/locations/SelectedMemberCard.vue';
+import {
+  createGatheringMapPinHtml,
+  createMemberMapPinHtml,
+} from '@/components/locations/memberMapPin';
 import { useParticipantsStore } from '@/store/participantsStore';
 import { useTripStore } from '@/store/tripStore';
 import { useUserStore } from '@/store/userStore';
@@ -38,31 +30,41 @@ const userStore = useUserStore();
 
 const mapRef = ref(null);
 const rawLocations = ref([]);
+const gatheringPoints = ref([]);
 const isLoading = ref(true);
 const isMemberPanelOpen = ref(false);
-const selectedParticipantId = ref('');
-const trackedParticipantId = ref('');
-const gatheringPoint = ref(null);
-const isGatheringNavigationActive = ref(false);
+const isGatheringPanelOpen = ref(false);
+const isSelectingGatheringPoint = ref(false);
 const isUpdatingMyLocation = ref(false);
 const isSavingGatheringPoint = ref(false);
-const isGatheringDeleteArmed = ref(false);
+const selectedParticipantId = ref('');
+const trackedParticipantId = ref('');
+const selectedGatheringPointId = ref('');
+const activeGatheringPointId = ref('');
+const deleteArmedPinId = ref('');
 const deviceHeading = ref(null);
 const compassState = ref('idle');
 const locationNotice = ref({ type: '', message: '' });
 const currentTimestamp = ref(Date.now());
+
+const gatheringForm = reactive({
+  id: '',
+  title: '集合地點',
+  meetAt: '',
+});
+
 let unsubscribeLocations = null;
-let unsubscribeGatheringPoint = null;
+let unsubscribeGatheringPoints = null;
 let mapInstance = null;
 let markerLayer = null;
-let gatheringMarker = null;
 let hasAutoFit = false;
 let isOrientationListening = false;
 let noticeTimer = null;
-let gatheringDeleteTimer = null;
+let deleteTimer = null;
 let onlineStatusTimer = null;
 const markersByParticipantId = new Map();
 const markerAnimationsByParticipantId = new Map();
+const gatheringMarkersById = new Map();
 
 const easeOutCubic = (value) => 1 - Math.pow(1 - value, 3);
 
@@ -73,17 +75,140 @@ const participantById = computed(() =>
   }, {})
 );
 
+const myParticipant = computed(() => userStore.myParticipant);
+
 const getTimestamp = (item) => Number(item.updatedAt || item.ts || 0);
+
+const isValidCoordinate = (item) => {
+  const lat = Number(item?.lat);
+  const lng = Number(item?.lng);
+  return Number.isFinite(lat) && Number.isFinite(lng);
+};
+
+const locations = computed(() =>
+  rawLocations.value
+    .filter(isValidCoordinate)
+    .map((item) => {
+      const participant = participantById.value[item.participantId] || {};
+      const timestamp = getTimestamp(item);
+      return {
+        ...item,
+        lat: Number(item.lat),
+        lng: Number(item.lng),
+        name: participant.name || '未命名成員',
+        avatar: participant.avatar || '',
+        timestamp,
+        isOnline:
+          Boolean(timestamp) && currentTimestamp.value - timestamp < 5 * 60 * 1000,
+      };
+    })
+    .sort((a, b) => b.timestamp - a.timestamp)
+);
+
+const validGatheringPoints = computed(() =>
+  gatheringPoints.value
+    .filter(isValidCoordinate)
+    .map((item) => ({
+      ...item,
+      lat: Number(item.lat),
+      lng: Number(item.lng),
+      updatedAt: Number(item.updatedAt || 0),
+    }))
+);
+
+const onlineCount = computed(
+  () => locations.value.filter((item) => item.isOnline).length
+);
+const offlineCount = computed(() => locations.value.length - onlineCount.value);
+const memberButtonLabel = computed(() =>
+  locations.value.length ? `${onlineCount.value}/${locations.value.length}` : '0'
+);
+
+const selectedMember = computed(() =>
+  locations.value.find((item) => item.participantId === selectedParticipantId.value)
+);
+
+const myLocation = computed(() =>
+  locations.value.find((item) => item.participantId === myParticipant.value?.id)
+);
+
+const activeGatheringPoint = computed(() =>
+  validGatheringPoints.value.find((item) => item.id === activeGatheringPointId.value)
+);
+
+const activeNavigationTarget = computed(() => {
+  if (trackedParticipantId.value) {
+    const member = locations.value.find(
+      (item) => item.participantId === trackedParticipantId.value
+    );
+    if (member) {
+      return {
+        type: 'member',
+        id: member.participantId,
+        name: member.name,
+        lat: member.lat,
+        lng: member.lng,
+        subtitle: member.isOnline ? '在線位置' : '最後位置',
+      };
+    }
+  }
+
+  if (activeGatheringPoint.value) {
+    return {
+      type: 'gathering',
+      id: activeGatheringPoint.value.id,
+      name: activeGatheringPoint.value.title || '集合地點',
+      lat: activeGatheringPoint.value.lat,
+      lng: activeGatheringPoint.value.lng,
+      subtitle: '集合目標',
+      meetAt: activeGatheringPoint.value.meetAt || '',
+    };
+  }
+
+  return null;
+});
+
+const mapCenter = computed(() => {
+  const tripLat = Number(tripStore.currentTrip?.latitude);
+  const tripLng = Number(tripStore.currentTrip?.longitude);
+  if (Number.isFinite(tripLat) && Number.isFinite(tripLng)) return [tripLat, tripLng];
+  return [35.6812, 139.7671];
+});
 
 const formatTime = (value) => {
   const time = Number(value || 0);
-  if (!time) return '尚未同步';
+  if (!time) return '尚無時間';
   return new Date(time).toLocaleString('zh-TW', {
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
   });
+};
+
+const formatMeetAt = (value) => {
+  if (!value) return '未設定時間';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '未設定時間';
+  return date.toLocaleString('zh-TW', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+const formatCountdown = (value) => {
+  if (!value) return '';
+  const target = new Date(value).getTime();
+  if (!Number.isFinite(target)) return '';
+  const diff = target - currentTimestamp.value;
+  if (diff <= 0) return '已到集合時間';
+  const minutes = Math.ceil(diff / 60000);
+  if (minutes < 60) return `${minutes} 分鐘後集合`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours} 小時 ${rest} 分鐘後集合` : `${hours} 小時後集合`;
 };
 
 const getBatteryPercent = (item) => {
@@ -104,101 +229,6 @@ const getBatteryToneClass = (item) => {
   if (battery <= 50) return 'battery-tone--medium';
   return 'battery-tone--good';
 };
-
-const isValidCoordinate = (item) => {
-  const lat = Number(item.lat);
-  const lng = Number(item.lng);
-  return Number.isFinite(lat) && Number.isFinite(lng);
-};
-
-const locations = computed(() =>
-  rawLocations.value
-    .filter(isValidCoordinate)
-    .map((item) => {
-      const participant = participantById.value[item.participantId] || {};
-      const timestamp = getTimestamp(item);
-      return {
-        ...item,
-        lat: Number(item.lat),
-        lng: Number(item.lng),
-        name: participant.name || '未命名成員',
-        avatar: participant.avatar || '',
-        timestamp,
-        isOnline:
-          timestamp && currentTimestamp.value - timestamp < 5 * 60 * 1000,
-      };
-    })
-    .sort((a, b) => b.timestamp - a.timestamp)
-);
-
-const onlineCount = computed(
-  () => locations.value.filter((item) => item.isOnline).length
-);
-
-const offlineCount = computed(() => locations.value.length - onlineCount.value);
-
-const memberButtonLabel = computed(() =>
-  locations.value.length
-    ? `${onlineCount.value}/${locations.value.length}`
-    : '0'
-);
-
-const selectedMember = computed(() =>
-  locations.value.find(
-    (item) => item.participantId === selectedParticipantId.value
-  )
-);
-
-const myParticipant = computed(() => userStore.myParticipant);
-
-const myLocation = computed(() =>
-  locations.value.find(
-    (item) => item.participantId === myParticipant.value?.id
-  )
-);
-
-const hasValidGatheringPoint = computed(
-  () => gatheringPoint.value && isValidCoordinate(gatheringPoint.value)
-);
-
-const activeNavigationTarget = computed(() => {
-  if (trackedParticipantId.value) {
-    const member = locations.value.find(
-      (item) => item.participantId === trackedParticipantId.value
-    );
-    if (member) {
-      return {
-        type: 'member',
-        id: member.participantId,
-        name: member.name,
-        lat: member.lat,
-        lng: member.lng,
-        subtitle: member.isOnline ? '在線位置' : '最後位置',
-      };
-    }
-  }
-
-  if (isGatheringNavigationActive.value && hasValidGatheringPoint.value) {
-    return {
-      type: 'gathering',
-      id: 'active',
-      name: gatheringPoint.value.title || '集合地點',
-      lat: Number(gatheringPoint.value.lat),
-      lng: Number(gatheringPoint.value.lng),
-      subtitle: '旅程集合點',
-    };
-  }
-
-  return null;
-});
-
-const mapCenter = computed(() => {
-  const tripLat = Number(tripStore.currentTrip?.latitude);
-  const tripLng = Number(tripStore.currentTrip?.longitude);
-  if (Number.isFinite(tripLat) && Number.isFinite(tripLng))
-    return [tripLat, tripLng];
-  return [35.6812, 139.7671];
-});
 
 const toRadians = (value) => (value * Math.PI) / 180;
 const toDegrees = (value) => (value * 180) / Math.PI;
@@ -253,11 +283,28 @@ const navigationDirection = computed(() => {
   return directions[Math.round(navigationBearing.value / 45) % 8];
 });
 
+const googleMapsUrl = computed(() => {
+  if (!activeNavigationTarget.value) return '';
+  const destination = `${activeNavigationTarget.value.lat},${activeNavigationTarget.value.lng}`;
+  const params = new URLSearchParams({
+    api: '1',
+    destination,
+    travelmode: 'walking',
+  });
+  if (myLocation.value) {
+    params.set('origin', `${myLocation.value.lat},${myLocation.value.lng}`);
+  }
+  return `https://www.google.com/maps/dir/?${params.toString()}`;
+});
+
 const formatDistance = (meters) => {
-  if (!Number.isFinite(meters)) return '等待目前位置';
+  if (!Number.isFinite(meters)) return '等待我的位置';
   if (meters < 1000) return `${Math.max(1, Math.round(meters))} 公尺`;
   return `${(meters / 1000).toFixed(meters < 10000 ? 1 : 0)} 公里`;
 };
+
+const formatDistanceToPoint = (pin) =>
+  formatDistance(getDistanceMeters(myLocation.value, pin));
 
 const showLocationNotice = (message, type = 'success') => {
   locationNotice.value = { message, type };
@@ -267,8 +314,8 @@ const showLocationNotice = (message, type = 'success') => {
   }, 3200);
 };
 
-const createMemberIcon = (item) => {
-  return L.divIcon({
+const createMemberIcon = (item) =>
+  L.divIcon({
     className: '',
     iconSize: [64, 76],
     iconAnchor: [32, 72],
@@ -281,23 +328,16 @@ const createMemberIcon = (item) => {
       isTracked: trackedParticipantId.value === item.participantId,
     }),
   });
-};
 
-const createGatheringIcon = () =>
+const createGatheringIcon = (pin) =>
   L.divIcon({
     className: '',
-    iconSize: [62, 74],
-    iconAnchor: [31, 70],
-    html: `
-      <div class="gathering-map-marker${
-        isGatheringNavigationActive.value ? ' is-active' : ''
-      }">
-        <div class="gathering-map-marker__label">集合</div>
-        <div class="gathering-map-marker__shape">
-          <span>集合</span>
-        </div>
-      </div>
-    `,
+    iconSize: [66, 82],
+    iconAnchor: [33, 78],
+    html: createGatheringMapPinHtml({
+      label: formatCountdown(pin.meetAt) || '集合',
+      isActive: activeGatheringPointId.value === pin.id,
+    }),
   });
 
 const getBrowserPosition = () =>
@@ -392,9 +432,7 @@ const requestCompassPermission = async () => {
   }
 
   try {
-    if (
-      typeof window.DeviceOrientationEvent.requestPermission === 'function'
-    ) {
+    if (typeof window.DeviceOrientationEvent.requestPermission === 'function') {
       const permission = await window.DeviceOrientationEvent.requestPermission();
       if (permission !== 'granted') {
         compassState.value = 'denied';
@@ -416,59 +454,29 @@ const prepareNavigation = async () => {
   await compassPermission;
 };
 
-const renderGatheringMarker = () => {
-  if (!mapInstance || !markerLayer) return;
-
-  if (!hasValidGatheringPoint.value) {
-    if (gatheringMarker) markerLayer.removeLayer(gatheringMarker);
-    gatheringMarker = null;
-    return;
-  }
-
-  const position = [
-    Number(gatheringPoint.value.lat),
-    Number(gatheringPoint.value.lng),
-  ];
-  if (gatheringMarker) {
-    gatheringMarker.setLatLng(position);
-    gatheringMarker.setIcon(createGatheringIcon());
-    return;
-  }
-
-  gatheringMarker = L.marker(position, {
-    icon: createGatheringIcon(),
-    title: gatheringPoint.value.title || '集合地點',
-    zIndexOffset: 500,
-  });
-  gatheringMarker.addTo(markerLayer);
-  gatheringMarker.on('click', () => navigateToGatheringPoint());
-};
-
 const fitAllLocations = ({ animate = true } = {}) => {
   if (!mapInstance) return;
-  const bounds = locations.value.map((item) => [item.lat, item.lng]);
-  if (hasValidGatheringPoint.value) {
-    bounds.push([
-      Number(gatheringPoint.value.lat),
-      Number(gatheringPoint.value.lng),
-    ]);
-  }
+  const bounds = [
+    ...locations.value.map((item) => [item.lat, item.lng]),
+    ...validGatheringPoints.value.map((item) => [item.lat, item.lng]),
+  ];
 
   if (!bounds.length) {
-    mapInstance.setView(mapCenter.value, 11, { animate });
+    mapInstance.setView(mapCenter.value, 12, { animate });
     return;
   }
 
   if (bounds.length === 1) {
     mapInstance.setView(bounds[0], 16, { animate });
-  } else {
-    mapInstance.fitBounds(bounds, {
-      animate,
-      paddingTopLeft: [28, 92],
-      paddingBottomRight: [28, 150],
-      maxZoom: 16,
-    });
+    return;
   }
+
+  mapInstance.fitBounds(bounds, {
+    animate,
+    paddingTopLeft: [28, 120],
+    paddingBottomRight: [28, 170],
+    maxZoom: 16,
+  });
 };
 
 const stopMarkerAnimation = (participantId) => {
@@ -540,11 +548,23 @@ const selectParticipant = (participantId, { closePanel = false } = {}) => {
   );
   if (!item) return;
   selectedParticipantId.value = item.participantId;
+  selectedGatheringPointId.value = '';
   renderMapMarkers();
   mapInstance.flyTo([item.lat, item.lng], Math.max(mapInstance.getZoom(), 17), {
     duration: 0.65,
   });
   if (closePanel) isMemberPanelOpen.value = false;
+};
+
+const selectGatheringPoint = (pin, { closePanel = false } = {}) => {
+  if (!mapInstance || !pin) return;
+  selectedGatheringPointId.value = pin.id;
+  selectedParticipantId.value = '';
+  renderMapMarkers();
+  mapInstance.flyTo([pin.lat, pin.lng], Math.max(mapInstance.getZoom(), 17), {
+    duration: 0.65,
+  });
+  if (closePanel) isGatheringPanelOpen.value = false;
 };
 
 const toggleSelectedMemberTracking = () => {
@@ -555,7 +575,7 @@ const toggleSelectedMemberTracking = () => {
     return;
   }
 
-  isGatheringNavigationActive.value = false;
+  activeGatheringPointId.value = '';
   trackedParticipantId.value = selectedMember.value.participantId;
   renderMapMarkers();
   mapInstance?.flyTo(
@@ -566,91 +586,124 @@ const toggleSelectedMemberTracking = () => {
   prepareNavigation();
 };
 
-const stopTracking = ({ clearSelection = true } = {}) => {
-  trackedParticipantId.value = '';
-  isGatheringNavigationActive.value = false;
-  if (clearSelection) selectedParticipantId.value = '';
-  renderMapMarkers();
-};
-
-const navigateToGatheringPoint = async () => {
-  if (!hasValidGatheringPoint.value) return;
+const navigateToGatheringPoint = async (pin) => {
+  if (!pin) return;
   trackedParticipantId.value = '';
   selectedParticipantId.value = '';
-  isGatheringNavigationActive.value = true;
+  selectedGatheringPointId.value = pin.id;
+  activeGatheringPointId.value = pin.id;
   renderMapMarkers();
-  mapInstance?.flyTo(
-    [Number(gatheringPoint.value.lat), Number(gatheringPoint.value.lng)],
-    Math.max(mapInstance.getZoom(), 17),
-    { duration: 0.55 }
-  );
-  isMemberPanelOpen.value = false;
+  mapInstance?.flyTo([pin.lat, pin.lng], Math.max(mapInstance.getZoom(), 17), {
+    duration: 0.55,
+  });
+  isGatheringPanelOpen.value = false;
   await prepareNavigation();
 };
 
-const setGatheringPointFromMyPosition = async () => {
-  if (!userStore.isAdmin || isSavingGatheringPoint.value) return;
+const stopTracking = ({ clearSelection = true } = {}) => {
+  trackedParticipantId.value = '';
+  activeGatheringPointId.value = '';
+  if (clearSelection) {
+    selectedParticipantId.value = '';
+    selectedGatheringPointId.value = '';
+  }
+  renderMapMarkers();
+};
+
+const showAllMembers = () => {
+  stopTracking();
+  fitAllLocations();
+};
+
+const resetGatheringForm = () => {
+  gatheringForm.id = '';
+  gatheringForm.title = '集合地點';
+  gatheringForm.meetAt = '';
+};
+
+const startGatheringPointCreate = () => {
+  if (!userStore.isAdmin || !mapInstance) return;
+  resetGatheringForm();
+  isSelectingGatheringPoint.value = true;
+  isGatheringPanelOpen.value = false;
+  showLocationNotice('拖動地圖，將準星放在集合位置。');
+};
+
+const startGatheringPointEdit = (pin) => {
+  if (!userStore.isAdmin || !mapInstance || !pin) return;
+  gatheringForm.id = pin.id;
+  gatheringForm.title = pin.title || '集合地點';
+  gatheringForm.meetAt = pin.meetAt || '';
+  selectedGatheringPointId.value = pin.id;
+  isSelectingGatheringPoint.value = true;
+  isGatheringPanelOpen.value = false;
+  mapInstance.flyTo([pin.lat, pin.lng], Math.max(mapInstance.getZoom(), 17), {
+    duration: 0.5,
+  });
+};
+
+const cancelGatheringPointEdit = () => {
+  isSelectingGatheringPoint.value = false;
+  resetGatheringForm();
+};
+
+const saveGatheringPointFromMapCenter = async () => {
+  if (!userStore.isAdmin || !mapInstance || isSavingGatheringPoint.value) return;
+  const center = mapInstance.getCenter();
   isSavingGatheringPoint.value = true;
   try {
-    const position = await getBrowserPosition();
-    if (myParticipant.value) await persistBrowserPosition(position);
-    await setTripGatheringPoint({
+    const editingId = gatheringForm.id;
+    const saved = await saveTripGatheringPoint({
       tripId: tripStore.currentTripId,
-      latitude: position.coords.latitude,
-      longitude: position.coords.longitude,
-      title: '集合地點',
+      pinId: editingId,
+      latitude: center.lat,
+      longitude: center.lng,
+      title: gatheringForm.title,
+      meetAt: gatheringForm.meetAt,
       createdBy: myParticipant.value?.id || userStore.user?.uid || '',
-      createdByName:
-        myParticipant.value?.name || userStore.user?.displayName || '管理員',
+      createdByName: myParticipant.value?.name || userStore.user?.displayName || '',
     });
-    isGatheringDeleteArmed.value = false;
-    showLocationNotice(
-      hasValidGatheringPoint.value ? '已更新集合點。' : '已建立集合點。'
-    );
+    selectedGatheringPointId.value = saved.id;
+    isSelectingGatheringPoint.value = false;
+    isGatheringPanelOpen.value = true;
+    showLocationNotice(editingId ? '已更新集合點。' : '已建立集合點。');
+    resetGatheringForm();
   } catch (error) {
-    showLocationNotice(
-      error?.code === 1
-        ? '定位權限已關閉，無法建立集合點。'
-        : error.message,
-      'error'
-    );
+    showLocationNotice(error.message, 'error');
   } finally {
     isSavingGatheringPoint.value = false;
   }
 };
 
-const clearGatheringPoint = async () => {
-  if (!userStore.isAdmin || !hasValidGatheringPoint.value) return;
-  if (!isGatheringDeleteArmed.value) {
-    isGatheringDeleteArmed.value = true;
-    if (gatheringDeleteTimer) window.clearTimeout(gatheringDeleteTimer);
-    gatheringDeleteTimer = window.setTimeout(() => {
-      isGatheringDeleteArmed.value = false;
+const removeGatheringPoint = async (pin) => {
+  if (!userStore.isAdmin || !pin) return;
+  if (deleteArmedPinId.value !== pin.id) {
+    deleteArmedPinId.value = pin.id;
+    if (deleteTimer) window.clearTimeout(deleteTimer);
+    deleteTimer = window.setTimeout(() => {
+      deleteArmedPinId.value = '';
     }, 3000);
     return;
   }
 
   try {
-    await clearTripGatheringPoint(tripStore.currentTripId);
-    isGatheringNavigationActive.value = false;
-    isGatheringDeleteArmed.value = false;
+    await removeTripGatheringPoint({
+      tripId: tripStore.currentTripId,
+      pinId: pin.id,
+    });
+    if (activeGatheringPointId.value === pin.id) activeGatheringPointId.value = '';
+    if (selectedGatheringPointId.value === pin.id) selectedGatheringPointId.value = '';
+    deleteArmedPinId.value = '';
     showLocationNotice('已移除集合點。');
   } catch (error) {
     showLocationNotice(error.message, 'error');
   }
 };
 
-const showAllMembers = () => {
-  trackedParticipantId.value = '';
-  isGatheringNavigationActive.value = false;
-  selectedParticipantId.value = '';
-  renderMapMarkers();
-  fitAllLocations();
-};
-
 const renderMapMarkers = ({ fit = false } = {}) => {
   if (!mapInstance || !markerLayer) return;
   const activeParticipantIds = new Set();
+  const activePinIds = new Set();
 
   locations.value.forEach((item) => {
     activeParticipantIds.add(item.participantId);
@@ -668,9 +721,7 @@ const renderMapMarkers = ({ fit = false } = {}) => {
       title: item.name,
     });
     marker.addTo(markerLayer);
-    marker.on('click', () => {
-      selectParticipant(item.participantId);
-    });
+    marker.on('click', () => selectParticipant(item.participantId));
     markersByParticipantId.set(item.participantId, marker);
   });
 
@@ -681,7 +732,32 @@ const renderMapMarkers = ({ fit = false } = {}) => {
     markersByParticipantId.delete(participantId);
   });
 
-  renderGatheringMarker();
+  validGatheringPoints.value.forEach((pin) => {
+    activePinIds.add(pin.id);
+    const nextLatLng = [pin.lat, pin.lng];
+    const currentMarker = gatheringMarkersById.get(pin.id);
+
+    if (currentMarker) {
+      currentMarker.setLatLng(nextLatLng);
+      currentMarker.setIcon(createGatheringIcon(pin));
+      return;
+    }
+
+    const marker = L.marker(nextLatLng, {
+      icon: createGatheringIcon(pin),
+      title: pin.title || '集合地點',
+      zIndexOffset: 500,
+    });
+    marker.addTo(markerLayer);
+    marker.on('click', () => selectGatheringPoint(pin));
+    gatheringMarkersById.set(pin.id, marker);
+  });
+
+  gatheringMarkersById.forEach((marker, pinId) => {
+    if (activePinIds.has(pinId)) return;
+    markerLayer.removeLayer(marker);
+    gatheringMarkersById.delete(pinId);
+  });
 
   if (fit || !hasAutoFit) {
     fitAllLocations({ animate: hasAutoFit });
@@ -695,13 +771,11 @@ const initMap = async () => {
   mapInstance = L.map(mapRef.value, {
     zoomControl: false,
     attributionControl: false,
-  }).setView(mapCenter.value, 11);
+    preferCanvas: true,
+  }).setView(mapCenter.value, 12);
   L.control.zoom({ position: 'topright' }).addTo(mapInstance);
   L.control
-    .attribution({
-      position: 'bottomleft',
-      prefix: '',
-    })
+    .attribution({ position: 'bottomleft', prefix: '' })
     .addAttribution('&copy; OpenStreetMap')
     .addTo(mapInstance);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -714,118 +788,92 @@ const initMap = async () => {
 
 const destroyMap = () => {
   markerLayer = null;
-  gatheringMarker = null;
   markerAnimationsByParticipantId.forEach((animationId) => {
     window.cancelAnimationFrame(animationId);
   });
   markerAnimationsByParticipantId.clear();
   markersByParticipantId.clear();
-  hasAutoFit = false;
+  gatheringMarkersById.clear();
   if (mapInstance) {
     mapInstance.remove();
     mapInstance = null;
   }
-};
-
-const stopSubscription = () => {
-  if (unsubscribeLocations) {
-    unsubscribeLocations();
-    unsubscribeLocations = null;
-  }
-  if (unsubscribeGatheringPoint) {
-    unsubscribeGatheringPoint();
-    unsubscribeGatheringPoint = null;
-  }
-};
-
-const startSubscription = () => {
-  stopSubscription();
-  rawLocations.value = [];
-  gatheringPoint.value = null;
-  selectedParticipantId.value = '';
-  trackedParticipantId.value = '';
-  isGatheringNavigationActive.value = false;
   hasAutoFit = false;
+};
+
+const subscribeData = () => {
   if (!tripStore.currentTripId || tripStore.isPublicTrip) {
+    rawLocations.value = [];
+    gatheringPoints.value = [];
     isLoading.value = false;
-    destroyMap();
     return;
   }
+
   isLoading.value = true;
-  unsubscribeLocations = subscribeTripLocations(
+  if (unsubscribeLocations) unsubscribeLocations();
+  if (unsubscribeGatheringPoints) unsubscribeGatheringPoints();
+
+  unsubscribeLocations = subscribeTripLocations(tripStore.currentTripId, (rows) => {
+    rawLocations.value = rows;
+    isLoading.value = false;
+  });
+
+  unsubscribeGatheringPoints = subscribeTripGatheringPoints(
     tripStore.currentTripId,
     (rows) => {
-      rawLocations.value = rows;
-      isLoading.value = false;
-    }
-  );
-  unsubscribeGatheringPoint = subscribeTripGatheringPoint(
-    tripStore.currentTripId,
-    (point) => {
-      gatheringPoint.value = point;
-      if (!point) isGatheringNavigationActive.value = false;
+      gatheringPoints.value = rows;
+      if (
+        activeGatheringPointId.value &&
+        !rows.some((item) => item.id === activeGatheringPointId.value)
+      ) {
+        activeGatheringPointId.value = '';
+      }
+      if (
+        selectedGatheringPointId.value &&
+        !rows.some((item) => item.id === selectedGatheringPointId.value)
+      ) {
+        selectedGatheringPointId.value = '';
+      }
     }
   );
 };
 
-onMounted(async () => {
+watch(
+  () => [tripStore.currentTripId, tripStore.isPublicTrip],
+  async () => {
+    stopTracking();
+    selectedParticipantId.value = '';
+    selectedGatheringPointId.value = '';
+    isMemberPanelOpen.value = false;
+    isGatheringPanelOpen.value = false;
+    isSelectingGatheringPoint.value = false;
+    rawLocations.value = [];
+    gatheringPoints.value = [];
+    destroyMap();
+    subscribeData();
+    await initMap();
+  },
+  { immediate: true }
+);
+
+watch([locations, validGatheringPoints], () => {
+  renderMapMarkers();
+});
+
+watch(currentTimestamp, () => {
+  renderMapMarkers();
+});
+
+onMounted(() => {
   onlineStatusTimer = window.setInterval(() => {
     currentTimestamp.value = Date.now();
   }, 30000);
-  await tripStore.init();
-  await participantsStore.init();
-  startSubscription();
+  initMap();
 });
-
-watch(
-  () => [tripStore.currentTripId, tripStore.accessMode],
-  async () => {
-    if (!tripStore.isPublicTrip) await participantsStore.init();
-    startSubscription();
-  }
-);
-
-watch(
-  () => [isLoading.value, tripStore.isPublicTrip, locations.value.length],
-  async () => {
-    if (!isLoading.value && !tripStore.isPublicTrip) await initMap();
-  }
-);
-
-watch(locations, (currentLocations, previousLocations = []) => {
-  if (
-    trackedParticipantId.value &&
-    !currentLocations.some(
-      (item) => item.participantId === trackedParticipantId.value
-    )
-  ) {
-    trackedParticipantId.value = '';
-  }
-  if (
-    selectedParticipantId.value &&
-    !currentLocations.some(
-      (item) => item.participantId === selectedParticipantId.value
-    )
-  ) {
-    selectedParticipantId.value = '';
-  }
-
-  renderMapMarkers({
-    fit:
-      !hasAutoFit || (!previousLocations.length && currentLocations.length > 0),
-  });
-});
-
-watch(
-  gatheringPoint,
-  () => {
-    renderGatheringMarker();
-  },
-  { deep: true }
-);
 
 onUnmounted(() => {
-  stopSubscription();
+  if (unsubscribeLocations) unsubscribeLocations();
+  if (unsubscribeGatheringPoints) unsubscribeGatheringPoints();
   destroyMap();
   if (isOrientationListening) {
     window.removeEventListener(
@@ -837,25 +885,21 @@ onUnmounted(() => {
     isOrientationListening = false;
   }
   if (noticeTimer) window.clearTimeout(noticeTimer);
-  if (gatheringDeleteTimer) window.clearTimeout(gatheringDeleteTimer);
+  if (deleteTimer) window.clearTimeout(deleteTimer);
   if (onlineStatusTimer) window.clearInterval(onlineStatusTimer);
 });
 </script>
 
 <template>
-  <main
-    class="location-page relative h-full min-h-full overflow-hidden bg-slate-100"
-  >
+  <main class="location-page relative h-full min-h-full overflow-hidden bg-slate-100">
     <section
       v-if="tripStore.isPublicTrip"
       class="absolute inset-0 z-[520] flex items-center justify-center p-6"
     >
-      <div
-        class="rounded-[28px] bg-white p-6 shadow-sm border border-white/60 text-center"
-      >
+      <div class="rounded-[28px] border border-white/60 bg-white p-6 text-center shadow-sm">
         <ShieldAlert :size="28" class="mx-auto text-slate-300" />
-        <h2 class="mt-3 font-black text-slate-800">無法查看位置</h2>
-        <p class="mt-2 text-sm font-bold text-slate-400 leading-relaxed">
+        <h2 class="mt-3 font-black text-slate-800">無法使用位置分享</h2>
+        <p class="mt-2 text-sm font-bold leading-relaxed text-slate-400">
           位置分享只開放旅程成員使用。
         </p>
       </div>
@@ -863,50 +907,16 @@ onUnmounted(() => {
 
     <div ref="mapRef" class="absolute inset-0 z-0 bg-slate-100"></div>
 
-    <section
-      v-if="activeNavigationTarget && !tripStore.isPublicTrip"
-      class="navigation-card absolute inset-x-4 top-4 z-[520] mx-auto flex max-w-md items-center gap-3 rounded-2xl bg-slate-950/94 p-3 text-white shadow-[0_18px_40px_rgba(15,23,42,0.30)]"
-    >
-      <div
-        class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-orange-500 text-white"
-      >
-        <Navigation2
-          :size="25"
-          :stroke-width="2.8"
-          class="navigation-card__arrow"
-          :style="{ transform: `rotate(${navigationRotation}deg)` }"
-        />
-      </div>
-      <div class="min-w-0 flex-1">
-        <div class="flex items-center gap-2 text-[10px] font-bold text-slate-300">
-          <Compass :size="13" />
-          <span>{{ navigationDirection }}</span>
-          <span class="h-3 w-px bg-white/20"></span>
-          <span>{{ activeNavigationTarget.subtitle }}</span>
-        </div>
-        <h2 class="mt-0.5 truncate text-sm font-black">
-          {{ activeNavigationTarget.name }}
-        </h2>
-        <p class="mt-0.5 text-xs font-bold text-orange-300">
-          {{ formatDistance(navigationDistance) }}
-          <span v-if="compassState === 'unavailable'" class="text-slate-400">
-            ，此裝置不支援指南針
-          </span>
-          <span v-else-if="compassState === 'denied'" class="text-slate-400">
-            ，尚未允許方向感測
-          </span>
-        </p>
-      </div>
-      <button
-        type="button"
-        title="停止導航"
-        aria-label="停止導航"
-        class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10 text-slate-200 active:scale-95"
-        @click="stopTracking"
-      >
-        <X :size="18" :stroke-width="2.5" />
-      </button>
-    </section>
+    <LocationNavigationCard
+      v-if="!tripStore.isPublicTrip"
+      :target="activeNavigationTarget"
+      :direction="navigationDirection"
+      :distance-text="formatDistance(navigationDistance)"
+      :countdown-text="formatCountdown(activeNavigationTarget?.meetAt)"
+      :rotation="navigationRotation"
+      :google-maps-url="googleMapsUrl"
+      @stop="stopTracking"
+    />
 
     <Transition name="location-notice">
       <div
@@ -927,393 +937,90 @@ onUnmounted(() => {
       v-if="isLoading && !tripStore.isPublicTrip"
       class="absolute inset-0 z-[500] flex flex-col items-center justify-center bg-white/80 backdrop-blur-sm"
     >
-      <RefreshCw :size="24" class="text-orange-500 animate-spin" />
+      <RefreshCw :size="24" class="animate-spin text-orange-500" />
       <p class="mt-3 text-sm font-black text-slate-500">讀取位置中</p>
     </div>
+
+    <GatheringPointEditor
+      :open="isSelectingGatheringPoint"
+      :form="gatheringForm"
+      :is-saving="isSavingGatheringPoint"
+      @save="saveGatheringPointFromMapCenter"
+      @cancel="cancelGatheringPointEdit"
+    />
+
     <div
-      v-if="!tripStore.isPublicTrip && !isLoading"
+      v-if="!tripStore.isPublicTrip && !isLoading && !isSelectingGatheringPoint"
       class="absolute inset-x-4 bottom-[calc(6.25rem+env(safe-area-inset-bottom))] z-[510] flex flex-col items-end gap-2"
     >
-      <button
-        v-if="myParticipant"
-        type="button"
-        title="手動更新我的位置"
-        aria-label="手動更新我的位置"
-        :disabled="isUpdatingMyLocation"
-        @click="updateMyLocation()"
-        class="map-action-button flex h-11 w-11 items-center justify-center rounded-xl border border-white/80 bg-white text-slate-700 shadow-[0_10px_24px_rgba(15,23,42,0.18)] disabled:opacity-60"
-      >
-        <Loader2
-          v-if="isUpdatingMyLocation"
-          :size="19"
-          class="animate-spin"
-        />
-        <Crosshair v-else :size="19" :stroke-width="2.4" />
-      </button>
+      <LocationActionBar
+        :has-participant="Boolean(myParticipant)"
+        :is-updating="isUpdatingMyLocation"
+        :member-label="memberButtonLabel"
+        :gathering-count="validGatheringPoints.length"
+        :can-show-all="Boolean(locations.length || validGatheringPoints.length)"
+        @update-location="updateMyLocation()"
+        @open-members="isMemberPanelOpen = true"
+        @open-gathering-points="isGatheringPanelOpen = true"
+        @show-all="showAllMembers"
+      />
 
-      <button
-        v-if="hasValidGatheringPoint"
-        type="button"
-        title="前往集合點"
-        aria-label="前往集合點"
-        @click="navigateToGatheringPoint"
-        class="map-action-button flex h-11 w-11 items-center justify-center rounded-xl border border-orange-200 bg-orange-500 text-white shadow-[0_10px_24px_rgba(234,88,12,0.24)]"
-      >
-        <Flag :size="19" :stroke-width="2.4" />
-      </button>
-      <button
-        v-else-if="userStore.isAdmin"
-        type="button"
-        title="建立集合點"
-        aria-label="在我的位置建立集合點"
-        :disabled="isSavingGatheringPoint"
-        @click="setGatheringPointFromMyPosition"
-        class="map-action-button flex h-11 w-11 items-center justify-center rounded-xl border border-orange-200 bg-white text-orange-600 shadow-[0_10px_24px_rgba(15,23,42,0.18)] disabled:opacity-60"
-      >
-        <Loader2
-          v-if="isSavingGatheringPoint"
-          :size="19"
-          class="animate-spin"
-        />
-        <Flag v-else :size="19" :stroke-width="2.4" />
-      </button>
-
-      <button
-        v-if="locations.length"
-        type="button"
-        title="顯示所有成員"
-        aria-label="顯示所有成員"
-        @click="showAllMembers"
-        class="map-action-button flex h-11 w-11 items-center justify-center rounded-xl border border-white/80 bg-white text-slate-700 shadow-[0_10px_24px_rgba(15,23,42,0.18)]"
-      >
-        <LocateFixed :size="19" :stroke-width="2.4" />
-      </button>
-
-      <div class="flex w-full justify-end gap-2">
-        <div
-          v-if="selectedMember"
-          class="location-member-card h-16 pointer-events-auto flex min-w-0 flex-1 items-center gap-2 rounded-2xl p-2 text-slate-900 shadow-[0_16px_32px_rgba(15,23,42,0.20)] backdrop-blur-md"
-          :class="
-            trackedParticipantId === selectedMember.participantId
-              ? 'location-member-card--tracked'
-              : selectedMember.isOnline
-                ? 'location-member-card--online'
-                : 'location-member-card--offline'
-          "
-        >
-          <div class="min-w-0 flex-1 text-left">
-            <div class="flex items-center gap-2">
-              <div
-                class="location-member-card__avatar relative h-11 w-11 shrink-0 overflow-hidden rounded-2xl bg-slate-100"
-              >
-                <img
-                  v-if="selectedMember.avatar"
-                  :src="selectedMember.avatar"
-                  class="h-full w-full object-cover"
-                  alt=""
-                />
-                <div
-                  v-else
-                  class="flex h-full w-full items-center justify-center font-black text-slate-500"
-                >
-                  {{ selectedMember.name.slice(0, 1) }}
-                </div>
-              </div>
-              <span class="min-w-0 flex-1">
-                <span
-                  class="flex items-center justify-between gap-2 text-[10px] font-bold"
-                >
-                  <span class="flex min-w-0 items-center gap-1">
-                    <span class="location-member-card__lamp"></span>
-                    <Navigation
-                      v-if="
-                        trackedParticipantId === selectedMember.participantId
-                      "
-                      :size="12"
-                      :stroke-width="2.8"
-                      class="text-orange-500"
-                    />
-                    <span class="location-member-card__status">
-                      {{
-                        trackedParticipantId === selectedMember.participantId
-                          ? '追蹤中'
-                          : selectedMember.isOnline
-                            ? '在線'
-                            : '離線'
-                      }}
-                    </span>
-                  </span>
-                  <span
-                    class="location-member-card__battery flex shrink-0 items-center gap-1"
-                    :class="getBatteryToneClass(selectedMember)"
-                  >
-                    <Battery :size="13" :stroke-width="2.5" />
-                    {{ formatBattery(selectedMember) }}
-                  </span>
-                </span>
-                <span class="mt-0.5 block truncate text-sm font-black">{{
-                  selectedMember.name
-                }}</span>
-                <span
-                  class="mt-0.5 block truncate text-[10px] font-bold text-slate-400"
-                >
-                  {{ formatTime(selectedMember.timestamp) }}
-                </span>
-              </span>
-            </div>
-          </div>
-          <button
-            type="button"
-            title="追蹤成員"
-            aria-label="追蹤成員"
-            @click="toggleSelectedMemberTracking"
-            class="location-member-card__track flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
-          >
-            <component
-              :is="
-                trackedParticipantId === selectedMember.participantId
-                  ? NavigationOff
-                  : Navigation
-              "
-              :size="16"
-              :stroke-width="2.6"
-            />
-          </button>
-          <button
-            type="button"
-            title="關閉成員資訊"
-            aria-label="關閉成員資訊"
-            @click="stopTracking"
-            class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-500"
-          >
-            <X :size="16" :stroke-width="2.6" />
-          </button>
-        </div>
-
-        <button
-          type="button"
-          @click="isMemberPanelOpen = true"
-          class="map-member-button flex h-16 flex-col aspect-square items-center justify-center rounded-2xl space-y-[4px] bg-white/95 p-2 text-slate-900 shadow-[0_16px_32px_rgba(15,23,42,0.35)]"
-        >
-          <span class="flex items-center justify-center">
-            <Users :size="20" :stroke-width="2.5" />
-          </span>
-          <span class="text-left">
-            <span class="block text-sm font-black">{{
-              memberButtonLabel
-            }}</span>
-          </span>
-        </button>
-      </div>
+      <SelectedMemberCard
+        :member="selectedMember"
+        :is-tracked="trackedParticipantId === selectedMember?.participantId"
+        :battery-text="selectedMember ? formatBattery(selectedMember) : '--'"
+        :battery-tone-class="
+          selectedMember ? getBatteryToneClass(selectedMember) : 'battery-tone--unknown'
+        "
+        :time-text="selectedMember ? formatTime(selectedMember.timestamp) : ''"
+        @toggle-track="toggleSelectedMemberTracking"
+        @close="stopTracking"
+      />
     </div>
 
-    <div
-      v-if="isMemberPanelOpen"
-      class="absolute inset-0 z-[700] bg-slate-950/45 backdrop-blur-[2px]"
-      @click.self="isMemberPanelOpen = false"
-    >
-      <section
-        class="member-sheet absolute inset-x-0 bottom-0 max-h-[78dvh] rounded-t-[24px] bg-white shadow-2xl"
-      >
-        <div class="mx-auto mt-2 h-1 w-10 rounded-full bg-slate-200"></div>
-        <header
-          class="flex items-center justify-between gap-3 border-b border-slate-100 px-5 pb-4 pt-3"
-        >
-          <div>
-            <h2 class="font-black text-slate-900">成員位置</h2>
-            <p class="mt-1 text-xs font-bold text-slate-400">
-              {{ onlineCount }} 人在線<span v-if="offlineCount"
-                >，{{ offlineCount }} 人離線</span
-              >
-            </p>
-          </div>
-          <button
-            type="button"
-            title="關閉"
-            aria-label="關閉成員位置"
-            @click="isMemberPanelOpen = false"
-            class="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-600"
-          >
-            <X :size="19" :stroke-width="2.4" />
-          </button>
-        </header>
+    <MemberLocationSheet
+      :open="isMemberPanelOpen"
+      :locations="locations"
+      :online-count="onlineCount"
+      :offline-count="offlineCount"
+      :tracked-participant-id="trackedParticipantId"
+      :format-time="formatTime"
+      :format-battery="formatBattery"
+      :get-battery-tone-class="getBatteryToneClass"
+      @close="isMemberPanelOpen = false"
+      @select-member="selectParticipant($event, { closePanel: true })"
+    />
 
-        <div
-          class="max-h-[calc(78dvh-82px)] overflow-y-auto px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))]"
-        >
-          <section
-            v-if="hasValidGatheringPoint || userStore.isAdmin"
-            class="my-3 rounded-2xl bg-orange-50 p-3"
-          >
-            <div class="flex items-center gap-3">
-              <div
-                class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-500 text-white"
-              >
-                <Flag :size="20" :stroke-width="2.5" />
-              </div>
-              <div class="min-w-0 flex-1">
-                <h3 class="truncate text-sm font-black text-slate-900">
-                  {{ gatheringPoint?.title || '尚未設定集合點' }}
-                </h3>
-                <p class="mt-0.5 text-[11px] font-bold text-slate-500">
-                  {{
-                    hasValidGatheringPoint
-                      ? `更新於 ${formatTime(gatheringPoint.updatedAt)}`
-                      : '可將管理員目前位置設為集合點'
-                  }}
-                </p>
-              </div>
-            </div>
-            <div class="mt-3 grid grid-cols-2 gap-2">
-              <button
-                v-if="hasValidGatheringPoint"
-                type="button"
-                class="flex h-10 items-center justify-center gap-2 rounded-xl bg-slate-900 px-3 text-xs font-black text-white"
-                @click="navigateToGatheringPoint"
-              >
-                <Navigation :size="15" />
-                前往集合點
-              </button>
-              <button
-                v-if="userStore.isAdmin"
-                type="button"
-                :disabled="isSavingGatheringPoint"
-                class="flex h-10 items-center justify-center gap-2 rounded-xl bg-white px-3 text-xs font-black text-orange-600 disabled:opacity-60"
-                :class="!hasValidGatheringPoint ? 'col-span-2' : ''"
-                @click="setGatheringPointFromMyPosition"
-              >
-                <Loader2
-                  v-if="isSavingGatheringPoint"
-                  :size="15"
-                  class="animate-spin"
-                />
-                <Crosshair v-else :size="15" />
-                {{ hasValidGatheringPoint ? '移到我的位置' : '建立集合點' }}
-              </button>
-            </div>
-            <button
-              v-if="userStore.isAdmin && hasValidGatheringPoint"
-              type="button"
-              class="mt-2 flex h-9 w-full items-center justify-center gap-2 rounded-xl text-xs font-black"
-              :class="
-                isGatheringDeleteArmed
-                  ? 'bg-red-600 text-white'
-                  : 'bg-white/70 text-red-500'
-              "
-              @click="clearGatheringPoint"
-            >
-              <Trash2 :size="14" />
-              {{ isGatheringDeleteArmed ? '再按一次移除' : '移除集合點' }}
-            </button>
-          </section>
-
-          <button
-            v-for="item in locations"
-            :key="item.participantId"
-            type="button"
-            @click="selectParticipant(item.participantId, { closePanel: true })"
-            class="member-row flex w-full items-center gap-3 border-b border-slate-100 px-1 py-4 text-left last:border-b-0"
-            :class="
-              trackedParticipantId === item.participantId
-                ? 'member-row--tracked'
-                : item.isOnline
-                  ? 'member-row--online'
-                  : ''
-            "
-          >
-            <div
-              class="member-row__avatar relative h-12 w-12 shrink-0"
-              :class="
-                trackedParticipantId === item.participantId
-                  ? 'member-row__avatar--tracked'
-                  : item.isOnline
-                    ? 'member-row__avatar--online'
-                    : 'member-row__avatar--offline'
-              "
-            >
-              <div
-                class="h-full w-full overflow-hidden rounded-2xl bg-slate-100"
-              >
-                <img
-                  v-if="item.avatar"
-                  :src="item.avatar"
-                  class="h-full w-full object-cover"
-                  alt=""
-                />
-                <div
-                  v-else
-                  class="flex h-full w-full items-center justify-center font-black text-slate-500"
-                >
-                  {{ item.name.slice(0, 1) }}
-                </div>
-              </div>
-              <span
-                class="member-row__status-dot absolute -right-0.5 -top-0.5 h-3.5 w-3.5 rounded-full border-2 border-white"
-              ></span>
-            </div>
-
-            <div class="min-w-0 flex-1">
-              <div class="flex items-center justify-between gap-2">
-                <h3 class="truncate font-black text-slate-900">
-                  {{ item.name }}
-                </h3>
-                <span
-                  class="member-row__status-label shrink-0 text-[11px] font-bold"
-                >
-                  {{
-                    trackedParticipantId === item.participantId
-                      ? '追蹤中'
-                      : item.isOnline
-                        ? '在線'
-                        : '離線'
-                  }}
-                </span>
-              </div>
-              <div
-                class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-bold text-slate-400"
-              >
-                <span class="flex items-center gap-1"
-                  ><Clock :size="13" />{{ formatTime(item.timestamp) }}</span
-                >
-                <span
-                  class="flex items-center gap-1"
-                  :class="getBatteryToneClass(item)"
-                  ><Battery :size="13" />{{ formatBattery(item) }}</span
-                >
-                <span class="flex items-center gap-1"
-                  ><Navigation :size="13" />{{
-                    item.acc || item.acc === 0 ? `${item.acc}m` : '--'
-                  }}</span
-                >
-              </div>
-            </div>
-
-            <MapPin
-              :size="18"
-              class="member-row__pin shrink-0"
-              :stroke-width="2.4"
-            />
-          </button>
-          <div
-            v-if="locations.length === 0"
-            class="py-10 text-center text-sm font-black text-slate-400"
-          >
-            尚無成員位置
-          </div>
-        </div>
-      </section>
-    </div>
+    <GatheringPointSheet
+      :open="isGatheringPanelOpen"
+      :points="validGatheringPoints"
+      :active-point-id="activeGatheringPointId"
+      :delete-armed-point-id="deleteArmedPinId"
+      :is-admin="userStore.isAdmin"
+      :format-meet-at="formatMeetAt"
+      :format-countdown="formatCountdown"
+      :format-distance-to-point="formatDistanceToPoint"
+      @close="isGatheringPanelOpen = false"
+      @create="startGatheringPointCreate"
+      @select="selectGatheringPoint"
+      @navigate="navigateToGatheringPoint"
+      @edit="startGatheringPointEdit"
+      @remove="removeGatheringPoint"
+    />
   </main>
 </template>
 
 <style>
-.navigation-card {
-  border: 1px solid rgb(255 255 255 / 12%);
+.location-page {
+  height: 100%;
+  min-height: 100%;
+  overscroll-behavior: none;
+  touch-action: none;
 }
 
-.navigation-card__arrow {
-  transform-origin: center;
-  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+.location-page .leaflet-container {
+  width: 100%;
+  height: 100%;
 }
 
 .location-notice-enter-active,
@@ -1333,8 +1040,8 @@ onUnmounted(() => {
   position: relative;
   display: flex;
   justify-content: center;
-  width: 62px;
-  height: 74px;
+  width: 66px;
+  height: 82px;
   transform-origin: 50% 92%;
   transition: transform 180ms ease;
 }
@@ -1344,11 +1051,14 @@ onUnmounted(() => {
   top: -22px;
   left: 50%;
   z-index: 2;
+  max-width: 128px;
   padding: 4px 7px;
+  overflow: hidden;
   color: #fff;
   font-size: 10px;
   font-weight: 900;
   line-height: 1;
+  text-overflow: ellipsis;
   white-space: nowrap;
   background: #c2410c;
   border-radius: 7px;
@@ -1385,6 +1095,7 @@ onUnmounted(() => {
 }
 
 .gathering-map-marker.is-active {
+  z-index: 4;
   transform: translateY(-4px) scale(1.12);
 }
 
@@ -1403,169 +1114,6 @@ onUnmounted(() => {
     filter: drop-shadow(0 2px 1px rgb(255 255 255 / 88%))
       drop-shadow(0 10px 18px rgb(249 115 22 / 58%));
   }
-}
-
-.location-member-card {
-  position: relative;
-  overflow: hidden;
-  background: rgb(255 255 255 / 92%);
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 78%),
-    0 16px 32px rgb(15 23 42 / 20%);
-}
-
-.location-member-card::before {
-  position: absolute;
-  top: 50%;
-  left: 9px;
-  width: 7px;
-  height: 7px;
-  content: '';
-  background: #94a3b8;
-  border-radius: 999px;
-  transform: translateY(-50%);
-}
-
-.location-member-card--online {
-  background:
-    linear-gradient(90deg, rgb(16 185 129 / 12%), rgb(255 255 255 / 82%) 42%),
-    rgb(255 255 255 / 92%);
-}
-
-.location-member-card--tracked {
-  background:
-    linear-gradient(90deg, rgb(249 115 22 / 14%), rgb(255 255 255 / 82%) 42%),
-    rgb(255 255 255 / 92%);
-}
-
-.location-member-card--online::before {
-  background: #10b981;
-  box-shadow: 0 0 0 5px rgb(16 185 129 / 13%);
-}
-
-.location-member-card--tracked::before {
-  background: #f97316;
-  box-shadow: 0 0 0 5px rgb(249 115 22 / 15%);
-}
-
-.location-member-card__avatar {
-  box-shadow: 0 0 0 1px rgb(148 163 184 / 18%);
-}
-
-.location-member-card--online .location-member-card__avatar {
-  box-shadow: 0 0 0 1px rgb(16 185 129 / 22%);
-}
-
-.location-member-card--tracked .location-member-card__avatar {
-  box-shadow: 0 0 0 1px rgb(249 115 22 / 28%);
-}
-
-.location-member-card__status {
-  color: #64748b;
-}
-
-.location-member-card--online .location-member-card__status {
-  color: #059669;
-}
-
-.location-member-card--tracked .location-member-card__status {
-  color: #ea580c;
-}
-
-.location-member-card__track {
-  color: #64748b;
-  background: #f1f5f9;
-}
-
-.location-member-card--online .location-member-card__track {
-  color: #047857;
-  background: rgb(16 185 129 / 12%);
-}
-
-.location-member-card--tracked .location-member-card__track {
-  color: #ea580c;
-  background: rgb(249 115 22 / 14%);
-}
-
-.battery-tone--good {
-  color: #059669;
-}
-
-.battery-tone--medium {
-  color: #d97706;
-}
-
-.battery-tone--low {
-  color: #dc2626;
-}
-
-.battery-tone--unknown {
-  color: #94a3b8;
-}
-
-.member-row {
-  transition:
-    background-color 160ms ease,
-    color 160ms ease;
-}
-
-.member-row--online {
-  background: linear-gradient(
-    90deg,
-    rgb(16 185 129 / 9%),
-    rgb(255 255 255 / 0%) 46%
-  );
-}
-
-.member-row--tracked {
-  background: linear-gradient(
-    90deg,
-    rgb(249 115 22 / 12%),
-    rgb(255 255 255 / 0%) 46%
-  );
-}
-
-.member-row__avatar {
-  border-radius: 16px;
-}
-
-.member-row__avatar--online {
-  box-shadow: 0 0 0 1px rgb(16 185 129 / 18%);
-}
-
-.member-row__avatar--tracked {
-  box-shadow: 0 0 0 1px rgb(249 115 22 / 24%);
-}
-
-.member-row__status-dot {
-  background: #94a3b8;
-}
-
-.member-row--online .member-row__status-dot {
-  background: #10b981;
-  animation: member-avatar-pulse 2s cubic-bezier(0.25, 0, 0, 1) infinite;
-  --member-avatar-pulse-color: rgb(16 185 129 / 34%);
-}
-
-.member-row--tracked .member-row__status-dot {
-  background: #f97316;
-  animation: member-avatar-pulse 2s cubic-bezier(0.25, 0, 0, 1) infinite;
-  --member-avatar-pulse-color: rgb(249 115 22 / 42%);
-}
-
-.member-row__status-label,
-.member-row__pin {
-  color: #94a3b8;
-}
-
-.member-row--online .member-row__status-label,
-.member-row--online .member-row__pin {
-  color: #059669;
-}
-
-.member-row--tracked .member-row__status-label,
-.member-row--tracked .member-row__pin {
-  color: #ea580c;
 }
 
 .member-map-marker {
@@ -1587,8 +1135,8 @@ onUnmounted(() => {
   left: 50%;
   z-index: 4;
   max-width: 120px;
-  overflow: hidden;
   padding: 5px 8px;
+  overflow: hidden;
   color: #fff;
   font-size: 11px;
   font-weight: 900;
@@ -1713,10 +1261,6 @@ onUnmounted(() => {
   opacity: 0.8;
 }
 
-.member-map-marker.is-offline.is-selected {
-  opacity: 1;
-}
-
 @keyframes member-avatar-pulse {
   0% {
     box-shadow: 0 0 0 0 var(--member-avatar-pulse-color);
@@ -1728,7 +1272,7 @@ onUnmounted(() => {
 }
 
 .location-page .leaflet-top.leaflet-right {
-  top: 80px;
+  top: 86px;
   right: 12px;
 }
 
@@ -1740,11 +1284,11 @@ onUnmounted(() => {
 }
 
 .location-page .leaflet-control-zoom a {
-  width: 40px;
-  height: 40px;
+  width: 38px;
+  height: 38px;
   color: #334155;
   font-size: 20px;
-  line-height: 40px;
+  line-height: 38px;
   background: rgb(255 255 255 / 96%);
   border-color: #e2e8f0;
 }
@@ -1755,38 +1299,13 @@ onUnmounted(() => {
   background: rgb(255 255 255 / 82%);
 }
 
-.map-action-button:active,
-.map-member-button:active,
-.member-row:active {
-  transform: scale(0.97);
-}
-
-.member-sheet {
-  animation: member-sheet-enter 220ms ease-out;
-}
-
-@keyframes member-sheet-enter {
-  from {
-    transform: translateY(24px);
-    opacity: 0;
-  }
-
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .member-sheet,
   .member-map-marker,
   .member-map-marker__name,
   .member-map-marker__shape,
   .member-map-marker__avatar-ring::before,
-  .member-row__status-dot,
   .gathering-map-marker,
-  .gathering-map-marker__shape,
-  .navigation-card__arrow {
+  .gathering-map-marker__shape {
     animation: none;
     transition: none;
   }

@@ -1,5 +1,5 @@
 import { rtdb } from '@/firebase/index.js';
-import { onValue, ref, remove, set, update } from 'firebase/database';
+import { onValue, push, ref, remove, update } from 'firebase/database';
 
 export const subscribeTripLocations = (tripId, callback) => {
   if (!tripId) {
@@ -7,17 +7,15 @@ export const subscribeTripLocations = (tripId, callback) => {
     return () => {};
   }
 
-  const locationRef = ref(rtdb, `tripLocations/${tripId}`);
-  const unsubscribe = onValue(locationRef, (snapshot) => {
+  return onValue(ref(rtdb, `tripLocations/${tripId}`), (snapshot) => {
     const value = snapshot.val() || {};
-    const rows = Object.entries(value).map(([participantId, data]) => ({
-      participantId,
-      ...data,
-    }));
-    callback(rows);
+    callback(
+      Object.entries(value).map(([participantId, data]) => ({
+        participantId,
+        ...data,
+      }))
+    );
   });
-
-  return unsubscribe;
 };
 
 export const updateParticipantLocation = async ({
@@ -63,27 +61,34 @@ export const updateParticipantLocation = async ({
   return payload;
 };
 
-export const subscribeTripGatheringPoint = (tripId, callback) => {
+export const subscribeTripGatheringPoints = (tripId, callback) => {
   if (!tripId) {
-    callback(null);
+    callback([]);
     return () => {};
   }
 
-  return onValue(
-    ref(rtdb, `tripGatheringPins/${tripId}/active`),
-    (snapshot) => callback(snapshot.val() || null)
-  );
+  return onValue(ref(rtdb, `tripGatheringPins/${tripId}`), (snapshot) => {
+    const value = snapshot.val() || {};
+    callback(
+      Object.entries(value)
+        .map(([id, data]) => ({ id, ...data }))
+        .filter((item) => !item.archived)
+        .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
+    );
+  });
 };
 
-export const setTripGatheringPoint = async ({
+export const saveTripGatheringPoint = async ({
   tripId,
+  pinId = '',
   latitude,
   longitude,
   title = '集合地點',
+  meetAt = '',
   createdBy = '',
   createdByName = '',
 }) => {
-  if (!tripId) throw new Error('請先選擇旅程。');
+  if (!tripId) throw new Error('缺少旅程資料。');
 
   const lat = Number(latitude);
   const lng = Number(longitude);
@@ -91,20 +96,29 @@ export const setTripGatheringPoint = async ({
     throw new Error('集合點座標無效。');
   }
 
+  const now = Date.now();
+  const targetRef = pinId
+    ? ref(rtdb, `tripGatheringPins/${tripId}/${pinId}`)
+    : push(ref(rtdb, `tripGatheringPins/${tripId}`));
+
   const payload = {
     lat,
     lng,
     title: String(title || '集合地點').trim() || '集合地點',
+    meetAt: meetAt || '',
     createdBy,
     createdByName,
-    updatedAt: Date.now(),
+    updatedAt: now,
+    archived: false,
   };
 
-  await set(ref(rtdb, `tripGatheringPins/${tripId}/active`), payload);
-  return payload;
+  if (!pinId) payload.createdAt = now;
+
+  await update(targetRef, payload);
+  return { id: targetRef.key, ...payload };
 };
 
-export const clearTripGatheringPoint = async (tripId) => {
-  if (!tripId) throw new Error('請先選擇旅程。');
-  await remove(ref(rtdb, `tripGatheringPins/${tripId}/active`));
+export const removeTripGatheringPoint = async ({ tripId, pinId }) => {
+  if (!tripId || !pinId) throw new Error('缺少集合點資料。');
+  await remove(ref(rtdb, `tripGatheringPins/${tripId}/${pinId}`));
 };
