@@ -79,8 +79,8 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-100 text-slate-800 md:h-screen md:overflow-hidden">
-    <div class="flex min-h-screen md:h-screen">
+  <div class="min-h-[100dvh] overflow-x-hidden bg-slate-100 text-slate-800 md:h-[100dvh] md:overflow-hidden">
+    <div class="flex min-h-[100dvh] md:h-[100dvh]">
       <aside
         class="hidden md:flex flex-col bg-slate-950 text-white transition-all duration-300"
         :class="isSidebarOpen ? 'w-64' : 'w-20'"
@@ -117,7 +117,7 @@ onMounted(async () => {
       </aside>
 
       <aside
-        class="fixed inset-y-0 left-0 z-50 w-72 bg-slate-950 text-white md:hidden transition-transform"
+        class="fixed inset-y-0 left-0 z-50 w-[min(18rem,88vw)] bg-slate-950 pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] text-white transition-transform md:hidden"
         :class="isMobileOpen ? 'translate-x-0' : '-translate-x-full'"
       >
         <div class="p-5 flex items-center justify-between border-b border-white/10">
@@ -149,9 +149,9 @@ onMounted(async () => {
         @click="isMobileOpen = false"
       ></div>
 
-      <section class="flex-1 min-w-0 flex flex-col">
-        <header class="bg-white border-b border-slate-200">
-          <div class="min-h-16 px-4 md:px-6 py-3 flex items-center justify-between gap-4">
+      <section class="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <header class="sticky top-0 z-30 border-b border-slate-200 bg-white">
+          <div class="flex min-h-16 flex-wrap items-center justify-between gap-3 px-3 py-3 sm:flex-nowrap sm:px-4 md:px-6">
             <div class="flex items-center gap-3 min-w-0">
               <button
                 @click="isMobileOpen = true"
@@ -167,11 +167,10 @@ onMounted(async () => {
               </button>
               <div class="min-w-0">
                 <h1 class="font-black text-slate-800 truncate">{{ pageTitle }}</h1>
-                <p class="text-[10px] font-bold text-slate-400">目前所有操作會套用到選取的旅程</p>
               </div>
             </div>
 
-            <div class="flex items-center gap-2 min-w-0">
+            <div class="order-3 flex w-full min-w-0 items-center gap-2 sm:order-none sm:w-auto">
               <AdminTripSelector />
               <button
                 @click="router.push('/')"
@@ -197,7 +196,7 @@ onMounted(async () => {
           </div>
         </header>
 
-        <main class="flex-1 min-h-0 overflow-y-auto p-4 md:p-6">
+        <main class="admin-main min-h-0 flex-1 overflow-y-auto p-3 sm:p-4 md:p-6">
           <router-view v-slot="{ Component }">
             <transition name="admin-page" mode="out-in">
               <component :is="Component" :key="adminViewKey" />
@@ -221,5 +220,12 @@ onMounted(async () => {
 .admin-page-leave-to {
   opacity: 0;
   transform: translateY(6px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-page-enter-active,
+  .admin-page-leave-active {
+    transition: none;
+  }
 }
 </style>

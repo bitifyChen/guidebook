@@ -8,6 +8,11 @@ import {
 } from '@/api/itinerary';
 import { uploadImage } from '@/api/storage';
 import {
+  getItineraryTypeOption,
+  ITINERARY_CATEGORY_OPTIONS,
+  ITINERARY_TYPE_OPTIONS,
+} from '@/constants/itineraryOptions';
+import {
   Clock,
   Image,
   Layers,
@@ -36,6 +41,13 @@ const coverInput = ref(null);
 const imagesInput = ref(null);
 
 const isEditMode = computed(() => props.mode === 'edit' && !!currentItem.value?.id);
+const hasUnknownCategory = computed(
+  () =>
+    currentItem.value?.category &&
+    !ITINERARY_CATEGORY_OPTIONS.some(
+      (option) => option.value === currentItem.value.category
+    )
+);
 
 const cloneItem = (item) => JSON.parse(JSON.stringify(item || {}));
 
@@ -57,7 +69,7 @@ const createDefaultItem = () => {
     order: getNextOrder(day),
     parentId: '',
     location: '',
-    category: '',
+    category: '景點',
     cover: '',
     map: '',
     duration: 0,
@@ -77,6 +89,8 @@ const resetForm = () => {
       nextDrive: item.nextDrive || { time: 0, km: 0 },
       images: Array.isArray(item.images) ? item.images : [],
       parentId: item.parentId || '',
+      category:
+        item.category || getItineraryTypeOption(item.type).defaultCategory,
     };
     return;
   }
@@ -103,6 +117,17 @@ watch(
     if (!currentItem.value || isEditMode.value || !day || day === oldDay) return;
     currentItem.value.order = getNextOrder(day);
     currentItem.value.parentId = '';
+  }
+);
+
+watch(
+  () => currentItem.value?.type,
+  (type, oldType) => {
+    if (!currentItem.value || !type || type === oldType) return;
+    const oldDefault = getItineraryTypeOption(oldType).defaultCategory;
+    if (!currentItem.value.category || currentItem.value.category === oldDefault) {
+      currentItem.value.category = getItineraryTypeOption(type).defaultCategory;
+    }
   }
 );
 
@@ -188,13 +213,23 @@ const handleSave = async () => {
   isSaving.value = true;
   try {
     const { id, data } = normalizeItem();
+    const timeChanged =
+      !isEditMode.value ||
+      Number(data.duration || 0) !== Number(props.item?.duration || 0) ||
+      Number(data.delay || 0) !== Number(props.item?.delay || 0);
+    let savedId = id;
     if (isEditMode.value) {
       await patchItineraryItem(id, data);
     } else {
-      await postItineraryItem(data);
+      const result = await postItineraryItem(data);
+      savedId = result.id;
     }
     await travelStore.init();
-    emit('saved');
+    emit('saved', {
+      item: { ...data, id: savedId },
+      timeChanged,
+      action: isEditMode.value ? 'updated' : 'created',
+    });
   } catch (error) {
     alert(`儲存失敗：${error.message}`);
   } finally {
@@ -207,9 +242,14 @@ const handleDelete = async () => {
 
   isDeleting.value = true;
   try {
+    const deletedItem = cloneItem(currentItem.value);
     await deleteItineraryItem(currentItem.value.id);
     await travelStore.init();
-    emit('deleted');
+    emit('deleted', {
+      item: deletedItem,
+      timeChanged: true,
+      action: 'deleted',
+    });
   } catch (error) {
     alert(`刪除失敗：${error.message}`);
   } finally {
@@ -221,11 +261,11 @@ const handleDelete = async () => {
 <template>
   <form
     v-if="currentItem"
-    class="flex h-full min-h-0 flex-col bg-slate-50"
+    class="admin-itinerary-form flex h-full min-h-0 flex-col bg-slate-50"
     @submit.prevent="handleSave"
   >
     <div
-      class="flex items-center justify-between gap-4 border-b border-slate-200 bg-white px-5 py-4"
+      class="flex min-h-16 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 sm:px-5"
     >
       <div class="min-w-0">
         <p class="text-xs font-bold text-slate-400">
@@ -235,7 +275,7 @@ const handleDelete = async () => {
           {{ currentItem.location || '行程項目' }}
         </h3>
       </div>
-      <div class="flex shrink-0 items-center gap-2 pr-14">
+      <div class="hidden shrink-0 items-center gap-2 pr-14 sm:flex">
         <button
           type="button"
           class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-500 hover:bg-slate-50"
@@ -253,10 +293,10 @@ const handleDelete = async () => {
       </div>
     </div>
 
-    <div class="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+    <div class="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-5">
       <div class="mx-auto max-w-2xl space-y-5">
-        <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div class="grid grid-cols-3 gap-3">
+        <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <label class="space-y-1">
               <span class="text-[11px] font-black text-slate-400">天數</span>
               <select
@@ -274,9 +314,13 @@ const handleDelete = async () => {
                 v-model="currentItem.type"
                 class="w-full rounded-xl bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700 outline-none"
               >
-                <option value="point">景點</option>
-                <option value="transport">交通</option>
-                <option value="free">自由時間</option>
+                <option
+                  v-for="option in ITINERARY_TYPE_OPTIONS"
+                  :key="option.value"
+                  :value="option.value"
+                >
+                  {{ option.label }}
+                </option>
               </select>
             </label>
             <label class="space-y-1">
@@ -308,22 +352,35 @@ const handleDelete = async () => {
           </label>
         </section>
 
-        <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
           <div class="space-y-4">
             <input
               v-model="currentItem.location"
               class="w-full border-b border-slate-100 pb-3 text-xl font-black text-slate-900 outline-none focus:border-indigo-200"
               placeholder="地點名稱"
             />
-            <input
+            <select
               v-model="currentItem.category"
-              class="w-full text-sm font-bold text-indigo-600 outline-none"
-              placeholder="分類，例如景點、餐廳、交通"
-            />
+              class="w-full bg-transparent text-sm font-bold text-indigo-600 outline-none"
+            >
+              <option
+                v-if="hasUnknownCategory"
+                :value="currentItem.category"
+              >
+                {{ currentItem.category }}（既有分類）
+              </option>
+              <option
+                v-for="option in ITINERARY_CATEGORY_OPTIONS"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </option>
+            </select>
           </div>
         </section>
 
-        <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
           <div class="space-y-3">
             <div class="flex items-center gap-3 rounded-2xl bg-slate-50 p-3">
               <Image :size="18" class="text-slate-400" />
@@ -366,7 +423,7 @@ const handleDelete = async () => {
           </div>
         </section>
 
-        <section class="relative rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <section class="relative rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
           <div
             v-if="currentItem.parentId"
             class="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-white/70 p-6 text-center backdrop-blur-sm"
@@ -434,8 +491,8 @@ const handleDelete = async () => {
           ></textarea>
         </section>
 
-        <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div class="mb-3 flex items-center justify-between gap-3">
+        <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+          <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
             <h4 class="text-xs font-black text-slate-400">圖片列表</h4>
             <div class="flex items-center gap-2">
               <input
@@ -513,5 +570,24 @@ const handleDelete = async () => {
         </section>
       </div>
     </div>
+
+    <footer
+      class="grid shrink-0 grid-cols-2 gap-2 border-t border-slate-200 bg-white p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:hidden"
+    >
+      <button
+        type="button"
+        class="h-11 rounded-xl border border-slate-200 bg-white text-sm font-bold text-slate-600"
+        @click="emit('cancel')"
+      >
+        取消
+      </button>
+      <button
+        type="submit"
+        :disabled="isSaving"
+        class="h-11 rounded-xl bg-indigo-600 text-sm font-black text-white disabled:opacity-60"
+      >
+        {{ isSaving ? '儲存中' : '儲存' }}
+      </button>
+    </footer>
   </form>
 </template>

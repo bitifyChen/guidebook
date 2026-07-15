@@ -27,7 +27,7 @@ const updateField = (name, value) => {
 </script>
 
 <template>
-  <section class="bg-white border border-slate-200 rounded-2xl p-5">
+  <section class="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
     <div v-if="title || description" class="mb-5">
       <h3 v-if="title" class="text-lg font-black text-slate-800">{{ title }}</h3>
       <p v-if="description" class="text-sm font-bold text-slate-400 mt-1">
@@ -78,11 +78,11 @@ const updateField = (name, value) => {
         </select>
       </label>
 
-      <div class="md:col-span-2 flex justify-end pt-2">
+      <div class="flex justify-end pt-2 md:col-span-2">
         <button
           type="submit"
           :disabled="loading"
-          class="h-11 px-5 rounded-xl bg-indigo-600 text-white font-black text-sm flex items-center gap-2 disabled:opacity-50 hover:bg-indigo-700"
+          class="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 text-sm font-black text-white hover:bg-indigo-700 disabled:opacity-50 sm:w-auto"
         >
           <Save :size="16" />
           {{ submitText }}

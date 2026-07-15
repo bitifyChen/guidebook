@@ -464,7 +464,7 @@ const deleteCurrentParticipant = async () => {
 </script>
 
 <template>
-  <main class="h-full min-h-[620px]">
+  <main class="h-full min-h-[calc(100dvh-180px)] md:min-h-[620px]">
     <AdminDataTable
       :rows="filteredParticipants"
       :columns="columns"
@@ -524,7 +524,7 @@ const deleteCurrentParticipant = async () => {
       </template>
 
       <template #trips="{ row }">
-        <div class="flex flex-wrap gap-2 min-w-[180px]">
+        <div class="flex min-w-0 flex-wrap gap-2 sm:min-w-[180px]">
           <span
             v-for="tripId in row.tripIds || []"
             :key="tripId"
@@ -592,7 +592,7 @@ const deleteCurrentParticipant = async () => {
       @close="closeDrawer"
     >
       <div class="flex h-full min-h-0 flex-col bg-white">
-        <div class="flex-1 overflow-y-auto p-5 space-y-6">
+        <div class="flex-1 overflow-y-auto p-4 space-y-6 sm:p-5">
           <section class="flex flex-col items-center">
             <div
               class="w-24 h-24 rounded-2xl bg-slate-50 border border-slate-200 overflow-hidden flex items-center justify-center text-slate-300 relative"
@@ -704,7 +704,7 @@ const deleteCurrentParticipant = async () => {
             </div>
           </section>
 
-          <section class="grid grid-cols-2 gap-3">
+          <section class="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
             <button
               @click="form.isAdmin = !form.isAdmin"
               class="rounded-xl border-2 p-4 text-left"
@@ -899,7 +899,7 @@ const deleteCurrentParticipant = async () => {
           </section>
         </div>
 
-        <footer class="p-5 border-t border-slate-200 flex justify-end gap-3">
+        <footer class="admin-drawer-footer flex justify-end gap-3 border-t border-slate-200 p-5">
           <button
             @click="closeDrawer"
             class="h-11 px-5 rounded-xl bg-slate-50 text-slate-600 font-black text-sm"

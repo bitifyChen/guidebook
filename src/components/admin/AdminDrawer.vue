@@ -58,6 +58,8 @@ const closeDrawer = () => {
         <slot name="actions"></slot>
         <button
           type="button"
+          title="關閉"
+          aria-label="關閉側邊欄"
           class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-50 text-slate-400 hover:text-slate-700"
           @click="closeDrawer"
         >
@@ -68,6 +70,8 @@ const closeDrawer = () => {
       <button
         v-else
         type="button"
+        title="關閉"
+        aria-label="關閉側邊欄"
         class="absolute right-4 top-4 z-20 flex h-10 w-10 items-center justify-center rounded-xl bg-white text-slate-400 shadow-sm ring-1 ring-slate-200 hover:text-slate-700"
         @click="closeDrawer"
       >
@@ -105,5 +109,33 @@ const closeDrawer = () => {
 
 :global(.admin-drawer-xl) {
   width: min(100vw, 1280px) !important;
+}
+
+@media (max-width: 640px) {
+  :global(.admin-drawer) {
+    width: 100vw !important;
+    max-width: none !important;
+  }
+
+  :global(.admin-drawer .el-drawer__body) {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  :global(.admin-drawer header) {
+    min-height: 60px;
+    height: auto;
+  }
+
+  :global(.admin-drawer .admin-drawer-footer) {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    padding: 12px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+
+  :global(.admin-drawer .admin-drawer-footer > button) {
+    width: 100%;
+    padding-inline: 12px;
+  }
 }
 </style>

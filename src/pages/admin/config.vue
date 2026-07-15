@@ -65,9 +65,9 @@ const updateConfig = async () => {
       </button>
     </nav>
 
-    <main :class="props.embedded ? 'p-5' : 'max-w-4xl mx-auto p-6'">
+    <main :class="props.embedded ? 'p-3 sm:p-5' : 'max-w-4xl mx-auto p-3 sm:p-6'">
       <div class="space-y-4">
-        <div v-for="(conf, index) in travelStore.config" :key="conf.day" class="bg-white rounded-[24px] p-6 shadow-sm border border-slate-100 space-y-4">
+        <div v-for="(conf, index) in travelStore.config" :key="conf.day" class="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
           <div class="flex items-center gap-4 border-b border-slate-50 pb-4">
             <div class="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center text-white font-black text-sm">
               {{ conf.day }}
@@ -121,7 +121,7 @@ const updateConfig = async () => {
         
         <button
           @click="updateConfig"
-          class="w-full py-4 bg-orange-500 text-white rounded-[24px] font-black shadow-lg shadow-orange-100 active:scale-95 transition-all mt-4"
+          class="mt-4 w-full rounded-xl bg-indigo-600 py-4 font-black text-white shadow-sm active:scale-[0.98]"
         >
           儲存所有設定
         </button>

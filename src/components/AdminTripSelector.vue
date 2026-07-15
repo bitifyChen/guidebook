@@ -67,19 +67,19 @@ const switchTrip = async (tripId) => {
 </script>
 
 <template>
-  <div class="relative hidden sm:block">
+  <div class="relative w-full min-w-0 sm:w-auto">
     <button
       @click="isOpen = !isOpen"
-      class="h-11 w-[320px] max-w-[34vw] rounded-xl border border-slate-200 bg-slate-50 px-3 text-left flex items-center gap-3 hover:bg-white hover:border-indigo-200 transition-colors"
+      class="flex h-11 w-full items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 text-left transition-colors hover:border-indigo-200 hover:bg-white sm:w-[320px] sm:max-w-[34vw] sm:gap-3"
     >
-      <div class="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-indigo-500">
+      <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-indigo-500">
         <Plane :size="16" />
       </div>
       <div class="min-w-0 flex-1">
         <div class="text-[10px] font-black text-slate-400 uppercase tracking-widest">目前旅程</div>
         <div class="text-sm font-black text-slate-800 truncate">{{ currentTitle }}</div>
       </div>
-      <span class="px-2 py-1 rounded-lg text-[10px] font-black shrink-0" :class="currentStatusClass">
+      <span class="hidden shrink-0 rounded-lg px-2 py-1 text-[10px] font-black md:inline-flex" :class="currentStatusClass">
         {{ currentStatusLabel }}
       </span>
       <ChevronDown
@@ -91,7 +91,7 @@ const switchTrip = async (tripId) => {
 
     <div
       v-if="isOpen"
-      class="absolute right-0 top-12 z-50 w-[360px] rounded-2xl border border-slate-200 bg-white shadow-xl overflow-hidden"
+      class="absolute right-0 top-12 z-50 w-[calc(100vw-2rem)] max-w-[360px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl"
     >
       <div class="p-3 border-b border-slate-100 flex items-center justify-between">
         <div>

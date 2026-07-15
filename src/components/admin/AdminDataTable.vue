@@ -72,12 +72,12 @@ const goToPage = (page) => {
 </script>
 
 <template>
-  <section class="bg-white border border-slate-200 rounded-2xl overflow-hidden min-h-[520px] h-full flex flex-col">
+  <section class="admin-data-table flex h-full min-h-[420px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white md:min-h-[520px]">
     <div
       v-if="hasSearch || slots.toolbar"
       class="p-4 border-b border-slate-100 space-y-3 shrink-0"
     >
-      <div class="flex justify-end">
+      <div class="admin-data-table__toolbar flex justify-end">
         <slot name="toolbar" />
       </div>
 
@@ -140,8 +140,8 @@ const goToPage = (page) => {
       </div>
     </div>
 
-    <div class="overflow-x-auto flex-1 min-h-0">
-      <table class="min-w-full text-sm">
+    <div class="admin-data-table__viewport min-h-0 flex-1 overflow-x-auto">
+      <table class="admin-data-table__table min-w-full text-sm">
         <thead class="bg-slate-50 text-slate-400 sticky top-0 z-10">
           <tr>
             <th
@@ -164,12 +164,14 @@ const goToPage = (page) => {
           <tr
             v-for="row in pagedRows"
             :key="row[rowKey]"
-            class="border-t border-slate-100 hover:bg-slate-50/70"
+            class="admin-data-table__row border-t border-slate-100 hover:bg-slate-50/70"
           >
             <td
-              v-for="column in columns"
+              v-for="(column, columnIndex) in columns"
               :key="column.key"
-              class="px-4 py-3 font-bold text-slate-700 align-middle"
+              :data-label="column.label"
+              :data-primary="column.mobilePrimary || columnIndex === 0"
+              class="admin-data-table__cell px-4 py-3 font-bold text-slate-700 align-middle"
               :class="column.align === 'right' ? 'text-right' : ''"
             >
               <slot
@@ -180,11 +182,15 @@ const goToPage = (page) => {
               />
               <span v-else>{{ row[column.key] }}</span>
             </td>
-            <td v-if="slots.actions" class="px-4 py-3 text-right whitespace-nowrap">
+            <td
+              v-if="slots.actions"
+              data-label="操作"
+              class="admin-data-table__actions whitespace-nowrap px-4 py-3 text-right"
+            >
               <slot name="actions" :row="row" />
             </td>
           </tr>
-          <tr v-if="!loading && rows.length === 0">
+          <tr v-if="!loading && rows.length === 0" class="admin-data-table__state-row">
             <td
               :colspan="columns.length + (slots.actions ? 1 : 0)"
               class="px-4 py-12 text-center text-sm font-bold text-slate-400"
@@ -192,7 +198,7 @@ const goToPage = (page) => {
               {{ emptyText }}
             </td>
           </tr>
-          <tr v-if="loading">
+          <tr v-if="loading" class="admin-data-table__state-row">
             <td
               :colspan="columns.length + (slots.actions ? 1 : 0)"
               class="px-4 py-12 text-center text-sm font-bold text-slate-400"
@@ -253,5 +259,89 @@ const goToPage = (page) => {
 .admin-search-control:focus {
   border-color: #a5b4fc;
   background: white;
+}
+
+@media (max-width: 767px) {
+  .admin-data-table__toolbar {
+    width: 100%;
+  }
+
+  .admin-data-table__toolbar :deep(button) {
+    width: 100%;
+  }
+
+  .admin-data-table__viewport {
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 12px;
+    background: #f8fafc;
+  }
+
+  .admin-data-table__table,
+  .admin-data-table__table tbody {
+    display: block;
+    width: 100%;
+  }
+
+  .admin-data-table__table thead {
+    display: none;
+  }
+
+  .admin-data-table__row {
+    display: block;
+    overflow: hidden;
+    margin-bottom: 10px;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+  }
+
+  .admin-data-table__cell,
+  .admin-data-table__actions {
+    display: flex;
+    width: 100%;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 12px;
+    text-align: right;
+    white-space: normal;
+    border-top: 1px solid #f1f5f9;
+  }
+
+  .admin-data-table__cell::before,
+  .admin-data-table__actions::before {
+    flex: 0 0 64px;
+    color: #94a3b8;
+    font-size: 10px;
+    font-weight: 900;
+    text-align: left;
+    content: attr(data-label);
+  }
+
+  .admin-data-table__cell[data-primary='true'] {
+    display: block;
+    padding: 14px 12px;
+    text-align: left;
+    border-top: 0;
+  }
+
+  .admin-data-table__cell[data-primary='true']::before,
+  .admin-data-table__actions::before {
+    display: none;
+  }
+
+  .admin-data-table__actions {
+    align-items: center;
+    justify-content: flex-end;
+    padding: 10px 12px;
+  }
+
+  .admin-data-table__state-row {
+    display: table;
+    width: 100%;
+    background: white;
+    border-radius: 14px;
+  }
 }
 </style>

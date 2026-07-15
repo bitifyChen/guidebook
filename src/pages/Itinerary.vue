@@ -1,9 +1,10 @@
 <script setup>
 import { ref, watch, computed, nextTick } from 'vue';
-import { ElMessage } from 'element-plus';
+import { useRoute } from 'vue-router';
 import ItineraryCard from '@/components/ItineraryCard.vue';
 import { useTravelStore } from '@/store/travelStore';
 
+const route = useRoute();
 const travelStore = useTravelStore();
 const activeDay = ref(travelStore.currentDay || 1);
 const dayTabsRef = ref(null);
@@ -46,8 +47,26 @@ const itinerary = computed(() => {
   });
 });
 watch(
+  () => [route.query.day, days.value],
+  ([queryDay, totalDays]) => {
+    const day = Number(queryDay);
+    if (Number.isInteger(day) && day >= 1 && day <= totalDays) {
+      activeDay.value = day;
+    }
+  },
+  { immediate: true }
+);
+watch(
   () => travelStore.currentDay,
   (newDay) => {
+    const requestedDay = Number(route.query.day);
+    if (
+      Number.isInteger(requestedDay) &&
+      requestedDay >= 1 &&
+      requestedDay <= days.value
+    ) {
+      return;
+    }
     if (newDay) activeDay.value = newDay;
   },
   { immediate: true }

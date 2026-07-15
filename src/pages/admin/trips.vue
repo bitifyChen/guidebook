@@ -379,7 +379,7 @@ const archiveCurrent = async () => {
 </script>
 
 <template>
-  <main class="h-full min-h-[620px]">
+  <main class="h-full min-h-[calc(100dvh-180px)] md:min-h-[620px]">
     <section
       v-if="!userStore.isSuperAdmin"
       class="bg-white rounded-2xl p-8 text-center border border-slate-200"
@@ -411,7 +411,7 @@ const archiveCurrent = async () => {
       </template>
 
       <template #trip="{ row }">
-        <div class="min-w-[220px]">
+        <div class="min-w-0 sm:min-w-[220px]">
           <div class="font-black text-slate-900 truncate">{{ row.title }}</div>
           <div class="text-xs font-bold text-slate-400 mt-1 truncate">
             {{ row.destination || '未設定目的地' }} · {{ row.country || '未設定國家' }}
@@ -461,7 +461,7 @@ const archiveCurrent = async () => {
       </template>
 
       <template #weather="{ row }">
-        <div class="min-w-[180px]">
+        <div class="min-w-0 sm:min-w-[180px]">
           <div class="text-sm font-black text-slate-700">{{ row.weatherCity || '未設定' }}</div>
           <div class="text-[10px] font-bold text-slate-400 mt-1">
             {{ row.latitude || '-' }}, {{ row.longitude || '-' }}
@@ -524,7 +524,7 @@ const archiveCurrent = async () => {
       @close="closeDrawer"
     >
       <div class="flex h-full min-h-0 flex-col bg-white">
-        <div class="flex-1 overflow-y-auto p-5 space-y-4">
+        <div class="flex-1 overflow-y-auto p-4 space-y-4 sm:p-5">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <label class="space-y-1 md:col-span-2">
                 <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">旅程名稱</span>
@@ -608,7 +608,7 @@ const archiveCurrent = async () => {
             </section>
         </div>
 
-        <footer class="p-5 border-t border-slate-200 flex justify-end gap-3">
+        <footer class="admin-drawer-footer flex justify-end gap-3 border-t border-slate-200 p-5">
           <button @click="closeDrawer" class="h-11 px-5 rounded-xl bg-slate-50 text-slate-600 font-black text-sm">
             取消
           </button>

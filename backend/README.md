@@ -56,6 +56,17 @@ tripLocations/{tripId}/{participantId}
 
 The backend resolves `participants/{participantId}.tripIds` at upload time and
 writes the same device location to every trip the participant belongs to.
+The PWA manual refresh action updates the same participant node for the current
+trip, so the map only needs one location subscription.
+
+The current gathering point for a trip is stored in Realtime Database:
+
+```text
+tripGatheringPins/{tripId}/active
+```
+
+Only one active gathering point is used per trip. Replacing it updates the same
+node and removing it deletes that node.
 
 Push notification history is written to Firestore:
 
