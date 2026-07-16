@@ -3,6 +3,8 @@
 @tailwind utilities;
 
 :root {
+  --frontend-shell-max-width: 28rem;
+
   /* 旅程主色 */
   --primary-orange: #ff8c00;
   --primary-orange-light: #fff4e6;
@@ -42,6 +44,21 @@ body {
 /* 移除 position: fixed 以防止跳到頂部，改由 JS 控制或現代屬性 */
 body.el-popup-parent--hidden {
   overflow: hidden;
+}
+
+@media (min-width: 448px) {
+  .el-drawer.frontend-contained-drawer {
+    right: auto !important;
+    left: max(0px, calc((100vw - var(--frontend-shell-max-width)) / 2)) !important;
+    width: min(100vw, var(--frontend-shell-max-width)) !important;
+    max-width: var(--frontend-shell-max-width);
+  }
+
+  .el-drawer.frontend-contained-drawer.btt,
+  .el-drawer.frontend-contained-drawer.ttb {
+    right: auto !important;
+    left: max(0px, calc((100vw - var(--frontend-shell-max-width)) / 2)) !important;
+  }
 }
 
 /* 3. 全域點擊回饋 */

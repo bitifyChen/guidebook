@@ -132,7 +132,7 @@ const handleTouchEnd = (e) => {
     class="min-h-screen"
   >
     <div
-      class="itinerary-day-glass fixed top-[8px] left-[16px] right-[16px] z-30 px-4 rounded-[28px]"
+      class="itinerary-day-glass fixed top-[8px] left-1/2 z-30 w-[calc(100%_-_32px)] max-w-md -translate-x-1/2 px-4 rounded-[28px]"
       @touchstart.stop
       @touchend.stop
     >

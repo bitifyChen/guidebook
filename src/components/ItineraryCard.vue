@@ -268,7 +268,7 @@ const modules = [Pagination, Autoplay];
     :with-header="false"
     :append-to-body="true"
     :lock-scroll="false"
-    class="itinerary-detail-drawer"
+    class="itinerary-detail-drawer frontend-contained-drawer"
     round
   >
     <div v-if="item" class="relative h-full flex flex-col overflow-x-hidden">

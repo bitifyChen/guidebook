@@ -160,7 +160,7 @@ onMounted(() => {
     size="90%"
     :with-header="false"
     :append-to-body="true"
-    class="currency-drawer"
+    class="currency-drawer frontend-contained-drawer"
   >
     <div class="p-6 h-full flex flex-col">
       <div class="flex justify-between items-center mb-6">

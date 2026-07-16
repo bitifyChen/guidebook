@@ -116,7 +116,7 @@ const close = () => emit('update:visible', false);
     size="100%"
     :with-header="false"
     :append-to-body="true"
-    class="full-screen-drawer"
+    class="full-screen-drawer frontend-contained-drawer"
   >
     <div class="h-full bg-slate-50 flex flex-col">
       <nav

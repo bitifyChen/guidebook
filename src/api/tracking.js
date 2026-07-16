@@ -141,7 +141,7 @@ export const getTraccarConfigUrl = ({
   token,
   deviceId = '',
   accuracy = 'highest',
-  distance = 10,
+  distance = 0,
   interval = 30,
   wakelock = true,
   buffer = true,

@@ -38,6 +38,7 @@ const isSelectingGatheringPoint = ref(false);
 const isUpdatingMyLocation = ref(false);
 const isSavingGatheringPoint = ref(false);
 const selectedParticipantId = ref('');
+const followedParticipantId = ref('');
 const trackedParticipantId = ref('');
 const selectedGatheringPointId = ref('');
 const activeGatheringPointId = ref('');
@@ -340,7 +341,7 @@ const createGatheringIcon = (pin) =>
     }),
   });
 
-const getBrowserPosition = () =>
+const getBrowserPosition = (options = {}) =>
   new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
       reject(new Error('此裝置不支援定位功能。'));
@@ -351,8 +352,28 @@ const getBrowserPosition = () =>
       enableHighAccuracy: true,
       maximumAge: 0,
       timeout: 20000,
+      ...options,
     });
   });
+
+const centerMapOnBrowserPosition = async () => {
+  if (!mapInstance) return false;
+  try {
+    const position = await getBrowserPosition({
+      maximumAge: 60000,
+      timeout: 8000,
+    });
+    mapInstance.setView(
+      [position.coords.latitude, position.coords.longitude],
+      Math.max(mapInstance.getZoom() || 16, 16),
+      { animate: false }
+    );
+    hasAutoFit = true;
+    return true;
+  } catch (error) {
+    return false;
+  }
+};
 
 const persistBrowserPosition = async (position) => {
   const participantId = myParticipant.value?.id;
@@ -501,7 +522,10 @@ const animateMarkerTo = (participantId, marker, nextLatLng) => {
       Math.abs(fromLng - toLng) < 0.000001)
   ) {
     marker.setLatLng(nextLatLng);
-    if (trackedParticipantId.value === participantId) {
+    if (
+      trackedParticipantId.value === participantId ||
+      followedParticipantId.value === participantId
+    ) {
       mapInstance?.panTo(nextLatLng, { animate: false });
     }
     return;
@@ -519,7 +543,10 @@ const animateMarkerTo = (participantId, marker, nextLatLng) => {
       fromLat + (toLat - fromLat) * eased,
       fromLng + (toLng - fromLng) * eased,
     ]);
-    if (trackedParticipantId.value === participantId) {
+    if (
+      trackedParticipantId.value === participantId ||
+      followedParticipantId.value === participantId
+    ) {
       mapInstance?.panTo(marker.getLatLng(), { animate: false });
     }
 
@@ -548,7 +575,12 @@ const selectParticipant = (participantId, { closePanel = false } = {}) => {
   );
   if (!item) return;
   selectedParticipantId.value = item.participantId;
+  followedParticipantId.value = item.participantId;
   selectedGatheringPointId.value = '';
+  activeGatheringPointId.value = '';
+  if (trackedParticipantId.value && trackedParticipantId.value !== item.participantId) {
+    trackedParticipantId.value = '';
+  }
   renderMapMarkers();
   mapInstance.flyTo([item.lat, item.lng], Math.max(mapInstance.getZoom(), 17), {
     duration: 0.65,
@@ -560,6 +592,8 @@ const selectGatheringPoint = (pin, { closePanel = false } = {}) => {
   if (!mapInstance || !pin) return;
   selectedGatheringPointId.value = pin.id;
   selectedParticipantId.value = '';
+  followedParticipantId.value = '';
+  trackedParticipantId.value = '';
   renderMapMarkers();
   mapInstance.flyTo([pin.lat, pin.lng], Math.max(mapInstance.getZoom(), 17), {
     duration: 0.65,
@@ -571,11 +605,13 @@ const toggleSelectedMemberTracking = () => {
   if (!selectedMember.value) return;
   if (trackedParticipantId.value === selectedMember.value.participantId) {
     trackedParticipantId.value = '';
+    followedParticipantId.value = '';
     renderMapMarkers();
     return;
   }
 
   activeGatheringPointId.value = '';
+  followedParticipantId.value = selectedMember.value.participantId;
   trackedParticipantId.value = selectedMember.value.participantId;
   renderMapMarkers();
   mapInstance?.flyTo(
@@ -589,6 +625,7 @@ const toggleSelectedMemberTracking = () => {
 const navigateToGatheringPoint = async (pin) => {
   if (!pin) return;
   trackedParticipantId.value = '';
+  followedParticipantId.value = '';
   selectedParticipantId.value = '';
   selectedGatheringPointId.value = pin.id;
   activeGatheringPointId.value = pin.id;
@@ -602,6 +639,7 @@ const navigateToGatheringPoint = async (pin) => {
 
 const stopTracking = ({ clearSelection = true } = {}) => {
   trackedParticipantId.value = '';
+  followedParticipantId.value = '';
   activeGatheringPointId.value = '';
   if (clearSelection) {
     selectedParticipantId.value = '';
@@ -783,6 +821,7 @@ const initMap = async () => {
   }).addTo(mapInstance);
   markerLayer = L.layerGroup().addTo(mapInstance);
   setTimeout(() => mapInstance?.invalidateSize(), 120);
+  await centerMapOnBrowserPosition();
   renderMapMarkers();
 };
 
@@ -843,6 +882,7 @@ watch(
   async () => {
     stopTracking();
     selectedParticipantId.value = '';
+    followedParticipantId.value = '';
     selectedGatheringPointId.value = '';
     isMemberPanelOpen.value = false;
     isGatheringPanelOpen.value = false;

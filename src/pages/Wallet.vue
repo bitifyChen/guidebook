@@ -284,7 +284,7 @@ const onClose = () => {
       :with-header="false"
       :append-to-body="true"
       :lock-scroll="false"
-      class="custom-drawer"
+      class="custom-drawer frontend-contained-drawer"
       @close="onClose"
     >
       <div class="p-4">
