@@ -11,10 +11,12 @@ const isOpen = ref(false);
 const isSwitching = ref(false);
 
 const currentStatusLabel = computed(() => {
-  const status = tripStore.currentTrip?.status;
+  if (!tripStore.currentTrip) return '未選擇';
+  const status = tripStore.currentTrip.status || 'active';
   if (status === 'completed') return '已完成';
   if (status === 'archived') return '已封存';
   if (status === 'active') return '進行中';
+  if (status === 'draft') return '草稿中';
   return '未選擇';
 });
 
@@ -29,6 +31,13 @@ const currentStatusClass = computed(() => {
   if (tripStore.currentTrip?.status === 'active') return 'bg-green-100 text-green-700';
   return 'bg-amber-100 text-amber-700';
 });
+
+const getTripStatusLabel = (status) => {
+  if (status === 'completed') return '已完成';
+  if (status === 'archived') return '已封存';
+  if (status === 'active') return '進行中';
+  return '草稿中';
+};
 
 watch(
   () => tripStore.currentTripId,
@@ -126,7 +135,7 @@ const switchTrip = async (tripId) => {
               {{ trip.destination || '未設定目的地' }} · {{ trip.inviteCode || '未設定邀請碼' }}
             </div>
           </div>
-          <span class="text-[10px] font-black text-slate-400 uppercase">{{ trip.status || 'active' }}</span>
+          <span class="text-[10px] font-black text-slate-400 uppercase">{{ getTripStatusLabel(trip.status || 'active') }}</span>
         </button>
 
         <div v-if="tripStore.trips.length === 0" class="py-8 text-center text-xs font-bold text-slate-400">

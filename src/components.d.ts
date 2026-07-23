@@ -12,6 +12,7 @@ declare module 'vue' {
     AdminDrawer: typeof import('./components/admin/AdminDrawer.vue')['default']
     AdminFormPanel: typeof import('./components/admin/AdminFormPanel.vue')['default']
     AdminItineraryItemForm: typeof import('./components/admin/AdminItineraryItemForm.vue')['default']
+    AdminItineraryJsonAssistant: typeof import('./components/admin/AdminItineraryJsonAssistant.vue')['default']
     AdminNavMenuItem: typeof import('./components/admin/AdminNavMenuItem.vue')['default']
     AdminTripSelector: typeof import('./components/AdminTripSelector.vue')['default']
     CurrencyConverter: typeof import('./components/CurrencyConverter.vue')['default']

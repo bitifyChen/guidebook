@@ -12,6 +12,7 @@ import { useRoute } from 'vue-router';
 import DefaultLayout from './layouts/default.vue';
 import EmptyLayout from './layouts/empty.vue';
 import AdminLayout from './layouts/admin.vue';
+import { setupItinerarySyncSignals } from '@/utils/itinerarySyncSignal';
 
 const route = useRoute();
 
@@ -36,6 +37,7 @@ const userStore = useUserStore();
 const tripStore = useTripStore();
 let hasInitializedFrontendStores = false;
 let manifestObjectUrl = '';
+let cleanupItinerarySyncSignals = () => {};
 
 let timer = null;
 const isAppBooting = ref(true);
@@ -96,6 +98,10 @@ onMounted(async () => {
     await tripStore.init();
     updateAppIdentity();
     initFrontendStores();
+    cleanupItinerarySyncSignals = await setupItinerarySyncSignals({
+      travelStore,
+      tripStore,
+    });
   } finally {
     isAppBooting.value = false;
   }
@@ -118,6 +124,7 @@ watch(
 
 onUnmounted(() => {
   clearInterval(timer);
+  cleanupItinerarySyncSignals();
   if (manifestObjectUrl) URL.revokeObjectURL(manifestObjectUrl);
 });
 </script>

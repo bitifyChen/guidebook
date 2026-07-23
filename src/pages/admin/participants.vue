@@ -282,7 +282,7 @@ const getTrackingSetupUrl = (item = activeTrackingToken.value) => {
     token: item.token,
     deviceId: item.deviceId || `guidebook-${editingId.value.slice(0, 8)}`,
     accuracy: 'highest',
-    distance: 10,
+    distance: 0,
     interval: item.minIntervalSeconds || 30,
     wakelock: true,
     buffer: true,

@@ -8,6 +8,10 @@ import {
 } from '@/api/itinerary';
 import { uploadImage } from '@/api/storage';
 import {
+  parseGoogleMapsCoordinates,
+  parseGoogleMapsPlaceId,
+} from '@/utils/mapUrlParser';
+import {
   getItineraryTypeOption,
   ITINERARY_CATEGORY_OPTIONS,
   ITINERARY_TYPE_OPTIONS,
@@ -72,6 +76,7 @@ const createDefaultItem = () => {
     category: '景點',
     cover: '',
     map: '',
+    geo: { lat: null, lng: null, placeId: '', mapUrl: '' },
     duration: 0,
     delay: 0,
     nextDrive: { time: 0, km: '' },
@@ -86,6 +91,12 @@ const resetForm = () => {
     const item = cloneItem(props.item);
     currentItem.value = {
       ...item,
+      geo: {
+        lat: item.geo?.lat ?? null,
+        lng: item.geo?.lng ?? null,
+        placeId: item.geo?.placeId || '',
+        mapUrl: item.geo?.mapUrl || item.map || '',
+      },
       nextDrive: item.nextDrive || { time: 0, km: 0 },
       images: Array.isArray(item.images) ? item.images : [],
       parentId: item.parentId || '',
@@ -151,6 +162,23 @@ const removeImage = (index) => {
   currentItem.value.images.splice(index, 1);
 };
 
+const applyMapUrlCoordinates = () => {
+  if (!currentItem.value) return;
+  if (!currentItem.value.geo) {
+    currentItem.value.geo = { lat: null, lng: null, placeId: '', mapUrl: '' };
+  }
+  const mapUrl = currentItem.value.geo.mapUrl || currentItem.value.map || '';
+  currentItem.value.geo.mapUrl = mapUrl;
+  currentItem.value.map = mapUrl;
+  const coordinates = parseGoogleMapsCoordinates(mapUrl);
+  if (coordinates) {
+    currentItem.value.geo.lat = coordinates.lat;
+    currentItem.value.geo.lng = coordinates.lng;
+  }
+  const placeId = parseGoogleMapsPlaceId(mapUrl);
+  if (placeId) currentItem.value.geo.placeId = placeId;
+};
+
 const handleCoverUpload = async (event) => {
   const file = event.target.files?.[0];
   if (!file) return;
@@ -188,6 +216,27 @@ const normalizeItem = () => {
   data.order = Number(data.order) || getNextOrder(data.day);
   data.delay = Number(data.delay) || 0;
   data.nextDrive = data.nextDrive || { time: 0, km: '' };
+  data.geo = data.geo || { lat: null, lng: null, placeId: '', mapUrl: '' };
+  data.geo.lat =
+    data.geo.lat === '' || data.geo.lat === null || data.geo.lat === undefined
+      ? null
+      : Number(data.geo.lat);
+  data.geo.lng =
+    data.geo.lng === '' || data.geo.lng === null || data.geo.lng === undefined
+      ? null
+      : Number(data.geo.lng);
+  data.geo.placeId = data.geo.placeId ? String(data.geo.placeId).trim() : '';
+  data.geo.mapUrl = data.geo.mapUrl ? String(data.geo.mapUrl).trim() : data.map || '';
+  data.map = data.geo.mapUrl || data.map || '';
+  const parsedCoordinates = parseGoogleMapsCoordinates(data.geo.mapUrl || data.map);
+  if (parsedCoordinates && (!Number.isFinite(data.geo.lat) || !Number.isFinite(data.geo.lng))) {
+    data.geo.lat = parsedCoordinates.lat;
+    data.geo.lng = parsedCoordinates.lng;
+  }
+  const parsedPlaceId = parseGoogleMapsPlaceId(data.geo.mapUrl || data.map);
+  if (parsedPlaceId && !data.geo.placeId) data.geo.placeId = parsedPlaceId;
+  if (!Number.isFinite(data.geo.lat)) data.geo.lat = null;
+  if (!Number.isFinite(data.geo.lng)) data.geo.lng = null;
   data.images = Array.isArray(data.images)
     ? data.images.map((url) => String(url || '').trim()).filter(Boolean)
     : [];
@@ -415,10 +464,33 @@ const handleDelete = async () => {
             <div class="flex items-center gap-3 rounded-2xl bg-slate-50 p-3">
               <MapPin :size="18" class="text-slate-400" />
               <input
-                v-model="currentItem.map"
+                v-model="currentItem.geo.mapUrl"
                 class="min-w-0 flex-1 bg-transparent text-xs font-medium outline-none"
                 placeholder="地圖連結"
+                @blur="applyMapUrlCoordinates"
               />
+            </div>
+            <div class="grid grid-cols-1 gap-3 rounded-2xl border border-slate-100 bg-white p-3 sm:grid-cols-2">
+              <label class="space-y-1">
+                <span class="text-[11px] font-black text-slate-400">緯度</span>
+                <input
+                  v-model.number="currentItem.geo.lat"
+                  type="number"
+                  step="any"
+                  class="w-full rounded-xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 outline-none"
+                  placeholder="lat"
+                />
+              </label>
+              <label class="space-y-1">
+                <span class="text-[11px] font-black text-slate-400">經度</span>
+                <input
+                  v-model.number="currentItem.geo.lng"
+                  type="number"
+                  step="any"
+                  class="w-full rounded-xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 outline-none"
+                  placeholder="lng"
+                />
+              </label>
             </div>
           </div>
         </section>

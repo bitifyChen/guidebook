@@ -217,6 +217,62 @@ export const bulkUpdateItinerary = async (newItems) => {
   }
 };
 
+export const bulkUpdateItineraryDay = async (day, newItems) => {
+  try {
+    await assertCurrentTripWritable();
+    const tripId = await resolveTripId();
+    if (!tripId) throw new Error('請先選擇旅程');
+
+    const targetDay = Number(day);
+    if (!Number.isFinite(targetDay)) throw new Error('Day 格式不正確');
+
+    const batch = writeBatch(db);
+    const itineraryRef = getTripCollectionRef(tripId, 'itinerary');
+    const { data: currentItems } = await getItinerary();
+    const currentDayItems = currentItems.filter(
+      (item) => Number(item.day) === targetDay
+    );
+    const currentIds = currentDayItems.map((item) => item.id);
+    const newIds = newItems.filter((item) => item.id).map((item) => item.id);
+
+    const toDelete = currentDayItems.filter(
+      (item) => !newIds.includes(item.id)
+    );
+    toDelete.forEach((item) => {
+      batch.delete(getTripDocRef(tripId, 'itinerary', item.id));
+    });
+
+    newItems.forEach((item, index) => {
+      const { id, ...content } = item;
+      delete content.startTime;
+      delete content.endTime;
+      delete content.updatedAt;
+      delete content.tripId;
+      const payload = {
+        ...content,
+        day: targetDay,
+        order: Number(content.order) || index + 1,
+        tripId,
+        updatedAt: serverTimestamp(),
+      };
+
+      if (id && currentIds.includes(id)) {
+        batch.update(getTripDocRef(tripId, 'itinerary', id), payload);
+      } else {
+        const docRef = id ? doc(itineraryRef, id) : doc(itineraryRef);
+        batch.set(docRef, payload);
+      }
+    });
+
+    await batch.commit();
+    await updateGlobalVersion();
+    return { status: 200, deleted: toDelete.length, updated: newItems.length };
+  } catch (error) {
+    console.error('Day bulk update failed:', error);
+    throw error;
+  }
+};
+
 // ==========================================
 // 2. 每日設定管理 (Configs)
 // ==========================================

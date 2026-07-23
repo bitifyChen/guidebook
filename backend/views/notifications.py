@@ -94,14 +94,31 @@ def _extract_push_tokens(participant):
     return result
 
 
-def _send_to_token(token, title, body, image_url="", click_url=""):
-    notification = messaging.Notification(
+def _stringify_data(data):
+    result = {}
+    for key, value in (data or {}).items():
+        if value is None:
+            result[str(key)] = ""
+        else:
+            result[str(key)] = str(value)
+    return result
+
+
+def _send_to_token(token, title, body, image_url="", click_url="", silent=False, data=None):
+    message_data = {
+        "title": title,
+        "body": body,
+        "image": image_url or "",
+        "clickUrl": click_url or "",
+        **_stringify_data(data),
+    }
+    notification = None if silent else messaging.Notification(
         title=title,
         body=body,
         image=image_url or None,
     )
     webpush = None
-    if click_url:
+    if click_url and not silent:
         webpush = messaging.WebpushConfig(
             fcm_options=messaging.WebpushFCMOptions(link=click_url)
         )
@@ -110,12 +127,7 @@ def _send_to_token(token, title, body, image_url="", click_url=""):
         messaging.Message(
             token=token,
             notification=notification,
-            data={
-                "title": title,
-                "body": body,
-                "image": image_url or "",
-                "clickUrl": click_url or "",
-            },
+            data=message_data,
             webpush=webpush,
         ),
         app=get_firebase_app(),
@@ -136,15 +148,18 @@ def handle_send_notification(request):
     image_url = str(payload.get("imageUrl") or "").strip()
     click_url = str(payload.get("clickUrl") or "").strip()
     trip_id = str(payload.get("tripId") or "").strip()
+    message_type = str(payload.get("type") or "").strip()
+    silent = bool(payload.get("silent")) or message_type == "itineraryUpdated"
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
     participant_ids = [
         str(item).strip()
         for item in (payload.get("participantIds") or [])
         if str(item).strip()
     ]
 
-    if not title:
+    if not silent and not title:
         return _json_error("Notification title is required.")
-    if not body:
+    if not silent and not body:
         return _json_error("Notification body is required.")
     if not participant_ids and not trip_id:
         return _json_error("Select a trip or at least one participant.")
@@ -171,6 +186,12 @@ def handle_send_notification(request):
                 body,
                 image_url=image_url,
                 click_url=click_url,
+                silent=silent,
+                data={
+                    **data,
+                    "type": message_type or data.get("type") or "",
+                    "tripId": trip_id,
+                },
             )
             successes.append({**delivery, "messageId": message_id})
         except Exception as exc:
@@ -189,6 +210,9 @@ def handle_send_notification(request):
             "body": body,
             "imageUrl": image_url,
             "clickUrl": click_url,
+            "type": message_type,
+            "silent": silent,
+            "data": _stringify_data(data),
             "tripId": trip_id,
             "participantIds": [item.get("id") for item in participants],
             "requestedParticipantIds": participant_ids,

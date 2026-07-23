@@ -5,11 +5,18 @@ import { ElMessage } from 'element-plus';
 import { useTravelStore } from '@/store/travelStore';
 import { useTripStore } from '@/store/tripStore';
 import { useUserStore } from '@/store/userStore';
-import { patchItineraryItem, bulkUpdateItinerary } from '@/api/itinerary';
-import { sendGuidebookNotification } from '@/api/notifications';
+import {
+  patchItineraryItem,
+  bulkUpdateItinerary,
+  bulkUpdateItineraryDay,
+} from '@/api/itinerary';
+import { sendItinerarySyncSignal } from '@/api/notifications';
+import { getDrivingRouteDistance } from '@/api/routeDistance';
 import AdminDrawer from '@/components/admin/AdminDrawer.vue';
+import AdminItineraryJsonAssistant from '@/components/admin/AdminItineraryJsonAssistant.vue';
 import AdminItineraryItemForm from '@/components/admin/AdminItineraryItemForm.vue';
 import { getItineraryCategoryLabel } from '@/constants/itineraryOptions';
+import { sanitizeItineraryJsonItems } from '@/utils/itineraryJsonAssistant';
 import draggable from 'vuedraggable';
 import {
   BellRing,
@@ -44,6 +51,8 @@ const props = defineProps({
 const localItinerary = ref([]);
 const hasChanges = ref(false);
 const isCheckingImages = ref(false);
+const jsonAssistantOpen = ref(false);
+const routeCalculatingDay = ref(null);
 const itemDrawer = ref({
   open: false,
   mode: 'create',
@@ -87,6 +96,13 @@ const nearestMinuteDelta = (target, reference) => {
 
 const adjustmentScheduledItem = computed(() =>
   getScheduledItem(timeAdjustmentDrawer.value.item)
+);
+
+const jsonDayOptions = computed(() =>
+  travelStore.config.map((entry) => ({
+    day: Number(entry.day),
+    title: entry.title || entry.date || '',
+  }))
 );
 
 const adjustmentPreview = computed(() => {
@@ -157,19 +173,16 @@ const closeTimeAdjustment = () => {
   };
 };
 
-const notifyScheduleChange = (item, body) =>
-  sendGuidebookNotification({
-    title: `${tripStore.currentTrip?.title || '旅程'}行程時間更新`,
-    body:
-      body || `${item.location}時間已調整，請重新查看當日行程。`,
-    clickUrl: `${window.location.origin}/itinerary?day=${item.day}`,
+const emitItinerarySyncSignal = (item, reason = 'itineraryUpdated') => {
+  if (tripStore.currentTrip?.status !== 'active') {
+    return Promise.resolve({ skipped: true, reason: 'trip-not-active' });
+  }
+  return sendItinerarySyncSignal({
     tripId: tripStore.currentTripId,
+    day: item?.day || travelStore.selectedDay,
+    reason,
   });
-
-const getNotificationResultText = (result) =>
-  Number(result?.successCount || 0) > 0
-    ? `已通知 ${result.successCount} 個裝置`
-    : '目前沒有已啟用通知的裝置';
+};
 
 const saveTimeAdjustment = async () => {
   const item = timeAdjustmentDrawer.value.item;
@@ -200,26 +213,13 @@ const saveTimeAdjustment = async () => {
     await travelStore.init();
     initLocalItinerary();
 
-    let notificationMessage = '';
-    let notificationFailed = false;
     try {
-      const actionLabel = mode === 'arrived' ? '抵達' : '離開';
-      const result = await notifyScheduleChange(
-        item,
-        `${item.location}已${actionLabel}，後續行程時間已更新。`
-      );
-      notificationMessage = `，${getNotificationResultText(result)}`;
-    } catch (notificationError) {
-      notificationMessage = '，但推播通知未送出';
-      notificationFailed = true;
-      console.error('Schedule notification failed:', notificationError);
+      await emitItinerarySyncSignal(item, `timing-${mode}`);
+    } catch (syncError) {
+      console.error('Itinerary sync signal failed:', syncError);
     }
 
-    if (notificationFailed) {
-      ElMessage.warning(`行程時間已更新${notificationMessage}`);
-    } else {
-      ElMessage.success(`行程時間已更新${notificationMessage}`);
-    }
+    ElMessage.success('行程時間已更新');
     closeTimeAdjustment();
   } catch (error) {
     ElMessage.error(`時間更新失敗：${error.message}`);
@@ -257,18 +257,11 @@ const handleItemDrawerDone = async (payload = {}) => {
   initLocalItinerary();
   if (!payload.timeChanged || !payload.item) return;
   try {
-    const body =
-      payload.action === 'created'
-        ? `${payload.item.location}已加入行程，請重新查看當日安排。`
-        : payload.action === 'deleted'
-          ? `${payload.item.location}已從行程移除，請重新查看當日安排。`
-          : '';
-    const result = await notifyScheduleChange(payload.item, body);
-    ElMessage.success(`行程已儲存，${getNotificationResultText(result)}`);
-  } catch (notificationError) {
-    ElMessage.warning('行程已儲存，但推播通知未送出。');
-    console.error('Schedule notification failed:', notificationError);
+    await emitItinerarySyncSignal(payload.item, payload.action || 'item-updated');
+  } catch (syncError) {
+    console.error('Itinerary sync signal failed:', syncError);
   }
+  ElMessage.success('行程已儲存');
 };
 
 const handleCopyItem = (item, dayGroup) => {
@@ -395,12 +388,12 @@ const handleSaveOrder = async () => {
     hasChanges.value = false;
     initLocalItinerary(); // 明確重新初始化，將 temp ID 替換為真實 ID
     try {
-      await notifyScheduleChange(
+      await emitItinerarySyncSignal(
         { day: travelStore.selectedDay, location: '行程' },
-        '行程順序已更新，請重新查看當日安排。'
+        'order-updated'
       );
-    } catch (notificationError) {
-      console.error('Schedule notification failed:', notificationError);
+    } catch (syncError) {
+      console.error('Itinerary sync signal failed:', syncError);
     }
     alert('排序已更新，現在可以編輯複製的行程詳情了。');
   } catch (err) {
@@ -436,12 +429,11 @@ const updateItem = async (item) => {
       });
     }
     try {
-      const result = await notifyScheduleChange(item);
-      ElMessage.success(`時間已更新，${getNotificationResultText(result)}`);
-    } catch (notificationError) {
-      ElMessage.warning('時間已更新，但推播通知未送出。');
-      console.error('Schedule notification failed:', notificationError);
+      await emitItinerarySyncSignal(item, 'time-updated');
+    } catch (syncError) {
+      console.error('Itinerary sync signal failed:', syncError);
     }
+    ElMessage.success('時間已更新');
   } catch (err) {
     alert('更新失敗：' + err.message);
   }
@@ -491,12 +483,12 @@ const handleImport = async (event) => {
       );
       await travelStore.init(); // 重新整理資料
       try {
-        await notifyScheduleChange(
+        await emitItinerarySyncSignal(
           { day: travelStore.selectedDay, location: '行程' },
-          '行程內容已更新，請重新查看最新安排。'
+          'json-import'
         );
-      } catch (notificationError) {
-        console.error('Schedule notification failed:', notificationError);
+      } catch (syncError) {
+        console.error('Itinerary sync signal failed:', syncError);
       }
     } catch (err) {
       alert('匯入失敗：' + err.message);
@@ -504,6 +496,98 @@ const handleImport = async (event) => {
   };
   reader.readAsText(file);
   event.target.value = ''; // 清空 input
+};
+
+const handleApplyJson = async ({ mode, day, payload }) => {
+  try {
+    const { items, warnings } = sanitizeItineraryJsonItems(payload, { mode, day });
+    if (warnings.length) {
+      ElMessage.warning(warnings.join('；'));
+    }
+
+    const confirmed =
+      mode === 'full'
+        ? confirm(
+            `這會同步整份行程，JSON 內不存在的項目會被刪除。確定要套用 ${items.length} 筆資料嗎？`
+          )
+        : confirm(
+            `這只會同步 Day ${day}，該日 JSON 內不存在的項目會被刪除。確定要套用 ${items.length} 筆資料嗎？`
+          );
+    if (!confirmed) return;
+
+    const result =
+      mode === 'full'
+        ? await bulkUpdateItinerary(items)
+        : await bulkUpdateItineraryDay(day, items);
+
+    await travelStore.init();
+    initLocalItinerary();
+    hasChanges.value = false;
+    jsonAssistantOpen.value = false;
+
+    try {
+      await emitItinerarySyncSignal(
+        { day: mode === 'day' ? day : travelStore.selectedDay, location: '行程' },
+        mode === 'day' ? 'json-day-applied' : 'json-full-applied'
+      );
+    } catch (syncError) {
+      console.error('Itinerary sync signal failed:', syncError);
+    }
+
+    ElMessage.success(
+      `JSON 已套用，更新 ${result.updated} 筆，刪除 ${result.deleted} 筆。`
+    );
+  } catch (error) {
+    ElMessage.error(`JSON 套用失敗：${error.message}`);
+  }
+};
+
+const handleCalculateDayRoutes = async (dayGroup) => {
+  if (!dayGroup?.items?.length || routeCalculatingDay.value) return;
+  const items = [...dayGroup.items].sort(
+    (a, b) => (Number(a.order) || 0) - (Number(b.order) || 0)
+  );
+  routeCalculatingDay.value = dayGroup.day;
+  let updatedCount = 0;
+  let skippedCount = 0;
+
+  try {
+    for (let index = 0; index < items.length - 1; index += 1) {
+      const current = items[index];
+      const next = items[index + 1];
+      if (
+        !current?.id ||
+        current.id.toString().startsWith('temp-') ||
+        !Number.isFinite(Number(current.geo?.lat)) ||
+        !Number.isFinite(Number(current.geo?.lng)) ||
+        !Number.isFinite(Number(next.geo?.lat)) ||
+        !Number.isFinite(Number(next.geo?.lng))
+      ) {
+        skippedCount += 1;
+        continue;
+      }
+
+      const distance = await getDrivingRouteDistance(current.geo, next.geo);
+      const nextDrive = {
+        ...(current.nextDrive || {}),
+        time: distance.minutes,
+        km: distance.km,
+      };
+      await patchItineraryItem(current.id, { nextDrive });
+      current.nextDrive = nextDrive;
+      updatedCount += 1;
+    }
+
+    await travelStore.init();
+    initLocalItinerary();
+    ElMessage.success(
+      `本日行車時間已更新 ${updatedCount} 段，略過 ${skippedCount} 段。`
+    );
+  } catch (error) {
+    ElMessage.error(`OSRM 計算失敗，既有行車時間已保留：${error.message}`);
+  } finally {
+    routeCalculatingDay.value = null;
+  }
 };
 </script>
 
@@ -526,6 +610,13 @@ const handleImport = async (event) => {
     <main :class="props.embedded ? 'p-3 space-y-6 sm:p-5' : 'max-w-5xl mx-auto p-3 space-y-8 sm:p-6'">
       <!-- 工具列 -->
       <div class="flex flex-wrap gap-2 px-2">
+        <AdminItineraryJsonAssistant
+          v-model:open="jsonAssistantOpen"
+          :items="travelStore.itinerary"
+          :day-options="jsonDayOptions"
+          :selected-day="travelStore.selectedDay"
+          @apply-json="handleApplyJson"
+        />
         <button
           @click="openCreateItemDrawer"
           class="h-10 w-full px-4 bg-indigo-600 text-white rounded-xl flex items-center justify-center gap-2 font-black text-sm shadow-sm hover:bg-indigo-700 active:scale-95 transition-transform sm:w-auto"
@@ -578,6 +669,15 @@ const handleImport = async (event) => {
           class="text-lg font-black text-slate-800 px-2 flex items-center gap-2"
         >
           <Calendar :size="18" class="text-orange-500" /> Day {{ dayGroup.day }}
+          <button
+            type="button"
+            class="ml-auto inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-600 shadow-sm disabled:opacity-50"
+            :disabled="routeCalculatingDay === dayGroup.day"
+            @click="handleCalculateDayRoutes(dayGroup)"
+          >
+            <MapPin :size="14" class="text-indigo-500" />
+            {{ routeCalculatingDay === dayGroup.day ? '計算中' : '計算本日行車時間' }}
+          </button>
         </h3>
 
         <draggable

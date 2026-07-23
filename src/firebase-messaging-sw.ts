@@ -48,10 +48,39 @@ const firebaseConfig = {
 
 const firebaseApp = initializeApp(firebaseConfig);
 const messaging = getMessaging(firebaseApp);
+const SYNC_TYPE = 'itineraryUpdated';
+const PENDING_CACHE_NAME = 'guidebook-sync-signals';
+const PENDING_REQUEST_URL = '/__guidebook_pending_itinerary_sync__';
+
+const persistPendingSignal = async (data: Record<string, string>) => {
+  const cache = await caches.open(PENDING_CACHE_NAME);
+  await cache.put(
+    PENDING_REQUEST_URL,
+    new Response(JSON.stringify(data || {}), {
+      headers: { 'Content-Type': 'application/json' },
+    })
+  );
+};
+
+const notifyClients = async (data: Record<string, string>) => {
+  const clientList = await clients.matchAll({
+    type: 'window',
+    includeUncontrolled: true,
+  });
+  if (!clientList.length) {
+    await persistPendingSignal(data);
+    return;
+  }
+  clientList.forEach((client) => client.postMessage(data));
+};
 
 // 4. 背景收到 FCM 推播時的處理邏輯
 onBackgroundMessage(messaging, (payload) => {
   console.log('【Guidebook 背景收到推播】', payload);
+
+  if (payload.data?.type === SYNC_TYPE) {
+    return notifyClients(payload.data);
+  }
 
   if (payload.notification) return;
 

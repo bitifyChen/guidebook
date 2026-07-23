@@ -395,7 +395,7 @@ export const createTrip = async (params) => {
     endDate: params.endDate || '',
     publicCode,
     inviteCode,
-    status: params.status || 'active',
+    status: params.status || 'draft',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
@@ -449,6 +449,17 @@ export const patchTrip = async (tripId, params) => {
     ...payload,
     updatedAt: serverTimestamp(),
   });
+  if (payload.status && payload.status !== 'active') {
+    const settingsRef = doc(db, 'settings', 'app');
+    const settingsSnap = await getDoc(settingsRef);
+    if (settingsSnap.exists() && settingsSnap.data().activeTripId === tripId) {
+      await setDoc(
+        settingsRef,
+        { activeTripId: '', updatedAt: serverTimestamp() },
+        { merge: true }
+      );
+    }
+  }
   return { status: 200 };
 };
 

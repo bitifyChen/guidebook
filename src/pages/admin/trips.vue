@@ -7,9 +7,7 @@ import AdminConfig from '@/pages/admin/config.vue';
 import { useTripStore } from '@/store/tripStore';
 import { useUserStore } from '@/store/userStore';
 import {
-  Archive,
   CalendarDays,
-  CheckCircle2,
   Copy,
   Loader2,
   Pencil,
@@ -22,6 +20,7 @@ import {
   ensureTripDayConfigsForDateRange,
   getTripDayConfigSyncPreview,
 } from '@/api/trips';
+import { sendItinerarySyncSignal } from '@/api/notifications';
 import {
   COUNTRY_OPTIONS,
   getCountryOption,
@@ -61,6 +60,7 @@ const form = reactive({
   endDate: '',
   publicCode: '',
   inviteCode: '',
+  status: 'draft',
 });
 
 const columns = [
@@ -100,6 +100,7 @@ const searchFields = computed(() => [
     type: 'select',
     placeholder: '全部狀態',
     options: [
+      { label: '草稿中', value: 'draft' },
       { label: '進行中', value: 'active' },
       { label: '已完成', value: 'completed' },
       { label: '已封存', value: 'archived' },
@@ -192,6 +193,7 @@ const resetForm = () => {
     endDate: '',
     publicCode: '',
     inviteCode: '',
+    status: 'draft',
   });
 };
 
@@ -219,6 +221,7 @@ const openEditDrawer = (trip) => {
     endDate: trip.endDate || '',
     publicCode: trip.publicCode || '',
     inviteCode: trip.inviteCode || '',
+    status: trip.status || 'active',
   });
   isDrawerOpen.value = true;
 };
@@ -243,6 +246,7 @@ const buildTripPayload = () => {
     weatherCity: form.weatherCity,
     startDate: form.startDate,
     endDate: form.endDate,
+    status: form.status || 'draft',
   };
 };
 
@@ -319,11 +323,25 @@ const saveTrip = async () => {
     }
 
     if (editingId.value) {
+      const previousStatus =
+        tripStore.trips.find((trip) => trip.id === editingId.value)?.status ||
+        'active';
       await tripStore.updateTrip(editingId.value, payload);
       await maybeSyncDayConfigs(editingId.value, payload);
+      if (previousStatus !== 'active' && payload.status === 'active') {
+        await tripStore.makeActive(editingId.value);
+        try {
+          await sendItinerarySyncSignal({
+            tripId: editingId.value,
+            reason: 'trip-activated',
+          });
+        } catch (error) {
+          console.error('Itinerary sync signal failed:', error);
+        }
+      }
       await tripStore.refreshTrips();
     } else {
-      await tripStore.createTrip({ ...payload, setActive: true });
+      await tripStore.createTrip({ ...payload, setActive: false });
     }
     closeDrawer();
   } catch (error) {
@@ -358,24 +376,12 @@ const closeToolDrawer = () => {
 };
 
 const getStatusLabel = (status) => {
+  if (status === 'draft') return '草稿中';
   if (status === 'completed') return '已完成';
   if (status === 'archived') return '已封存';
   return '進行中';
 };
 
-const completeCurrent = async () => {
-  if (!editingId.value) return;
-  if (!confirm('確定要完成這趟旅程？完成後前台不會再依照當地時間自動切換 Day。')) return;
-  await tripStore.complete(editingId.value);
-  closeDrawer();
-};
-
-const archiveCurrent = async () => {
-  if (!editingId.value) return;
-  if (!confirm('確定要封存這趟旅程？封存後仍可瀏覽，但不可再編輯。')) return;
-  await tripStore.archive(editingId.value);
-  closeDrawer();
-};
 </script>
 
 <template>
@@ -429,6 +435,7 @@ const archiveCurrent = async () => {
         <span
           class="text-[10px] font-black px-2 py-1 rounded-lg"
           :class="{
+            'bg-amber-100 text-amber-700': row.status === 'draft',
             'bg-green-100 text-green-700': (row.status || 'active') === 'active',
             'bg-blue-100 text-blue-700': row.status === 'completed',
             'bg-slate-100 text-slate-600': row.status === 'archived',
@@ -583,6 +590,15 @@ const archiveCurrent = async () => {
                 <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">結束日期</span>
                 <input v-model="form.endDate" type="date" class="admin-input" />
               </label>
+              <label class="space-y-1 md:col-span-2">
+                <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">旅程狀態</span>
+                <select v-model="form.status" class="admin-input">
+                  <option value="draft">草稿中</option>
+                  <option value="active">進行中</option>
+                  <option value="completed">已完成</option>
+                  <option value="archived">已封存</option>
+                </select>
+              </label>
               <label class="space-y-1">
                 <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">公開瀏覽碼</span>
                 <input v-model="form.publicCode" maxlength="6" class="admin-input font-mono uppercase" placeholder="空白時自動產生 6 碼" />
@@ -593,19 +609,6 @@ const archiveCurrent = async () => {
               </label>
             </div>
 
-            <section v-if="isEditing" class="rounded-2xl border border-red-100 bg-red-50 p-4 space-y-3">
-              <h4 class="font-black text-red-700">旅程狀態</h4>
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <button @click="completeCurrent" class="h-11 rounded-xl bg-white text-indigo-700 font-black text-sm flex items-center justify-center gap-2">
-                  <CheckCircle2 :size="16" />
-                  完成旅程
-                </button>
-                <button @click="archiveCurrent" class="h-11 rounded-xl bg-white text-red-600 font-black text-sm flex items-center justify-center gap-2">
-                  <Archive :size="16" />
-                  封存旅程
-                </button>
-              </div>
-            </section>
         </div>
 
         <footer class="admin-drawer-footer flex justify-end gap-3 border-t border-slate-200 p-5">

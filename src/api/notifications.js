@@ -13,8 +13,10 @@ const db = getFirestore(app);
 const COLLECTION_NAME = 'notificationLogs';
 
 const getBackendBaseUrl = () =>
-  (import.meta.env.VITE_GUIDEBOOK_BACKEND_URL || 'https://guidebook-ckce.onrender.com/')
-    .replace(/\/$/, '');
+  (
+    import.meta.env.VITE_GUIDEBOOK_BACKEND_URL ||
+    'https://guidebook-ckce.onrender.com/'
+  ).replace(/\/$/, '');
 
 const getAdminIdToken = async () => {
   const user = getAuth(app).currentUser;
@@ -51,6 +53,9 @@ export const sendGuidebookNotification = async ({
   clickUrl = '',
   tripId = '',
   participantIds = [],
+  type = '',
+  silent = false,
+  data = {},
 }) => {
   const idToken = await getAdminIdToken();
   const response = await fetch(`${getBackendBaseUrl()}/notifications/send`, {
@@ -66,15 +71,36 @@ export const sendGuidebookNotification = async ({
       clickUrl,
       tripId,
       participantIds,
+      type,
+      silent,
+      data,
     }),
   });
 
-  const data = await response.json().catch(() => ({}));
+  const responseData = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.message || '推播發送失敗。');
+    throw new Error(responseData.message || '推播發送失敗。');
   }
-  return data;
+  return responseData;
 };
+
+export const sendItinerarySyncSignal = ({
+  tripId,
+  day = '',
+  reason = 'itineraryUpdated',
+} = {}) =>
+  sendGuidebookNotification({
+    tripId,
+    type: 'itineraryUpdated',
+    silent: true,
+    data: {
+      type: 'itineraryUpdated',
+      tripId,
+      day: day ? String(day) : '',
+      reason,
+      updatedAt: String(Date.now()),
+    },
+  });
 
 export const sortNotificationLogs = (logs = []) =>
   [...logs].sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt));
