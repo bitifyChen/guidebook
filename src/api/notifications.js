@@ -13,7 +13,7 @@ const db = getFirestore(app);
 const COLLECTION_NAME = 'notificationLogs';
 
 const getBackendBaseUrl = () =>
-  (import.meta.env.VITE_GUIDEBOOK_BACKEND_URL || 'https://guidebook-hoju.onrender.com')
+  (import.meta.env.VITE_GUIDEBOOK_BACKEND_URL || 'https://guidebook-ckce.onrender.com/')
     .replace(/\/$/, '');
 
 const getAdminIdToken = async () => {

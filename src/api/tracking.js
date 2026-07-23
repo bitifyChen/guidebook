@@ -98,7 +98,9 @@ export const ensureParticipantTrackingToken = async ({
   minIntervalSeconds = 30,
 }) => {
   const existingTokens = await getTrackingTokensByParticipant(participantId);
-  const activeToken = existingTokens.find((item) => item.enabled !== false && item.token);
+  const activeToken = existingTokens.find(
+    (item) => item.enabled !== false && item.token
+  );
   if (activeToken) {
     await updateDoc(doc(db, TOKEN_COLLECTION, activeToken.id), {
       participantId,
@@ -126,13 +128,15 @@ export const ensureParticipantTrackingToken = async ({
 export const deleteTrackingTokensByParticipant = async (participantId) => {
   if (!participantId) return;
   const tokens = await getTrackingTokensByParticipant(participantId);
-  await Promise.all(tokens.map((item) => deleteDoc(doc(db, TOKEN_COLLECTION, item.id))));
+  await Promise.all(
+    tokens.map((item) => deleteDoc(doc(db, TOKEN_COLLECTION, item.id)))
+  );
 };
 
 export const getTrackingEndpointUrl = (token) => {
   const baseUrl = (
     import.meta.env.VITE_GUIDEBOOK_BACKEND_URL ||
-    'https://guidebook-hoju.onrender.com'
+    'https://guidebook-ckce.onrender.com/'
   ).replace(/\/$/, '');
   return `${baseUrl}/tracking/traccar?token=${encodeURIComponent(token)}`;
 };
