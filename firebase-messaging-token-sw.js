@@ -11,8 +11,37 @@ firebase.initializeApp({
 });
 
 const messaging = firebase.messaging();
+const SYNC_TYPE = 'itineraryUpdated';
+const PENDING_CACHE_NAME = 'guidebook-sync-signals';
+const PENDING_REQUEST_URL = '/__guidebook_pending_itinerary_sync__';
+
+const persistPendingSignal = async (data) => {
+  const cache = await caches.open(PENDING_CACHE_NAME);
+  await cache.put(
+    PENDING_REQUEST_URL,
+    new Response(JSON.stringify(data || {}), {
+      headers: { 'Content-Type': 'application/json' },
+    })
+  );
+};
+
+const notifyClients = async (data) => {
+  const clientList = await clients.matchAll({
+    type: 'window',
+    includeUncontrolled: true,
+  });
+  if (!clientList.length) {
+    await persistPendingSignal(data);
+    return;
+  }
+  clientList.forEach((client) => client.postMessage(data));
+};
 
 messaging.onBackgroundMessage((payload) => {
+  if (payload.data?.type === SYNC_TYPE) {
+    return notifyClients(payload.data);
+  }
+
   if (payload.notification) return;
 
   const title = payload.data?.title || '旅程新動態';
