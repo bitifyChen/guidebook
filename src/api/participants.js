@@ -34,14 +34,17 @@ const COLLECTION_NAME = 'participants';
 const withTripIds = (data) => ({
   ...data,
   tripIds: data.tripIds || (data.tripId ? [data.tripId] : []),
+  canViewTeamLocationHistory: data.canViewTeamLocationHistory === true,
 });
 
 const ensureTrackingTokenForParticipant = async (
   participantId,
-  deviceName = ''
+  deviceName = '',
+  tripId = ''
 ) => {
   await ensureParticipantTrackingToken({
     participantId,
+    tripId,
     deviceId: deviceName,
     minIntervalSeconds: 30,
   });
@@ -129,10 +132,17 @@ export const getParticipants = async () => {
             )
           ),
           getDocs(
-            query(collection(db, COLLECTION_NAME), where('tripId', '==', tripId))
+            query(
+              collection(db, COLLECTION_NAME),
+              where('tripId', '==', tripId)
+            )
           ),
         ])
-      : [await getDocs(query(collection(db, COLLECTION_NAME), orderBy('createdAt', 'asc')))];
+      : [
+          await getDocs(
+            query(collection(db, COLLECTION_NAME), orderBy('createdAt', 'asc'))
+          ),
+        ];
 
     const rowsById = new Map();
     snapshots.forEach((querySnapshot) => {
@@ -145,12 +155,11 @@ export const getParticipants = async () => {
     });
     return {
       status: 200,
-      data: Array.from(rowsById.values())
-        .sort((a, b) => {
-          const aTime = a.createdAt?.toMillis?.() || 0;
-          const bTime = b.createdAt?.toMillis?.() || 0;
-          return aTime - bTime;
-        }),
+      data: Array.from(rowsById.values()).sort((a, b) => {
+        const aTime = a.createdAt?.toMillis?.() || 0;
+        const bTime = b.createdAt?.toMillis?.() || 0;
+        return aTime - bTime;
+      }),
     };
   } catch (error) {
     throw error;
@@ -242,7 +251,7 @@ export const postParticipant = async (params) => {
       createdAt: serverTimestamp(),
     };
     await setDoc(docRef, data);
-    await ensureTrackingTokenForParticipant(docRef.id, data.name || '');
+    await ensureTrackingTokenForParticipant(docRef.id, data.name || '', tripId);
     await updateParticipantsVersion();
     return { status: 200, id: docRef.id };
   } catch (error) {
@@ -297,7 +306,9 @@ export const upsertParticipantPushToken = async (
       : [];
   const existingToken =
     existingTokens.find((item) => item.token === token) ||
-    existingTokens.find((item) => previousToken && item.token === previousToken) ||
+    existingTokens.find(
+      (item) => previousToken && item.token === previousToken
+    ) ||
     existingTokens[0];
 
   const nextToken = {
@@ -429,10 +440,7 @@ export const getAllParticipants = async () => {
 export const getParticipantByUid = async (uid, tripId = '') => {
   if (!uid) return null;
   const targetTripId = tripId || (await resolveTripId());
-  const q = query(
-    collection(db, COLLECTION_NAME),
-    where('uid', '==', uid)
-  );
+  const q = query(collection(db, COLLECTION_NAME), where('uid', '==', uid));
   const querySnapshot = await getDocs(q);
   const participantDoc = querySnapshot.docs.find((item) => {
     const data = withTripIds(item.data());
@@ -447,10 +455,7 @@ export const getParticipantByUid = async (uid, tripId = '') => {
 
 export const getParticipantsByUid = async (uid) => {
   if (!uid) return [];
-  const q = query(
-    collection(db, COLLECTION_NAME),
-    where('uid', '==', uid)
-  );
+  const q = query(collection(db, COLLECTION_NAME), where('uid', '==', uid));
   const querySnapshot = await getDocs(q);
   return querySnapshot.docs.map((participantDoc) => ({
     ...withTripIds(participantDoc.data()),
@@ -496,6 +501,7 @@ export const getOrCreateTripInviteParticipant = async (
     if (existingForTrip) {
       await ensureParticipantTrackingToken({
         participantId: existingForTrip.id,
+        tripId,
         deviceId: existingForTrip.name || name,
         minIntervalSeconds: 30,
       });
@@ -515,6 +521,7 @@ export const getOrCreateTripInviteParticipant = async (
       });
       await ensureParticipantTrackingToken({
         participantId: target.id,
+        tripId,
         deviceId: target.name || name,
         minIntervalSeconds: 30,
       });
@@ -539,6 +546,7 @@ export const getOrCreateTripInviteParticipant = async (
         });
         await ensureParticipantTrackingToken({
           participantId: existingGuest.id,
+          tripId,
           deviceId: existingGuest.name || name,
           minIntervalSeconds: 30,
         });
@@ -546,6 +554,7 @@ export const getOrCreateTripInviteParticipant = async (
       } else {
         await ensureParticipantTrackingToken({
           participantId: existingGuest.id,
+          tripId,
           deviceId: existingGuest.name || name,
           minIntervalSeconds: 30,
         });
@@ -571,6 +580,7 @@ export const getOrCreateTripInviteParticipant = async (
     tripId,
     tripIds: [tripId],
     inviteCode: await createParticipantInviteCode(),
+    canViewTeamLocationHistory: false,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
@@ -578,6 +588,7 @@ export const getOrCreateTripInviteParticipant = async (
   await setDoc(docRef, participant);
   await ensureParticipantTrackingToken({
     participantId: docRef.id,
+    tripId,
     deviceId: name,
     minIntervalSeconds: 30,
   });

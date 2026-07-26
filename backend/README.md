@@ -42,9 +42,13 @@ Example:
 ```json
 {
   "participantId": "participant-id",
+  "tripId": "active-trip-id",
   "deviceId": "optional-device-id",
   "enabled": true,
-  "minIntervalSeconds": 30
+  "minIntervalSeconds": 30,
+  "historyEnabled": true,
+  "historyMinDistanceMeters": 15,
+  "historyHeartbeatSeconds": 300
 }
 ```
 
@@ -55,18 +59,27 @@ tripLocations/{tripId}/{participantId}
 ```
 
 The backend resolves `participants/{participantId}.tripIds` at upload time and
-writes the same device location to every trip the participant belongs to.
-The PWA manual refresh action updates the same participant node for the current
-trip, so the map only needs one location subscription.
+writes the current device location to the participant's trips for backward
+compatibility. Historical points are written only to the token's active
+`tripId`, or to the participant's only trip when no active trip was recorded.
+The PWA keeps the token's active trip in sync when the member switches trips.
 
-The current gathering point for a trip is stored in Realtime Database:
+Historical tracks are stored separately in Realtime Database:
 
 ```text
-tripGatheringPins/{tripId}/active
+tripLocationTracks/{tripId}/{participantId}/{pointId}
+trackingTrackState/{tripId}/{participantId}
 ```
 
-Only one active gathering point is used per trip. Replacing it updates the same
-node and removing it deletes that node.
+History records a point after at least 15 meters of movement, or a five-minute
+heartbeat while stationary. A manual PWA location update always records a
+history point for the current trip.
+
+Gathering points for a trip are stored in Realtime Database:
+
+```text
+tripGatheringPins/{tripId}/{pinId}
+```
 
 Push notification history is written to Firestore:
 

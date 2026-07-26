@@ -1,4 +1,6 @@
 import hashlib
+import math
+import secrets
 import time
 from datetime import datetime, timezone
 
@@ -85,20 +87,61 @@ def _is_enabled_token(token_data):
     return bool(token_data and token_data.get("enabled", True) and not token_data.get("revokedAt"))
 
 
-def _load_participant_trip_ids(participant_id, fallback_trip_id=None):
+def _load_participant_trip_ids(participant_id):
     if not participant_id:
         return []
 
     snapshot = get_firestore_client().collection("participants").document(participant_id).get()
     if not snapshot.exists:
-        return [fallback_trip_id] if fallback_trip_id else []
+        return []
 
     data = snapshot.to_dict() or {}
     trip_ids = data.get("tripIds") or ([data.get("tripId")] if data.get("tripId") else [])
-    if fallback_trip_id:
-        trip_ids.append(fallback_trip_id)
-
     return list(dict.fromkeys([trip_id for trip_id in trip_ids if trip_id]))
+
+
+def _distance_meters(first, second):
+    earth_radius = 6_371_000
+    lat1 = math.radians(float(first["lat"]))
+    lat2 = math.radians(float(second["lat"]))
+    delta_lat = lat2 - lat1
+    delta_lng = math.radians(float(second["lng"]) - float(first["lng"]))
+    value = (
+        math.sin(delta_lat / 2) ** 2
+        + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lng / 2) ** 2
+    )
+    value = max(0.0, min(1.0, value))
+    return earth_radius * 2 * math.atan2(math.sqrt(value), math.sqrt(1 - value))
+
+
+def _should_record_history(
+    trip_id,
+    participant_id,
+    location,
+    min_interval_seconds=30,
+    min_distance_meters=15,
+    heartbeat_seconds=300,
+):
+    state_path = f"trackingTrackState/{trip_id}/{participant_id}"
+    previous = get_rtdb_reference(state_path).get() or {}
+    if not previous.get("receivedAt"):
+        return True
+
+    elapsed_ms = int(location["updatedAt"]) - int(previous.get("receivedAt") or 0)
+    if elapsed_ms >= int(heartbeat_seconds) * 1000:
+        return True
+    if elapsed_ms < int(min_interval_seconds) * 1000:
+        return False
+
+    try:
+        return _distance_meters(previous, location) >= float(min_distance_meters)
+    except (KeyError, TypeError, ValueError):
+        return True
+
+
+def _build_history_point(location):
+    fields = ("lat", "lng", "ts", "acc", "bat", "spd", "source")
+    return {key: location[key] for key in fields if location.get(key) is not None}
 
 
 def _should_throttle(path, min_interval_seconds):
@@ -121,9 +164,18 @@ def handle_traccar_location(request):
         return {"status": "error", "message": "Invalid tracking token"}, 403
 
     participant_id = token_data.get("participantId")
-    trip_ids = _load_participant_trip_ids(participant_id, token_data.get("tripId"))
+    trip_ids = _load_participant_trip_ids(participant_id)
     if not participant_id or not trip_ids:
         return {"status": "error", "message": "Tracking token is incomplete"}, 403
+
+    token_trip_id = token_data.get("tripId")
+    history_trip_ids = (
+        [token_trip_id]
+        if token_trip_id in trip_ids
+        else trip_ids
+        if len(trip_ids) == 1
+        else []
+    )
 
     try:
         lat = _to_float(_first_value(payload, "lat", "latitude"), "lat")
@@ -156,13 +208,45 @@ def handle_traccar_location(request):
     if device_id:
         location["deviceId"] = str(device_id)
 
-    for trip_id in trip_ids:
-        get_rtdb_reference(f"tripLocations/{trip_id}/{participant_id}").set(location)
-    get_rtdb_reference(throttle_path).set({"updatedAt": location["updatedAt"]})
+    updates = {
+        f"tripLocations/{trip_id}/{participant_id}": location for trip_id in trip_ids
+    }
+    history_recorded = False
+    history_point = _build_history_point(location)
+    history_min_interval = int(token_data.get("historyMinIntervalSeconds") or 30)
+    history_min_distance = float(token_data.get("historyMinDistanceMeters") or 15)
+    history_heartbeat = int(token_data.get("historyHeartbeatSeconds") or 300)
+
+    if token_data.get("historyEnabled", True):
+        for trip_id in history_trip_ids:
+            if not _should_record_history(
+                trip_id,
+                participant_id,
+                location,
+                history_min_interval,
+                history_min_distance,
+                history_heartbeat,
+            ):
+                continue
+            point_id = f"{timestamp_ms}_{secrets.token_hex(4)}"
+            updates[
+                f"tripLocationTracks/{trip_id}/{participant_id}/{point_id}"
+            ] = history_point
+            updates[f"trackingTrackState/{trip_id}/{participant_id}"] = {
+                "lat": location["lat"],
+                "lng": location["lng"],
+                "ts": location["ts"],
+                "receivedAt": location["updatedAt"],
+            }
+            history_recorded = True
+
+    updates[throttle_path] = {"updatedAt": location["updatedAt"]}
+    get_rtdb_reference("/").update(updates)
 
     return {
         "status": "ok",
         "tripIds": trip_ids,
         "participantId": participant_id,
         "updatedAt": location["updatedAt"],
+        "historyRecorded": history_recorded,
     }, 200

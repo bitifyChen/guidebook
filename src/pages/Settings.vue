@@ -69,6 +69,7 @@ const guestNameInput = ref('');
 const isTrackingSetupLoading = ref(false);
 const trackingSetupToken = ref('');
 const trackingSetupHash = ref('');
+const trackingSetupTripId = ref('');
 const trackingSetupNeedsRebind = ref(false);
 const copiedTrackingSetup = ref('');
 let resolveGuestName = null;
@@ -130,11 +131,7 @@ const getCurrentTripPushTokens = (participant = userStore.myParticipant) => {
     : participant.pushToken
       ? [{ token: participant.pushToken }]
       : [];
-  return tokens.filter(
-    (item) =>
-      item?.token &&
-      item.permission !== 'denied'
-  );
+  return tokens.filter((item) => item?.token && item.permission !== 'denied');
 };
 
 const notificationStatus = computed(() => {
@@ -163,7 +160,8 @@ const trackingDeviceId = computed(() => {
 });
 
 const trackingSetupStorageKey = computed(() => {
-  const participantId = userStore.myParticipant?.id || userStore.localParticipantId || '';
+  const participantId =
+    userStore.myParticipant?.id || userStore.localParticipantId || '';
   return participantId ? `guidebook_tracking_setup_hash_${participantId}` : '';
 });
 
@@ -197,14 +195,31 @@ const loadCurrentTrackingSetup = async () => {
   if (!userStore.myParticipant?.id) return;
   isTrackingSetupLoading.value = true;
   try {
-    const activeToken = await getActiveTrackingTokenByParticipant(
+    let activeToken = await getActiveTrackingTokenByParticipant(
       userStore.myParticipant.id
     );
+    if (
+      activeToken?.token &&
+      tripStore.currentTripId &&
+      activeToken.tripId !== tripStore.currentTripId
+    ) {
+      await ensureParticipantTrackingToken({
+        participantId: userStore.myParticipant.id,
+        tripId: tripStore.currentTripId,
+        deviceId: trackingDeviceId.value,
+        minIntervalSeconds: 30,
+      });
+      activeToken = {
+        ...activeToken,
+        tripId: tripStore.currentTripId,
+      };
+    }
     const savedHash = trackingSetupStorageKey.value
       ? localStorage.getItem(trackingSetupStorageKey.value) || ''
       : '';
     trackingSetupToken.value = activeToken?.token || '';
     trackingSetupHash.value = activeToken?.id || '';
+    trackingSetupTripId.value = activeToken?.tripId || '';
     trackingSetupNeedsRebind.value = Boolean(
       savedHash && savedHash !== trackingSetupHash.value
     );
@@ -217,17 +232,25 @@ const loadCurrentTrackingSetup = async () => {
 
 const ensureCurrentTrackingSetup = async () => {
   if (!userStore.myParticipant?.id) return;
-  if (trackingSetupToken.value && trackingSetupHash.value) return;
+  if (
+    trackingSetupToken.value &&
+    trackingSetupHash.value &&
+    trackingSetupTripId.value === tripStore.currentTripId
+  ) {
+    return;
+  }
 
   isTrackingSetupLoading.value = true;
   try {
     const result = await ensureParticipantTrackingToken({
       participantId: userStore.myParticipant.id,
+      tripId: tripStore.currentTripId,
       deviceId: trackingDeviceId.value,
       minIntervalSeconds: 30,
     });
     trackingSetupToken.value = result.token || '';
     trackingSetupHash.value = result.tokenHash || '';
+    trackingSetupTripId.value = tripStore.currentTripId || '';
     const savedHash = trackingSetupStorageKey.value
       ? localStorage.getItem(trackingSetupStorageKey.value) || ''
       : '';
@@ -268,6 +291,7 @@ const removeCurrentTrackingSetup = async () => {
     await deleteTrackingTokensByParticipant(userStore.myParticipant.id);
     trackingSetupToken.value = '';
     trackingSetupHash.value = '';
+    trackingSetupTripId.value = '';
     trackingSetupNeedsRebind.value = false;
     if (trackingSetupStorageKey.value) {
       localStorage.removeItem(trackingSetupStorageKey.value);
@@ -456,6 +480,7 @@ watch(
   () => {
     trackingSetupToken.value = '';
     trackingSetupHash.value = '';
+    trackingSetupTripId.value = '';
     trackingSetupNeedsRebind.value = false;
     loadCurrentTrackingSetup();
   }
@@ -1195,7 +1220,6 @@ const disableNotificationForCurrentTrip = async () => {
             下方的「分享」圖示，選擇「加入主畫面」，然後從手機桌面啟動此 PWA
             應用程式，才能啟用並接收推播通知。
           </div>
-
         </div>
 
         <!-- Location Tracking Setup -->

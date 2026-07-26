@@ -18,6 +18,7 @@ import {
   MapPin,
   Pencil,
   Plus,
+  Route,
   Save,
   Send,
   Trash2,
@@ -53,6 +54,7 @@ const form = ref({
   avatar: '',
   isAdmin: false,
   isSuperAdmin: false,
+  canViewTeamLocationHistory: false,
   tripIds: [],
 });
 
@@ -61,6 +63,7 @@ const columns = [
   { key: 'inviteCode', label: '邀請碼' },
   { key: 'trips', label: '參加旅程' },
   { key: 'notification', label: '通知' },
+  { key: 'historyAccess', label: '隊友軌跡' },
   { key: 'role', label: '權限' },
 ];
 
@@ -240,6 +243,7 @@ const resetForm = () => {
     avatar: '',
     isAdmin: false,
     isSuperAdmin: false,
+    canViewTeamLocationHistory: false,
     tripIds: tripStore.currentTripId ? [tripStore.currentTripId] : [],
   };
 };
@@ -257,6 +261,7 @@ const openEditDrawer = (participant) => {
     avatar: participant.avatar || '',
     isAdmin: participant.isAdmin || false,
     isSuperAdmin: participant.isSuperAdmin || false,
+    canViewTeamLocationHistory: participant.canViewTeamLocationHistory === true,
     tripIds: [...(participant.tripIds || [])],
   };
   isDrawerOpen.value = true;
@@ -371,6 +376,11 @@ const enableTrackingForParticipant = async () => {
   try {
     await ensureParticipantTrackingToken({
       participantId: editingId.value,
+      tripId:
+        appliedSearch.value.tripId ||
+        form.value.tripIds[0] ||
+        tripStore.currentTripId ||
+        '',
       deviceId:
         form.value.name?.trim() || `guidebook-${editingId.value.slice(0, 8)}`,
       minIntervalSeconds: 30,
@@ -385,7 +395,8 @@ const enableTrackingForParticipant = async () => {
 
 const removeTrackingForParticipant = async () => {
   if (!editingId.value) return;
-  if (!confirm('確定要移除此成員目前的位置分享設定？成員需要重新綁定手機。')) return;
+  if (!confirm('確定要移除此成員目前的位置分享設定？成員需要重新綁定手機。'))
+    return;
 
   isTrackingRemoving.value = true;
   try {
@@ -433,6 +444,7 @@ const saveParticipant = async () => {
       avatar: form.value.avatar || '',
       isAdmin: form.value.isAdmin,
       isSuperAdmin: form.value.isSuperAdmin,
+      canViewTeamLocationHistory: form.value.canViewTeamLocationHistory,
       tripIds: form.value.tripIds,
       tripId: form.value.tripIds[0] || '',
     };
@@ -547,6 +559,19 @@ const deleteCurrentParticipant = async () => {
           :class="getNotificationClass(row)"
         >
           {{ getNotificationLabel(row) }}
+        </span>
+      </template>
+
+      <template #historyAccess="{ row }">
+        <span
+          class="inline-flex items-center rounded-lg px-2 py-1 text-[10px] font-black"
+          :class="
+            row.canViewTeamLocationHistory
+              ? 'bg-green-100 text-green-700'
+              : 'bg-slate-100 text-slate-500'
+          "
+        >
+          {{ row.canViewTeamLocationHistory ? '可查看' : '未開放' }}
         </span>
       </template>
 
@@ -745,6 +770,29 @@ const deleteCurrentParticipant = async () => {
             </button>
           </section>
 
+          <label
+            class="flex cursor-pointer items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4"
+          >
+            <span
+              class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-indigo-600"
+            >
+              <Route :size="18" :stroke-width="2.4" />
+            </span>
+            <span class="min-w-0 flex-1">
+              <span class="block text-sm font-black text-slate-800">
+                查看隊友歷史軌跡
+              </span>
+              <span class="mt-1 block text-[10px] font-bold text-slate-400">
+                開啟後可在位置頁查看其他成員指定日期的路線
+              </span>
+            </span>
+            <input
+              v-model="form.canViewTeamLocationHistory"
+              type="checkbox"
+              class="h-5 w-5 shrink-0 accent-indigo-600"
+            />
+          </label>
+
           <section
             v-if="editingId"
             class="rounded-2xl border border-slate-100 bg-slate-50 p-4 space-y-3"
@@ -846,7 +894,10 @@ const deleteCurrentParticipant = async () => {
                   @click="copyTrackingSetupUrl"
                   class="h-9 px-3 rounded-xl bg-orange-500 text-white text-xs font-black inline-flex items-center gap-1"
                 >
-                  <component :is="copiedTrackingUrl ? Check : Copy" :size="13" />
+                  <component
+                    :is="copiedTrackingUrl ? Check : Copy"
+                    :size="13"
+                  />
                   {{ copiedTrackingUrl ? '已複製' : '複製連結' }}
                 </button>
                 <button
@@ -899,7 +950,9 @@ const deleteCurrentParticipant = async () => {
           </section>
         </div>
 
-        <footer class="admin-drawer-footer flex justify-end gap-3 border-t border-slate-200 p-5">
+        <footer
+          class="admin-drawer-footer flex justify-end gap-3 border-t border-slate-200 p-5"
+        >
           <button
             @click="closeDrawer"
             class="h-11 px-5 rounded-xl bg-slate-50 text-slate-600 font-black text-sm"

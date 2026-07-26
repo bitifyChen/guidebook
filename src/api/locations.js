@@ -1,5 +1,17 @@
 import { rtdb } from '@/firebase/index.js';
-import { onValue, push, ref, remove, update } from 'firebase/database';
+import {
+  endAt,
+  get,
+  limitToLast,
+  onValue,
+  orderByChild,
+  push,
+  query,
+  ref,
+  remove,
+  startAt,
+  update,
+} from 'firebase/database';
 
 export const subscribeTripLocations = (tripId, callback) => {
   if (!tripId) {
@@ -45,7 +57,9 @@ export const updateParticipantLocation = async ({
     tripId,
     lat,
     lng,
-    acc: Number.isFinite(Number(accuracy)) ? Math.round(Number(accuracy)) : null,
+    acc: Number.isFinite(Number(accuracy))
+      ? Math.round(Number(accuracy))
+      : null,
     alt: Number.isFinite(Number(altitude)) ? Number(altitude) : null,
     course: Number.isFinite(Number(heading)) ? Number(heading) : null,
     speed: Number.isFinite(Number(speed)) ? Number(speed) : null,
@@ -54,11 +68,79 @@ export const updateParticipantLocation = async ({
     updatedAt,
   };
 
-  await update(
-    ref(rtdb, `tripLocations/${tripId}/${participantId}`),
-    payload
+  const trackRef = push(
+    ref(rtdb, `tripLocationTracks/${tripId}/${participantId}`)
   );
+  const trackPayload = Object.fromEntries(
+    Object.entries({
+      lat,
+      lng,
+      ts: updatedAt,
+      acc: payload.acc,
+      alt: payload.alt,
+      course: payload.course,
+      spd: payload.speed,
+      source,
+    }).filter(([, value]) => value !== null && value !== undefined)
+  );
+
+  await update(ref(rtdb), {
+    [`tripLocations/${tripId}/${participantId}`]: payload,
+    [`tripLocationTracks/${tripId}/${participantId}/${trackRef.key}`]:
+      trackPayload,
+    [`trackingTrackState/${tripId}/${participantId}`]: {
+      lat,
+      lng,
+      ts: updatedAt,
+      receivedAt: updatedAt,
+    },
+  });
   return payload;
+};
+
+export const getParticipantLocationTrack = async ({
+  tripId,
+  participantId,
+  startTime,
+  endTime,
+  maxPoints = 5000,
+}) => {
+  if (!tripId || !participantId) {
+    throw new Error('缺少旅程或成員資料，無法讀取歷史軌跡。');
+  }
+
+  const start = Number(startTime);
+  const end = Number(endTime);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+    throw new Error('歷史軌跡日期範圍無效。');
+  }
+
+  const trackQuery = query(
+    ref(rtdb, `tripLocationTracks/${tripId}/${participantId}`),
+    orderByChild('ts'),
+    startAt(start),
+    endAt(end),
+    limitToLast(Math.max(1, Number(maxPoints) || 5000))
+  );
+  const snapshot = await get(trackQuery);
+  const value = snapshot.val() || {};
+  return Object.entries(value)
+    .map(([id, data]) => ({ id, ...data }))
+    .filter((item) => {
+      const lat = Number(item.lat);
+      const lng = Number(item.lng);
+      const ts = Number(item.ts);
+      return (
+        Number.isFinite(lat) && Number.isFinite(lng) && Number.isFinite(ts)
+      );
+    })
+    .map((item) => ({
+      ...item,
+      lat: Number(item.lat),
+      lng: Number(item.lng),
+      ts: Number(item.ts),
+    }))
+    .sort((first, second) => first.ts - second.ts);
 };
 
 export const subscribeTripGatheringPoints = (tripId, callback) => {

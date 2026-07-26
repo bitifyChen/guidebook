@@ -1,9 +1,18 @@
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
+import {
+  computed,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  reactive,
+  ref,
+  watch,
+} from 'vue';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { RefreshCw, ShieldAlert } from 'lucide-vue-next';
 import {
+  getParticipantLocationTrack,
   removeTripGatheringPoint,
   saveTripGatheringPoint,
   subscribeTripGatheringPoints,
@@ -14,6 +23,7 @@ import GatheringPointEditor from '@/components/locations/GatheringPointEditor.vu
 import GatheringPointSheet from '@/components/locations/GatheringPointSheet.vue';
 import LocationActionBar from '@/components/locations/LocationActionBar.vue';
 import LocationNavigationCard from '@/components/locations/LocationNavigationCard.vue';
+import LocationTrackSheet from '@/components/locations/LocationTrackSheet.vue';
 import MemberLocationSheet from '@/components/locations/MemberLocationSheet.vue';
 import SelectedMemberCard from '@/components/locations/SelectedMemberCard.vue';
 import {
@@ -34,6 +44,7 @@ const gatheringPoints = ref([]);
 const isLoading = ref(true);
 const isMemberPanelOpen = ref(false);
 const isGatheringPanelOpen = ref(false);
+const isHistoryPanelOpen = ref(false);
 const isSelectingGatheringPoint = ref(false);
 const isUpdatingMyLocation = ref(false);
 const isSavingGatheringPoint = ref(false);
@@ -47,6 +58,11 @@ const deviceHeading = ref(null);
 const compassState = ref('idle');
 const locationNotice = ref({ type: '', message: '' });
 const currentTimestamp = ref(Date.now());
+const historyParticipantId = ref('');
+const historyDate = ref('');
+const historyPoints = ref([]);
+const historyError = ref('');
+const isHistoryLoading = ref(false);
 
 const gatheringForm = reactive({
   id: '',
@@ -58,6 +74,7 @@ let unsubscribeLocations = null;
 let unsubscribeGatheringPoints = null;
 let mapInstance = null;
 let markerLayer = null;
+let historyLayer = null;
 let hasAutoFit = false;
 let isOrientationListening = false;
 let noticeTimer = null;
@@ -77,6 +94,38 @@ const participantById = computed(() =>
 );
 
 const myParticipant = computed(() => userStore.myParticipant);
+
+const canViewMemberHistory = (item) => {
+  const participantId =
+    typeof item === 'string' ? item : item?.participantId || item?.id || '';
+  if (!participantId || !myParticipant.value?.id) return false;
+  if (participantId === myParticipant.value.id) return true;
+  return myParticipant.value.canViewTeamLocationHistory === true;
+};
+
+const historyParticipant = computed(() => {
+  if (!historyParticipantId.value) return null;
+  const participant = participantById.value[historyParticipantId.value];
+  const liveLocation = locations.value.find(
+    (item) => item.participantId === historyParticipantId.value
+  );
+  return participant
+    ? {
+        ...participant,
+        participantId: participant.id,
+      }
+    : liveLocation || null;
+});
+
+const historyFirstPointTime = computed(() => {
+  const point = historyPoints.value[0];
+  return point ? formatTrackTime(point.ts) : '';
+});
+
+const historyLastPointTime = computed(() => {
+  const point = historyPoints.value[historyPoints.value.length - 1];
+  return point ? formatTrackTime(point.ts) : '';
+});
 
 const getTimestamp = (item) => Number(item.updatedAt || item.ts || 0);
 
@@ -100,21 +149,20 @@ const locations = computed(() =>
         avatar: participant.avatar || '',
         timestamp,
         isOnline:
-          Boolean(timestamp) && currentTimestamp.value - timestamp < 5 * 60 * 1000,
+          Boolean(timestamp) &&
+          currentTimestamp.value - timestamp < 5 * 60 * 1000,
       };
     })
     .sort((a, b) => b.timestamp - a.timestamp)
 );
 
 const validGatheringPoints = computed(() =>
-  gatheringPoints.value
-    .filter(isValidCoordinate)
-    .map((item) => ({
-      ...item,
-      lat: Number(item.lat),
-      lng: Number(item.lng),
-      updatedAt: Number(item.updatedAt || 0),
-    }))
+  gatheringPoints.value.filter(isValidCoordinate).map((item) => ({
+    ...item,
+    lat: Number(item.lat),
+    lng: Number(item.lng),
+    updatedAt: Number(item.updatedAt || 0),
+  }))
 );
 
 const onlineCount = computed(
@@ -122,11 +170,15 @@ const onlineCount = computed(
 );
 const offlineCount = computed(() => locations.value.length - onlineCount.value);
 const memberButtonLabel = computed(() =>
-  locations.value.length ? `${onlineCount.value}/${locations.value.length}` : '0'
+  locations.value.length
+    ? `${onlineCount.value}/${locations.value.length}`
+    : '0'
 );
 
 const selectedMember = computed(() =>
-  locations.value.find((item) => item.participantId === selectedParticipantId.value)
+  locations.value.find(
+    (item) => item.participantId === selectedParticipantId.value
+  )
 );
 
 const myLocation = computed(() =>
@@ -134,7 +186,9 @@ const myLocation = computed(() =>
 );
 
 const activeGatheringPoint = computed(() =>
-  validGatheringPoints.value.find((item) => item.id === activeGatheringPointId.value)
+  validGatheringPoints.value.find(
+    (item) => item.id === activeGatheringPointId.value
+  )
 );
 
 const activeNavigationTarget = computed(() => {
@@ -172,7 +226,8 @@ const activeNavigationTarget = computed(() => {
 const mapCenter = computed(() => {
   const tripLat = Number(tripStore.currentTrip?.latitude);
   const tripLng = Number(tripStore.currentTrip?.longitude);
-  if (Number.isFinite(tripLat) && Number.isFinite(tripLng)) return [tripLat, tripLng];
+  if (Number.isFinite(tripLat) && Number.isFinite(tripLng))
+    return [tripLat, tripLng];
   return [35.6812, 139.7671];
 });
 
@@ -185,6 +240,33 @@ const formatTime = (value) => {
     hour: '2-digit',
     minute: '2-digit',
   });
+};
+
+const formatTrackTime = (value) => {
+  const time = Number(value || 0);
+  if (!time) return '--:--';
+  return new Date(time).toLocaleTimeString('zh-TW', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+const getLocalDateValue = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getLocalDateRange = (value) => {
+  const startDate = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(startDate.getTime())) return null;
+  const endDate = new Date(startDate);
+  endDate.setDate(endDate.getDate() + 1);
+  return {
+    startTime: startDate.getTime(),
+    endTime: endDate.getTime() - 1,
+  };
 };
 
 const formatMeetAt = (value) => {
@@ -258,9 +340,7 @@ const getBearing = (from, to) => {
   const y = Math.sin(longitudeDelta) * Math.cos(toLatitude);
   const x =
     Math.cos(fromLatitude) * Math.sin(toLatitude) -
-    Math.sin(fromLatitude) *
-      Math.cos(toLatitude) *
-      Math.cos(longitudeDelta);
+    Math.sin(fromLatitude) * Math.cos(toLatitude) * Math.cos(longitudeDelta);
   return normalizeDegrees(toDegrees(Math.atan2(y, x)));
 };
 
@@ -313,6 +393,116 @@ const showLocationNotice = (message, type = 'success') => {
   noticeTimer = window.setTimeout(() => {
     locationNotice.value = { type: '', message: '' };
   }, 3200);
+};
+
+const clearHistoryLayer = () => {
+  historyLayer?.clearLayers();
+};
+
+const renderHistoryTrack = () => {
+  if (!mapInstance || !historyLayer) return;
+  clearHistoryLayer();
+  if (!historyPoints.value.length) return;
+
+  const latLngs = historyPoints.value.map((point) => [point.lat, point.lng]);
+  if (latLngs.length > 1) {
+    L.polyline(latLngs, {
+      color: '#f97316',
+      weight: 5,
+      opacity: 0.88,
+      lineCap: 'round',
+      lineJoin: 'round',
+    }).addTo(historyLayer);
+  }
+
+  const endpoints = [
+    { latLng: latLngs[0], label: '起點', color: '#16a34a' },
+    {
+      latLng: latLngs[latLngs.length - 1],
+      label: '終點',
+      color: '#ea580c',
+    },
+  ];
+  endpoints.forEach((endpoint, index) => {
+    if (index === 1 && latLngs.length === 1) return;
+    L.circleMarker(endpoint.latLng, {
+      radius: 7,
+      color: '#ffffff',
+      weight: 3,
+      fillColor: endpoint.color,
+      fillOpacity: 1,
+    })
+      .bindTooltip(endpoint.label, {
+        permanent: false,
+        direction: 'top',
+        offset: [0, -6],
+      })
+      .addTo(historyLayer);
+  });
+
+  const bounds = L.latLngBounds(latLngs);
+  if (bounds.isValid()) {
+    mapInstance.fitBounds(bounds, {
+      animate: true,
+      paddingTopLeft: [28, 72],
+      paddingBottomRight: [28, 280],
+      maxZoom: 17,
+    });
+  }
+};
+
+const loadParticipantHistory = async () => {
+  if (
+    !historyParticipantId.value ||
+    !canViewMemberHistory(historyParticipantId.value)
+  ) {
+    historyError.value = '目前沒有查看這位成員軌跡的權限。';
+    return;
+  }
+  const range = getLocalDateRange(historyDate.value);
+  if (!range) {
+    historyError.value = '請選擇正確的日期。';
+    return;
+  }
+
+  isHistoryLoading.value = true;
+  historyError.value = '';
+  try {
+    historyPoints.value = await getParticipantLocationTrack({
+      tripId: tripStore.currentTripId,
+      participantId: historyParticipantId.value,
+      ...range,
+    });
+    renderHistoryTrack();
+  } catch (error) {
+    historyPoints.value = [];
+    clearHistoryLayer();
+    historyError.value = error.message || '歷史軌跡讀取失敗。';
+  } finally {
+    isHistoryLoading.value = false;
+  }
+};
+
+const openParticipantHistory = async (participantId) => {
+  if (!canViewMemberHistory(participantId)) return;
+  historyParticipantId.value = participantId;
+  historyDate.value = historyDate.value || getLocalDateValue();
+  historyPoints.value = [];
+  historyError.value = '';
+  isMemberPanelOpen.value = false;
+  isHistoryPanelOpen.value = true;
+  trackedParticipantId.value = '';
+  followedParticipantId.value = '';
+  activeGatheringPointId.value = '';
+  await loadParticipantHistory();
+};
+
+const closeParticipantHistory = () => {
+  isHistoryPanelOpen.value = false;
+  historyParticipantId.value = '';
+  historyPoints.value = [];
+  historyError.value = '';
+  clearHistoryLayer();
 };
 
 const createMemberIcon = (item) =>
@@ -454,7 +644,8 @@ const requestCompassPermission = async () => {
 
   try {
     if (typeof window.DeviceOrientationEvent.requestPermission === 'function') {
-      const permission = await window.DeviceOrientationEvent.requestPermission();
+      const permission =
+        await window.DeviceOrientationEvent.requestPermission();
       if (permission !== 'granted') {
         compassState.value = 'denied';
         return false;
@@ -570,6 +761,7 @@ const animateMarkerTo = (participantId, marker, nextLatLng) => {
 
 const selectParticipant = (participantId, { closePanel = false } = {}) => {
   if (!mapInstance) return;
+  if (isHistoryPanelOpen.value) closeParticipantHistory();
   const item = locations.value.find(
     (location) => location.participantId === participantId
   );
@@ -578,7 +770,10 @@ const selectParticipant = (participantId, { closePanel = false } = {}) => {
   followedParticipantId.value = item.participantId;
   selectedGatheringPointId.value = '';
   activeGatheringPointId.value = '';
-  if (trackedParticipantId.value && trackedParticipantId.value !== item.participantId) {
+  if (
+    trackedParticipantId.value &&
+    trackedParticipantId.value !== item.participantId
+  ) {
     trackedParticipantId.value = '';
   }
   renderMapMarkers();
@@ -649,8 +844,21 @@ const stopTracking = ({ clearSelection = true } = {}) => {
 };
 
 const showAllMembers = () => {
+  if (isHistoryPanelOpen.value) closeParticipantHistory();
   stopTracking();
   fitAllLocations();
+};
+
+const openMemberPanel = () => {
+  if (isHistoryPanelOpen.value) closeParticipantHistory();
+  isGatheringPanelOpen.value = false;
+  isMemberPanelOpen.value = true;
+};
+
+const openGatheringPanel = () => {
+  if (isHistoryPanelOpen.value) closeParticipantHistory();
+  isMemberPanelOpen.value = false;
+  isGatheringPanelOpen.value = true;
 };
 
 const resetGatheringForm = () => {
@@ -686,7 +894,8 @@ const cancelGatheringPointEdit = () => {
 };
 
 const saveGatheringPointFromMapCenter = async () => {
-  if (!userStore.isAdmin || !mapInstance || isSavingGatheringPoint.value) return;
+  if (!userStore.isAdmin || !mapInstance || isSavingGatheringPoint.value)
+    return;
   const center = mapInstance.getCenter();
   isSavingGatheringPoint.value = true;
   try {
@@ -699,7 +908,8 @@ const saveGatheringPointFromMapCenter = async () => {
       title: gatheringForm.title,
       meetAt: gatheringForm.meetAt,
       createdBy: myParticipant.value?.id || userStore.user?.uid || '',
-      createdByName: myParticipant.value?.name || userStore.user?.displayName || '',
+      createdByName:
+        myParticipant.value?.name || userStore.user?.displayName || '',
     });
     selectedGatheringPointId.value = saved.id;
     isSelectingGatheringPoint.value = false;
@@ -729,8 +939,10 @@ const removeGatheringPoint = async (pin) => {
       tripId: tripStore.currentTripId,
       pinId: pin.id,
     });
-    if (activeGatheringPointId.value === pin.id) activeGatheringPointId.value = '';
-    if (selectedGatheringPointId.value === pin.id) selectedGatheringPointId.value = '';
+    if (activeGatheringPointId.value === pin.id)
+      activeGatheringPointId.value = '';
+    if (selectedGatheringPointId.value === pin.id)
+      selectedGatheringPointId.value = '';
     deleteArmedPinId.value = '';
     showLocationNotice('已移除集合點。');
   } catch (error) {
@@ -819,6 +1031,7 @@ const initMap = async () => {
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
   }).addTo(mapInstance);
+  historyLayer = L.layerGroup().addTo(mapInstance);
   markerLayer = L.layerGroup().addTo(mapInstance);
   setTimeout(() => mapInstance?.invalidateSize(), 120);
   await centerMapOnBrowserPosition();
@@ -827,6 +1040,7 @@ const initMap = async () => {
 
 const destroyMap = () => {
   markerLayer = null;
+  historyLayer = null;
   markerAnimationsByParticipantId.forEach((animationId) => {
     window.cancelAnimationFrame(animationId);
   });
@@ -852,10 +1066,13 @@ const subscribeData = () => {
   if (unsubscribeLocations) unsubscribeLocations();
   if (unsubscribeGatheringPoints) unsubscribeGatheringPoints();
 
-  unsubscribeLocations = subscribeTripLocations(tripStore.currentTripId, (rows) => {
-    rawLocations.value = rows;
-    isLoading.value = false;
-  });
+  unsubscribeLocations = subscribeTripLocations(
+    tripStore.currentTripId,
+    (rows) => {
+      rawLocations.value = rows;
+      isLoading.value = false;
+    }
+  );
 
   unsubscribeGatheringPoints = subscribeTripGatheringPoints(
     tripStore.currentTripId,
@@ -886,9 +1103,13 @@ watch(
     selectedGatheringPointId.value = '';
     isMemberPanelOpen.value = false;
     isGatheringPanelOpen.value = false;
+    isHistoryPanelOpen.value = false;
     isSelectingGatheringPoint.value = false;
     rawLocations.value = [];
     gatheringPoints.value = [];
+    historyParticipantId.value = '';
+    historyPoints.value = [];
+    historyError.value = '';
     destroyMap();
     subscribeData();
     await initMap();
@@ -931,12 +1152,16 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <main class="location-page relative h-full min-h-full overflow-hidden bg-slate-100">
+  <main
+    class="location-page relative h-full min-h-full overflow-hidden bg-slate-100"
+  >
     <section
       v-if="tripStore.isPublicTrip"
       class="absolute inset-0 z-[520] flex items-center justify-center p-6"
     >
-      <div class="rounded-[28px] border border-white/60 bg-white p-6 text-center shadow-sm">
+      <div
+        class="rounded-[28px] border border-white/60 bg-white p-6 text-center shadow-sm"
+      >
         <ShieldAlert :size="28" class="mx-auto text-slate-300" />
         <h2 class="mt-3 font-black text-slate-800">無法使用位置分享</h2>
         <p class="mt-2 text-sm font-bold leading-relaxed text-slate-400">
@@ -1000,8 +1225,8 @@ onUnmounted(() => {
         :gathering-count="validGatheringPoints.length"
         :can-show-all="Boolean(locations.length || validGatheringPoints.length)"
         @update-location="updateMyLocation()"
-        @open-members="isMemberPanelOpen = true"
-        @open-gathering-points="isGatheringPanelOpen = true"
+        @open-members="openMemberPanel"
+        @open-gathering-points="openGatheringPanel"
         @show-all="showAllMembers"
       />
 
@@ -1010,7 +1235,9 @@ onUnmounted(() => {
         :is-tracked="trackedParticipantId === selectedMember?.participantId"
         :battery-text="selectedMember ? formatBattery(selectedMember) : '--'"
         :battery-tone-class="
-          selectedMember ? getBatteryToneClass(selectedMember) : 'battery-tone--unknown'
+          selectedMember
+            ? getBatteryToneClass(selectedMember)
+            : 'battery-tone--unknown'
         "
         :time-text="selectedMember ? formatTime(selectedMember.timestamp) : ''"
         @toggle-track="toggleSelectedMemberTracking"
@@ -1027,8 +1254,25 @@ onUnmounted(() => {
       :format-time="formatTime"
       :format-battery="formatBattery"
       :get-battery-tone-class="getBatteryToneClass"
+      :can-view-history="canViewMemberHistory"
+      :history-participant-id="historyParticipantId"
       @close="isMemberPanelOpen = false"
       @select-member="selectParticipant($event, { closePanel: true })"
+      @view-history="openParticipantHistory"
+    />
+
+    <LocationTrackSheet
+      :open="isHistoryPanelOpen"
+      :member="historyParticipant"
+      :selected-date="historyDate"
+      :is-loading="isHistoryLoading"
+      :points-count="historyPoints.length"
+      :first-point-time="historyFirstPointTime"
+      :last-point-time="historyLastPointTime"
+      :error="historyError"
+      @close="closeParticipantHistory"
+      @update:selected-date="historyDate = $event"
+      @load="loadParticipantHistory"
     />
 
     <GatheringPointSheet

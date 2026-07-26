@@ -53,6 +53,7 @@ export const getActiveTrackingTokenByParticipant = async (participantId) => {
 
 export const createParticipantTrackingToken = async ({
   participantId,
+  tripId = '',
   deviceId = '',
   minIntervalSeconds = 30,
 }) => {
@@ -63,8 +64,13 @@ export const createParticipantTrackingToken = async ({
   if (existingToken) {
     await updateDoc(doc(db, TOKEN_COLLECTION, existingToken.id), {
       participantId,
+      tripId,
       deviceId: deviceId.trim(),
       enabled: true,
+      historyEnabled: true,
+      historyMinIntervalSeconds: 30,
+      historyMinDistanceMeters: 15,
+      historyHeartbeatSeconds: 300,
       revokedAt: null,
       minIntervalSeconds: Number(minIntervalSeconds) || 30,
       updatedAt: serverTimestamp(),
@@ -82,8 +88,13 @@ export const createParticipantTrackingToken = async ({
   await setDoc(doc(db, TOKEN_COLLECTION, tokenHash), {
     token,
     participantId,
+    tripId,
     deviceId: deviceId.trim(),
     enabled: true,
+    historyEnabled: true,
+    historyMinIntervalSeconds: 30,
+    historyMinDistanceMeters: 15,
+    historyHeartbeatSeconds: 300,
     minIntervalSeconds: Number(minIntervalSeconds) || 30,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -94,6 +105,7 @@ export const createParticipantTrackingToken = async ({
 
 export const ensureParticipantTrackingToken = async ({
   participantId,
+  tripId = '',
   deviceId = '',
   minIntervalSeconds = 30,
 }) => {
@@ -104,8 +116,13 @@ export const ensureParticipantTrackingToken = async ({
   if (activeToken) {
     await updateDoc(doc(db, TOKEN_COLLECTION, activeToken.id), {
       participantId,
+      tripId,
       deviceId: deviceId.trim(),
       enabled: true,
+      historyEnabled: true,
+      historyMinIntervalSeconds: 30,
+      historyMinDistanceMeters: 15,
+      historyHeartbeatSeconds: 300,
       revokedAt: null,
       minIntervalSeconds: Number(minIntervalSeconds) || 30,
       updatedAt: serverTimestamp(),
@@ -120,6 +137,7 @@ export const ensureParticipantTrackingToken = async ({
 
   return createParticipantTrackingToken({
     participantId,
+    tripId,
     deviceId,
     minIntervalSeconds,
   });

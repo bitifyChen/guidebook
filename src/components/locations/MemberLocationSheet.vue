@@ -1,5 +1,5 @@
 <script setup>
-import { Battery, Clock, MapPin, Navigation, X } from 'lucide-vue-next';
+import { Battery, Clock, MapPin, Navigation, Route, X } from 'lucide-vue-next';
 
 defineProps({
   open: { type: Boolean, default: false },
@@ -10,9 +10,11 @@ defineProps({
   formatTime: { type: Function, required: true },
   formatBattery: { type: Function, required: true },
   getBatteryToneClass: { type: Function, required: true },
+  canViewHistory: { type: Function, required: true },
+  historyParticipantId: { type: String, default: '' },
 });
 
-defineEmits(['close', 'select-member']);
+defineEmits(['close', 'select-member', 'view-history']);
 </script>
 
 <template>
@@ -50,11 +52,10 @@ defineEmits(['close', 'select-member']);
       <div
         class="max-h-[calc(78dvh-82px)] overflow-y-auto px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))]"
       >
-        <button
+        <div
           v-for="item in locations"
           :key="item.participantId"
-          type="button"
-          class="member-row flex w-full items-center gap-3 border-b border-slate-100 px-1 py-4 text-left last:border-b-0"
+          class="member-row flex w-full items-center gap-1 border-b border-slate-100 px-1 text-left last:border-b-0"
           :class="
             trackedParticipantId === item.participantId
               ? 'member-row--tracked'
@@ -62,72 +63,103 @@ defineEmits(['close', 'select-member']);
                 ? 'member-row--online'
                 : ''
           "
-          @click="$emit('select-member', item.participantId)"
         >
-          <div
-            class="member-row__avatar relative h-12 w-12 shrink-0"
-            :class="
-              trackedParticipantId === item.participantId
-                ? 'member-row__avatar--tracked'
-                : item.isOnline
-                  ? 'member-row__avatar--online'
-                  : 'member-row__avatar--offline'
-            "
+          <button
+            type="button"
+            class="flex min-w-0 flex-1 items-center gap-3 py-4 text-left"
+            @click="$emit('select-member', item.participantId)"
           >
-            <div class="h-full w-full overflow-hidden rounded-2xl bg-slate-100">
-              <img
-                v-if="item.avatar"
-                :src="item.avatar"
-                class="h-full w-full object-cover"
-                alt=""
-              />
+            <div
+              class="member-row__avatar relative h-12 w-12 shrink-0"
+              :class="
+                trackedParticipantId === item.participantId
+                  ? 'member-row__avatar--tracked'
+                  : item.isOnline
+                    ? 'member-row__avatar--online'
+                    : 'member-row__avatar--offline'
+              "
+            >
               <div
-                v-else
-                class="flex h-full w-full items-center justify-center font-black text-slate-500"
+                class="h-full w-full overflow-hidden rounded-2xl bg-slate-100"
               >
-                {{ item.name.slice(0, 1) }}
+                <img
+                  v-if="item.avatar"
+                  :src="item.avatar"
+                  class="h-full w-full object-cover"
+                  alt=""
+                />
+                <div
+                  v-else
+                  class="flex h-full w-full items-center justify-center font-black text-slate-500"
+                >
+                  {{ item.name.slice(0, 1) }}
+                </div>
+              </div>
+              <span
+                class="member-row__status-dot absolute -right-0.5 -top-0.5 h-3.5 w-3.5 rounded-full border-2 border-white"
+              ></span>
+            </div>
+
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center justify-between gap-2">
+                <h3 class="truncate font-black text-slate-900">
+                  {{ item.name }}
+                </h3>
+                <span
+                  class="member-row__status-label shrink-0 text-[11px] font-bold"
+                >
+                  {{
+                    trackedParticipantId === item.participantId
+                      ? '追蹤中'
+                      : item.isOnline
+                        ? '在線'
+                        : '離線'
+                  }}
+                </span>
+              </div>
+              <div
+                class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-bold text-slate-400"
+              >
+                <span class="flex items-center gap-1">
+                  <Clock :size="13" />{{ formatTime(item.timestamp) }}
+                </span>
+                <span
+                  class="flex items-center gap-1"
+                  :class="getBatteryToneClass(item)"
+                >
+                  <Battery :size="13" />{{ formatBattery(item) }}
+                </span>
+                <span class="flex items-center gap-1">
+                  <Navigation :size="13" />{{
+                    item.acc || item.acc === 0 ? `${item.acc}m` : '--'
+                  }}
+                </span>
               </div>
             </div>
-            <span
-              class="member-row__status-dot absolute -right-0.5 -top-0.5 h-3.5 w-3.5 rounded-full border-2 border-white"
-            ></span>
-          </div>
+          </button>
 
-          <div class="min-w-0 flex-1">
-            <div class="flex items-center justify-between gap-2">
-              <h3 class="truncate font-black text-slate-900">{{ item.name }}</h3>
-              <span class="member-row__status-label shrink-0 text-[11px] font-bold">
-                {{
-                  trackedParticipantId === item.participantId
-                    ? '追蹤中'
-                    : item.isOnline
-                      ? '在線'
-                      : '離線'
-                }}
-              </span>
-            </div>
-            <div
-              class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-bold text-slate-400"
-            >
-              <span class="flex items-center gap-1">
-                <Clock :size="13" />{{ formatTime(item.timestamp) }}
-              </span>
-              <span
-                class="flex items-center gap-1"
-                :class="getBatteryToneClass(item)"
-              >
-                <Battery :size="13" />{{ formatBattery(item) }}
-              </span>
-              <span class="flex items-center gap-1">
-                <Navigation :size="13" />{{
-                  item.acc || item.acc === 0 ? `${item.acc}m` : '--'
-                }}
-              </span>
-            </div>
-          </div>
-
-          <MapPin :size="18" class="member-row__pin shrink-0" :stroke-width="2.4" />
-        </button>
+          <button
+            v-if="canViewHistory(item)"
+            type="button"
+            title="查看歷史軌跡"
+            :aria-label="`查看 ${item.name} 的歷史軌跡`"
+            class="mr-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+            :class="
+              historyParticipantId === item.participantId
+                ? 'bg-orange-100 text-orange-600'
+                : 'bg-slate-100 text-slate-500'
+            "
+            @click="$emit('view-history', item.participantId)"
+          >
+            <Route :size="18" :stroke-width="2.4" />
+          </button>
+          <MapPin
+            v-else
+            :size="18"
+            class="member-row__pin mr-2 shrink-0"
+            :stroke-width="2.4"
+          />
+        </div>
         <div
           v-if="locations.length === 0"
           class="py-10 text-center text-sm font-black text-slate-400"
