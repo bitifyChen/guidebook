@@ -33,6 +33,7 @@ import {
 import { useParticipantsStore } from '@/store/participantsStore';
 import { useTripStore } from '@/store/tripStore';
 import { useUserStore } from '@/store/userStore';
+import { detectTrackStops } from '@/utils/locationTrack';
 
 const tripStore = useTripStore();
 const participantsStore = useParticipantsStore();
@@ -80,9 +81,11 @@ let isOrientationListening = false;
 let noticeTimer = null;
 let deleteTimer = null;
 let onlineStatusTimer = null;
+let historyRequestSequence = 0;
 const markersByParticipantId = new Map();
 const markerAnimationsByParticipantId = new Map();
 const gatheringMarkersById = new Map();
+const historyTrackCache = new Map();
 
 const easeOutCubic = (value) => 1 - Math.pow(1 - value, 3);
 
@@ -126,6 +129,8 @@ const historyLastPointTime = computed(() => {
   const point = historyPoints.value[historyPoints.value.length - 1];
   return point ? formatTrackTime(point.ts) : '';
 });
+
+const historyStops = computed(() => detectTrackStops(historyPoints.value));
 
 const getTimestamp = (item) => Number(item.updatedAt || item.ts || 0);
 
@@ -399,6 +404,9 @@ const clearHistoryLayer = () => {
   historyLayer?.clearLayers();
 };
 
+const getHistoryCacheKey = ({ tripId, participantId, date }) =>
+  `${tripId}:${participantId}:${date}`;
+
 const renderHistoryTrack = () => {
   if (!mapInstance || !historyLayer) return;
   clearHistoryLayer();
@@ -414,6 +422,25 @@ const renderHistoryTrack = () => {
       lineJoin: 'round',
     }).addTo(historyLayer);
   }
+
+  historyStops.value.forEach((stop) => {
+    L.circleMarker([stop.lat, stop.lng], {
+      radius: 5,
+      color: '#ffffff',
+      weight: 2,
+      fillColor: '#0f172a',
+      fillOpacity: 0.96,
+    })
+      .bindPopup(
+        `停留 ${stop.durationMinutes} 分鐘<br>${formatTrackTime(stop.arrivedAt)} - ${formatTrackTime(stop.leftAt)}`,
+        {
+          closeButton: false,
+          offset: [0, -3],
+          className: 'location-track-stop-popup',
+        }
+      )
+      .addTo(historyLayer);
+  });
 
   const endpoints = [
     { latLng: latLngs[0], label: '起點', color: '#16a34a' },
@@ -445,42 +472,85 @@ const renderHistoryTrack = () => {
     mapInstance.fitBounds(bounds, {
       animate: true,
       paddingTopLeft: [28, 72],
-      paddingBottomRight: [28, 280],
+      paddingBottomRight: [28, 210],
       maxZoom: 17,
     });
   }
 };
 
 const loadParticipantHistory = async () => {
-  if (
-    !historyParticipantId.value ||
-    !canViewMemberHistory(historyParticipantId.value)
-  ) {
+  const requestId = ++historyRequestSequence;
+  const tripId = tripStore.currentTripId;
+  const participantId = historyParticipantId.value;
+  const selectedDate = historyDate.value;
+
+  if (!tripId) {
+    historyPoints.value = [];
+    clearHistoryLayer();
+    isHistoryLoading.value = false;
+    historyError.value = '目前沒有可讀取的旅程。';
+    return;
+  }
+  if (!participantId || !canViewMemberHistory(participantId)) {
+    historyPoints.value = [];
+    clearHistoryLayer();
+    isHistoryLoading.value = false;
     historyError.value = '目前沒有查看這位成員軌跡的權限。';
     return;
   }
-  const range = getLocalDateRange(historyDate.value);
+  const range = getLocalDateRange(selectedDate);
   if (!range) {
+    historyPoints.value = [];
+    clearHistoryLayer();
+    isHistoryLoading.value = false;
     historyError.value = '請選擇正確的日期。';
     return;
   }
 
   isHistoryLoading.value = true;
   historyError.value = '';
+  historyPoints.value = [];
+  clearHistoryLayer();
+
+  const cacheKey = getHistoryCacheKey({
+    tripId,
+    participantId,
+    date: selectedDate,
+  });
+  if (historyTrackCache.has(cacheKey)) {
+    historyPoints.value = historyTrackCache.get(cacheKey);
+    renderHistoryTrack();
+    isHistoryLoading.value = false;
+    return;
+  }
+
   try {
-    historyPoints.value = await getParticipantLocationTrack({
-      tripId: tripStore.currentTripId,
-      participantId: historyParticipantId.value,
+    const points = await getParticipantLocationTrack({
+      tripId,
+      participantId,
       ...range,
     });
+    if (requestId !== historyRequestSequence) return;
+
+    historyTrackCache.set(cacheKey, points);
+    historyPoints.value = points;
     renderHistoryTrack();
   } catch (error) {
+    if (requestId !== historyRequestSequence) return;
     historyPoints.value = [];
     clearHistoryLayer();
     historyError.value = error.message || '歷史軌跡讀取失敗。';
   } finally {
-    isHistoryLoading.value = false;
+    if (requestId === historyRequestSequence) {
+      isHistoryLoading.value = false;
+    }
   }
+};
+
+const changeParticipantHistoryDate = async (date) => {
+  if (!date || date === historyDate.value) return;
+  historyDate.value = date;
+  await loadParticipantHistory();
 };
 
 const openParticipantHistory = async (participantId) => {
@@ -498,10 +568,12 @@ const openParticipantHistory = async (participantId) => {
 };
 
 const closeParticipantHistory = () => {
+  historyRequestSequence += 1;
   isHistoryPanelOpen.value = false;
   historyParticipantId.value = '';
   historyPoints.value = [];
   historyError.value = '';
+  isHistoryLoading.value = false;
   clearHistoryLayer();
 };
 
@@ -581,6 +653,14 @@ const persistBrowserPosition = async (position) => {
     heading: position.coords.heading,
     speed: position.coords.speed,
   });
+
+  historyTrackCache.delete(
+    getHistoryCacheKey({
+      tripId: tripStore.currentTripId,
+      participantId,
+      date: getLocalDateValue(),
+    })
+  );
 
   mapInstance?.flyTo(
     [payload.lat, payload.lng],
@@ -1070,6 +1150,15 @@ const subscribeData = () => {
     tripStore.currentTripId,
     (rows) => {
       rawLocations.value = rows;
+      rows.forEach((item) => {
+        historyTrackCache.delete(
+          getHistoryCacheKey({
+            tripId: tripStore.currentTripId,
+            participantId: item.participantId,
+            date: getLocalDateValue(),
+          })
+        );
+      });
       isLoading.value = false;
     }
   );
@@ -1097,6 +1186,8 @@ const subscribeData = () => {
 watch(
   () => [tripStore.currentTripId, tripStore.isPublicTrip],
   async () => {
+    historyRequestSequence += 1;
+    historyTrackCache.clear();
     stopTracking();
     selectedParticipantId.value = '';
     followedParticipantId.value = '';
@@ -1110,6 +1201,7 @@ watch(
     historyParticipantId.value = '';
     historyPoints.value = [];
     historyError.value = '';
+    isHistoryLoading.value = false;
     destroyMap();
     subscribeData();
     await initMap();
@@ -1133,6 +1225,8 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  historyRequestSequence += 1;
+  historyTrackCache.clear();
   if (unsubscribeLocations) unsubscribeLocations();
   if (unsubscribeGatheringPoints) unsubscribeGatheringPoints();
   destroyMap();
@@ -1267,12 +1361,12 @@ onUnmounted(() => {
       :selected-date="historyDate"
       :is-loading="isHistoryLoading"
       :points-count="historyPoints.length"
+      :stops-count="historyStops.length"
       :first-point-time="historyFirstPointTime"
       :last-point-time="historyLastPointTime"
       :error="historyError"
       @close="closeParticipantHistory"
-      @update:selected-date="historyDate = $event"
-      @load="loadParticipantHistory"
+      @change-date="changeParticipantHistoryDate"
     />
 
     <GatheringPointSheet
@@ -1305,6 +1399,25 @@ onUnmounted(() => {
 .location-page .leaflet-container {
   width: 100%;
   height: 100%;
+}
+
+.location-page .location-track-stop-popup .leaflet-popup-content-wrapper {
+  color: #fff;
+  background: #0f172a;
+  border-radius: 8px;
+  box-shadow: 0 8px 20px rgb(15 23 42 / 24%);
+}
+
+.location-page .location-track-stop-popup .leaflet-popup-content {
+  margin: 7px 9px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.location-page .location-track-stop-popup .leaflet-popup-tip {
+  background: #0f172a;
 }
 
 .location-notice-enter-active,

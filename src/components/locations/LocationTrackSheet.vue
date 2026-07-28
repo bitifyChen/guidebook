@@ -1,5 +1,5 @@
 <script setup>
-import { CalendarDays, Loader2, Route, X } from 'lucide-vue-next';
+import { Loader2, Route, X } from 'lucide-vue-next';
 
 defineProps({
   open: { type: Boolean, default: false },
@@ -7,12 +7,13 @@ defineProps({
   selectedDate: { type: String, default: '' },
   isLoading: { type: Boolean, default: false },
   pointsCount: { type: Number, default: 0 },
+  stopsCount: { type: Number, default: 0 },
   firstPointTime: { type: String, default: '' },
   lastPointTime: { type: String, default: '' },
   error: { type: String, default: '' },
 });
 
-defineEmits(['close', 'update:selected-date', 'load']);
+defineEmits(['close', 'change-date']);
 </script>
 
 <template>
@@ -21,11 +22,11 @@ defineEmits(['close', 'update:selected-date', 'load']);
     class="pointer-events-none absolute inset-0 z-[720] flex items-end px-3 pb-[calc(6.25rem+env(safe-area-inset-bottom))]"
   >
     <section
-      class="pointer-events-auto w-full rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_18px_48px_rgba(15,23,42,0.24)]"
+      class="pointer-events-auto w-full rounded-[18px] border border-slate-200 bg-white px-3 py-2.5 shadow-[0_14px_36px_rgba(15,23,42,0.22)]"
     >
-      <header class="flex items-center gap-3">
+      <header class="flex min-w-0 items-center gap-2">
         <div
-          class="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-orange-50 font-black text-orange-600"
+          class="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-orange-50 text-xs font-black text-orange-600"
         >
           <img
             v-if="member?.avatar"
@@ -35,82 +36,67 @@ defineEmits(['close', 'update:selected-date', 'load']);
           />
           <span v-else>{{ member?.name?.slice(0, 1) || '?' }}</span>
         </div>
+
         <div class="min-w-0 flex-1">
           <div
-            class="flex items-center gap-1.5 text-[10px] font-black text-orange-600"
+            class="flex items-center gap-1 text-[9px] font-black leading-none text-orange-600"
           >
-            <Route :size="13" :stroke-width="2.6" />
+            <Route :size="11" :stroke-width="2.7" />
             歷史軌跡
           </div>
-          <h2 class="mt-0.5 truncate text-sm font-black text-slate-900">
+          <h2
+            class="mt-1 truncate text-xs font-black leading-none text-slate-900"
+          >
             {{ member?.name || '成員' }}
           </h2>
         </div>
+
+        <input
+          type="date"
+          :value="selectedDate"
+          aria-label="選擇軌跡日期"
+          class="h-9 w-28 shrink-0 rounded-xl border border-slate-200 bg-slate-50 px-2 text-[11px] font-bold text-slate-700 outline-none focus:border-orange-400"
+          @change="$emit('change-date', $event.target.value)"
+        />
+
         <button
           type="button"
           title="關閉歷史軌跡"
           aria-label="關閉歷史軌跡"
-          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-500"
+          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-500"
           @click="$emit('close')"
         >
-          <X :size="17" :stroke-width="2.6" />
+          <X :size="16" :stroke-width="2.6" />
         </button>
       </header>
 
-      <div class="mt-4 flex items-end gap-2">
-        <label class="min-w-0 flex-1 space-y-1">
-          <span
-            class="flex items-center gap-1 text-[10px] font-black text-slate-400"
-          >
-            <CalendarDays :size="12" />日期
-          </span>
-          <input
-            type="date"
-            :value="selectedDate"
-            class="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-700 outline-none focus:border-orange-400"
-            @input="$emit('update:selected-date', $event.target.value)"
-          />
-        </label>
-        <button
-          type="button"
-          :disabled="isLoading || !selectedDate"
-          class="flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-orange-500 px-4 text-xs font-black text-white disabled:opacity-50"
-          @click="$emit('load')"
-        >
-          <Loader2 v-if="isLoading" :size="14" class="animate-spin" />
-          <Route v-else :size="14" :stroke-width="2.6" />
-          顯示
-        </button>
-      </div>
+      <div
+        class="mt-2 flex min-h-5 min-w-0 items-center gap-1.5 border-t border-slate-100 pt-2 text-[10px] font-bold"
+      >
+        <template v-if="isLoading">
+          <Loader2 :size="12" class="shrink-0 animate-spin text-orange-500" />
+          <span class="text-slate-500">讀取軌跡中</span>
+        </template>
 
-      <div
-        v-if="error"
-        class="mt-3 rounded-xl bg-red-50 px-3 py-2.5 text-xs font-bold text-red-600"
-      >
-        {{ error }}
-      </div>
-      <div
-        v-else-if="isLoading"
-        class="mt-3 rounded-xl bg-slate-50 px-3 py-2.5 text-xs font-bold text-slate-400"
-      >
-        讀取軌跡中...
-      </div>
-      <div
-        v-else-if="pointsCount"
-        class="mt-3 flex items-center justify-between gap-3 rounded-xl bg-orange-50 px-3 py-2.5"
-      >
-        <span class="text-xs font-black text-orange-700">
-          {{ pointsCount.toLocaleString() }} 個定位點
+        <span v-else-if="error" class="truncate text-red-600" :title="error">
+          {{ error }}
         </span>
-        <span class="text-[10px] font-bold text-orange-500">
-          {{ firstPointTime }} - {{ lastPointTime }}
-        </span>
-      </div>
-      <div
-        v-else
-        class="mt-3 rounded-xl bg-slate-50 px-3 py-2.5 text-xs font-bold text-slate-400"
-      >
-        這一天尚無歷史軌跡
+
+        <template v-else-if="pointsCount">
+          <Route :size="12" class="shrink-0 text-orange-500" />
+          <span class="shrink-0 text-slate-700">
+            {{ pointsCount.toLocaleString() }} 個定位點
+          </span>
+          <span class="text-slate-300">·</span>
+          <span class="shrink-0 text-slate-700">
+            {{ stopsCount.toLocaleString() }} 個停留
+          </span>
+          <span class="ml-auto truncate text-right text-slate-400">
+            {{ firstPointTime }} - {{ lastPointTime }}
+          </span>
+        </template>
+
+        <span v-else class="text-slate-400">這一天尚無歷史軌跡</span>
       </div>
     </section>
   </div>
