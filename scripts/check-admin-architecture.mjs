@@ -26,11 +26,23 @@ const walk = (directory, extension = '') =>
 const relative = (filename) =>
   path.relative(root, filename).replaceAll('\\', '/');
 const errors = [];
+const disallowedManagerFiles = new Set(
+  Object.entries(domains).map(
+    ([domain, prefix]) => `src/components/admin/${domain}/${prefix}Manager.vue`
+  )
+);
 
 for (const filename of walk(adminPagesDir, '.vue')) {
   const source = fs.readFileSync(filename, 'utf8');
   if (/from\s+['"][^'"]*pages\/admin\//.test(source)) {
     errors.push(`${relative(filename)} 不得 import 其他 Admin Page`);
+  }
+  if (
+    /<template>\s*<Admin(?:Trip|Itinerary|Participant|Notification|Packing|Config)Manager\s*\/?\s*>\s*<\/template>/s.test(
+      source
+    )
+  ) {
+    errors.push(`${relative(filename)} 不得只包裹整頁 Manager 元件`);
   }
 }
 
@@ -62,6 +74,12 @@ for (const [domain, prefix] of Object.entries(domains)) {
     if (!path.basename(filename).startsWith(prefix)) {
       errors.push(`${relative(filename)} 檔名必須以 ${prefix} 開頭`);
     }
+  }
+}
+
+for (const filename of disallowedManagerFiles) {
+  if (fs.existsSync(path.join(root, filename))) {
+    errors.push(`${filename} 是無意義的整頁包裹層，內容應回到 page`);
   }
 }
 

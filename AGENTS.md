@@ -17,7 +17,9 @@
 - 跨頁共用元件放在 `src/components/admin/shared/`，命名為 `Admin{Feature}`；不得包含特定頁面流程，不得直接依賴領域 API 或 domain 元件。
 - 頁面專屬元件依 singular domain 放置：`trip`、`itinerary`、`participant`、`notification`、`packing`、`config`。
 - Domain 元件命名為 `Admin{Domain}{Feature}`；複雜子功能繼續延伸名稱，例如 `AdminParticipantFormTracking`，並留在相同 domain 目錄。
-- `src/pages/admin` 只負責 route metadata、權限、載入與流程串接；Admin Page 不得 import 另一個 Admin Page。
+- `src/pages/admin` 擁有該路由的第一層畫面、資料流程與頁面編排；不要建立只把整頁原封不動包住的 `Admin{Domain}Manager` 元件。
+- Table、Drawer、Form、Row、Section 等具有清楚職責的區塊才拆到 domain components。跨入口實際重用的複合區塊命名為 `Admin{Domain}Workspace`，不可用 Workspace 取代整頁本身。
+- Admin Page 不得 import 另一個 Admin Page；需要跨入口共用時抽出 domain component 或 composable。
 - 不得把頁面專屬元件放回 `src/components/admin/` 根目錄。修改後台架構後執行 `npm run check:admin-architecture`。
 
 <!-- BACKLOG.MD GUIDELINES START -->

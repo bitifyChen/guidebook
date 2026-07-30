@@ -1,6 +1,5 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { useTravelStore } from '@/store/travelStore';
 import { useTripStore } from '@/store/tripStore';
@@ -26,14 +25,10 @@ import {
   getMissingRouteCoordinateItems,
   validateCoordinateAssistantPayload,
 } from '@/utils/itineraryRoute';
-import { ChevronLeft, Save } from 'lucide-vue-next';
+import { Save } from 'lucide-vue-next';
 
-const router = useRouter();
 const travelStore = useTravelStore();
 const tripStore = useTripStore();
-const props = defineProps({
-  embedded: { type: Boolean, default: false },
-});
 
 const localItinerary = ref([]);
 const hasChanges = ref(false);
@@ -545,32 +540,8 @@ const saveDayStart = async () => {
 </script>
 
 <template>
-  <div
-    :class="
-      props.embedded ? 'bg-slate-50 pb-24' : 'min-h-screen bg-slate-50 pb-32'
-    "
-  >
-    <nav
-      v-if="!props.embedded"
-      class="p-6 sticky top-0 bg-slate-50/80 backdrop-blur-md z-40 flex items-center justify-between"
-    >
-      <button
-        @click="router.push('/admin')"
-        class="w-10 h-10 bg-white rounded-2xl flex items-center justify-center shadow-sm border border-slate-100"
-      >
-        <ChevronLeft :size="20" />
-      </button>
-      <h2 class="font-black text-slate-800 text-lg">行程進度管理</h2>
-      <div class="w-10"></div>
-    </nav>
-
-    <main
-      :class="
-        props.embedded
-          ? 'p-3 space-y-6 sm:p-5'
-          : 'max-w-5xl mx-auto p-3 space-y-8 sm:p-6'
-      "
-    >
+  <div class="bg-slate-50 pb-24">
+    <main class="space-y-6 p-3 sm:p-5">
       <AdminItineraryToolbar
         :is-checking-images="isCheckingImages"
         @create="openCreateItemDrawer"

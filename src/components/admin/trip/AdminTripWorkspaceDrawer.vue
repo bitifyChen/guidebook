@@ -22,7 +22,7 @@ const emit = defineEmits(['update:open', 'close']);
     @close="emit('close')"
   >
     <div class="h-full min-h-0 overflow-y-auto">
-      <component :is="component" v-if="component" embedded />
+      <component :is="component" v-if="component" />
     </div>
   </AdminDrawer>
 </template>

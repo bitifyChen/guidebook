@@ -1,17 +1,11 @@
 <script setup>
 import { onMounted } from 'vue';
-import { useRouter } from 'vue-router';
 import { useTravelStore } from '@/store/travelStore';
 import { patchDayConfig } from '@/api/itinerary';
-import { ChevronLeft, Save } from 'lucide-vue-next';
 import dayjs from 'dayjs';
 import AdminConfigDayRow from '@/components/admin/config/AdminConfigDayRow.vue';
 
-const router = useRouter();
 const travelStore = useTravelStore();
-const props = defineProps({
-  embedded: { type: Boolean, default: false },
-});
 
 onMounted(() => travelStore.init());
 
@@ -42,37 +36,13 @@ const updateConfig = async () => {
     alert('儲存失敗');
   }
 };
+
+defineExpose({ save: updateConfig });
 </script>
 
 <template>
-  <div
-    :class="
-      props.embedded ? 'bg-slate-50 pb-8' : 'min-h-screen bg-slate-50 pb-20'
-    "
-  >
-    <!-- ... (導航列保持不變) ... -->
-    <nav
-      v-if="!props.embedded"
-      class="p-6 sticky top-0 bg-slate-50/80 backdrop-blur-md z-40 flex items-center justify-between"
-    >
-      <button
-        @click="router.push('/admin')"
-        class="w-10 h-10 bg-white rounded-2xl flex items-center justify-center shadow-sm border border-slate-100"
-      >
-        <ChevronLeft :size="20" />
-      </button>
-      <h2 class="font-black text-slate-800 text-lg">行程全域設定</h2>
-      <button
-        @click="updateConfig"
-        class="w-10 h-10 bg-slate-800 text-white rounded-2xl flex items-center justify-center shadow-sm"
-      >
-        <Save :size="20" />
-      </button>
-    </nav>
-
-    <main
-      :class="props.embedded ? 'p-3 sm:p-5' : 'max-w-4xl mx-auto p-3 sm:p-6'"
-    >
+  <div class="bg-slate-50 pb-8">
+    <main class="p-3 sm:p-5">
       <div class="space-y-4">
         <AdminConfigDayRow
           v-for="(conf, index) in travelStore.config"

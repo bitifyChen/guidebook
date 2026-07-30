@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@codex'
 created_date: '2026-07-30 07:15'
-updated_date: '2026-07-30 07:52'
+updated_date: '2026-07-30 08:04'
 labels: []
 dependencies: []
 references:
@@ -26,9 +26,9 @@ ordinal: 14000
 <!-- AC:BEGIN -->
 - [x] #1 跨頁共用元件位於 components/admin/shared，且不含特定頁面設計或領域 API 依賴。
 - [x] #2 旅程、行程、成員、推播、行李與每日設定依 singular domain 拆分，元件名稱符合 Admin{Domain}{Feature}。
-- [x] #3 Admin Page 不再 import 另一個 Admin Page，Page 僅負責路由、權限、資料載入與工作流程串接。
-- [x] #4 main 與重構分支使用相同 Vitest 測試集且測試名稱、數量、結果一致；重構分支 production/PWA build 通過。
-- [x] #5 重構分支推送後保持未合併狀態，等待使用者完成後台 QA。
+- [x] #3 Admin Page 擁有路由的第一層畫面與編排，不使用只包裹整頁的 Admin{Domain}Manager，且不 import 另一個 Admin Page。
+- [x] #4 Config、Itinerary 僅將 Trip Drawer 與獨立頁面都會使用的編輯區抽為 Workspace，其餘 Table、Drawer、Form、Row 維持明確職責。
+- [x] #5 main 與重構分支使用相同 Vitest 測試集且測試名稱、數量、結果一致；重構分支 build 通過並保持未合併等待 QA。
 <!-- AC:END -->
 
 ## Definition of Done
@@ -39,7 +39,7 @@ ordinal: 14000
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
-基準 main commit：cfd965b。1. 建立 admin/shared 並搬移跨頁共用元件、更新引用。2. 依 config、itinerary、trip、participant、notification、packing 順序抽出 singular domain 元件與必要 useAdmin composable。3. 移除 Admin Page-to-Page import，讓 Page 僅負責路由、權限、載入與工作流程。4. 更新 AGENTS.md 並新增 check:admin-architecture。5. 執行與 main 相同 Vitest JSON 測試、production/PWA build、Prettier、git diff、UTF-8，提交推送後等待 QA，不合併。
+基準 main commit：cfd965b。1. shared 與 singular domain 元件維持既有拆分。2. 移除只包住整頁的 Admin*Manager：Trip、Participant、Notification、Packing 邏輯與第一層 template 回到對應 page。3. Config、Itinerary 因需同時支援獨立 route 與 Trip Drawer，拆成 page chrome + 可重用 Admin*Workspace，不保留整頁 Manager。4. 架構規則新增禁止 top-level Manager wrapper，AGENTS 記錄 page 第一層原則。5. 重跑相同 Vitest、Admin SFC、build、Prettier、UTF-8 與架構檢查，推送分支後繼續等待 QA。
 <!-- SECTION:PLAN:END -->
 
 ## Implementation Notes
@@ -50,4 +50,8 @@ ordinal: 14000
 完成 shared 與六個 singular domain 拆分：Trip、Itinerary、Participant、Notification、Packing、Config；Admin Page 已改為薄路由容器。新增架構檢查與 AGENTS 規範。重構分支驗證：Vitest 6 files / 22 tests 通過、32 個 Admin SFC 編譯通過、production/PWA build 通過、Prettier、git diff、UTF-8 與架構檢查通過。待提交推送並與 main JSON reporter 結果比對後交付 QA。
 
 雙分支驗證完成：main cfd965b 與 refactor db988d1 使用相同 JSON reporter，比對 12 suites、22 tests、22 passed，測試名稱與結果完全一致；兩個分支 production/PWA build 均通過。重構分支已推送且未合併，TASK-14 保持 In Progress 等待後台人工 QA。
+
+依使用者維護習慣修正：page 不應只渲染一個與整頁等價的 Manager component。將第一層責任移回 page，僅保留有明確 UI 職責或實際跨入口重用的元件。
+
+依 QA 回饋完成 page ownership 修正：Trip、Participant、Notification、Packing 第一層畫面與流程已回到 page；Config、Itinerary page 自己持有頁面 chrome，只將跨 Trip Drawer 重用的編輯區保留為 Workspace。移除六個 Admin{Domain}Manager，架構檢查新增禁止無意義整頁 wrapper。驗證：40 個 Admin SFC 編譯、production/PWA build、架構檢查、Prettier、UTF-8、git diff 均通過；與 main JSON reporter 仍為 12 suites / 22 tests / 22 passed 且名稱結果一致。
 <!-- SECTION:NOTES:END -->
