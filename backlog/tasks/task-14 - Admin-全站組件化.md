@@ -1,11 +1,11 @@
 ---
 id: TASK-14
 title: Admin 全站組件化
-status: In Progress
+status: Done
 assignee:
   - '@codex'
 created_date: '2026-07-30 07:15'
-updated_date: '2026-07-30 08:04'
+updated_date: '2026-07-30 08:34'
 labels: []
 dependencies: []
 references:
@@ -55,3 +55,9 @@ ordinal: 14000
 
 依 QA 回饋完成 page ownership 修正：Trip、Participant、Notification、Packing 第一層畫面與流程已回到 page；Config、Itinerary page 自己持有頁面 chrome，只將跨 Trip Drawer 重用的編輯區保留為 Workspace。移除六個 Admin{Domain}Manager，架構檢查新增禁止無意義整頁 wrapper。驗證：40 個 Admin SFC 編譯、production/PWA build、架構檢查、Prettier、UTF-8、git diff 均通過；與 main JSON reporter 仍為 12 suites / 22 tests / 22 passed 且名稱結果一致。
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+完成 Admin shared/domain 組件化並依維護規範保留 page 第一層所有權；重構分支已由使用者確認並合併至 main。先前已完成 unit、SFC、architecture 與 production/PWA build 驗證。
+<!-- SECTION:FINAL_SUMMARY:END -->
