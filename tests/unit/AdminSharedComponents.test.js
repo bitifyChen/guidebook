@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
-import AdminDataTable from '@/components/admin/AdminDataTable.vue';
-import AdminDrawer from '@/components/admin/AdminDrawer.vue';
+import AdminDataTable from '@/components/admin/shared/AdminDataTable.vue';
+import AdminDrawer from '@/components/admin/shared/AdminDrawer.vue';
 
 const ElDrawerStub = {
   props: ['modelValue'],

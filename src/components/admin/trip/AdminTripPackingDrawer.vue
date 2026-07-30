@@ -8,7 +8,7 @@ import {
   Save,
   Trash2,
 } from 'lucide-vue-next';
-import AdminDrawer from '@/components/admin/AdminDrawer.vue';
+import AdminDrawer from '@/components/admin/shared/AdminDrawer.vue';
 import {
   normalizeTripPackingList,
   selectAllPackingCatalogItems,

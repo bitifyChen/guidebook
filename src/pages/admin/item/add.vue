@@ -1,6 +1,6 @@
 <script setup>
 import { useRouter } from 'vue-router';
-import AdminItineraryItemForm from '@/components/admin/AdminItineraryItemForm.vue';
+import AdminItineraryItemForm from '@/components/admin/itinerary/AdminItineraryItemForm.vue';
 import { ChevronLeft } from 'lucide-vue-next';
 
 const router = useRouter();
@@ -25,7 +25,9 @@ const leavePage = () => {
       <h2 class="text-lg font-black text-slate-900">新增行程</h2>
       <div class="w-10"></div>
     </nav>
-    <main class="mx-auto h-[calc(100dvh-65px)] max-w-3xl sm:h-[calc(100dvh-73px)]">
+    <main
+      class="mx-auto h-[calc(100dvh-65px)] max-w-3xl sm:h-[calc(100dvh-73px)]"
+    >
       <AdminItineraryItemForm
         mode="create"
         @cancel="leavePage"

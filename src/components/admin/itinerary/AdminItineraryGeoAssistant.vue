@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
-import AdminDrawer from '@/components/admin/AdminDrawer.vue';
+import AdminDrawer from '@/components/admin/shared/AdminDrawer.vue';
 import {
   buildCoordinateAssistantItems,
   buildCoordinateAssistantPrompt,

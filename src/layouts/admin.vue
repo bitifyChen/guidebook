@@ -13,8 +13,8 @@ import {
   Users,
   X,
 } from 'lucide-vue-next';
-import AdminNavMenuItem from '@/components/admin/AdminNavMenuItem.vue';
-import AdminTripSelector from '@/components/AdminTripSelector.vue';
+import AdminNavMenuItem from '@/components/admin/shared/AdminNavMenuItem.vue';
+import AdminTripSelector from '@/components/admin/shared/AdminTripSelector.vue';
 import { useTripStore } from '@/store/tripStore';
 import { useUserStore } from '@/store/userStore';
 

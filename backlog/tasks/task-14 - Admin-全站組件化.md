@@ -1,9 +1,11 @@
 ---
 id: TASK-14
 title: Admin 全站組件化
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@codex'
 created_date: '2026-07-30 07:15'
+updated_date: '2026-07-30 07:49'
 labels: []
 dependencies: []
 references:
@@ -33,3 +35,17 @@ ordinal: 14000
 <!-- DOD:BEGIN -->
 - [ ] #1 AGENTS.md 與 check:admin-architecture 已建立，Prettier、git diff、UTF-8 與架構檢查通過。
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+基準 main commit：cfd965b。1. 建立 admin/shared 並搬移跨頁共用元件、更新引用。2. 依 config、itinerary、trip、participant、notification、packing 順序抽出 singular domain 元件與必要 useAdmin composable。3. 移除 Admin Page-to-Page import，讓 Page 僅負責路由、權限、載入與工作流程。4. 更新 AGENTS.md 並新增 check:admin-architecture。5. 執行與 main 相同 Vitest JSON 測試、production/PWA build、Prettier、git diff、UTF-8，提交推送後等待 QA，不合併。
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+重構基準為 main cfd965b；基準 Vitest 6 files、22 tests 全數通過，production/PWA build 通過。
+
+完成 shared 與六個 singular domain 拆分：Trip、Itinerary、Participant、Notification、Packing、Config；Admin Page 已改為薄路由容器。新增架構檢查與 AGENTS 規範。重構分支驗證：Vitest 6 files / 22 tests 通過、32 個 Admin SFC 編譯通過、production/PWA build 通過、Prettier、git diff、UTF-8 與架構檢查通過。待提交推送並與 main JSON reporter 結果比對後交付 QA。
+<!-- SECTION:NOTES:END -->

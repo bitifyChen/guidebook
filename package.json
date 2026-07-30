@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test:unit": "vitest run",
+    "check:admin-architecture": "node scripts/check-admin-architecture.mjs",
     "lint": "eslint . --ext .vue,.js,.ts,.jsx,.tsx --fix",
     "format": "prettier --write .",
     "stylelint": "stylelint 'src/**/*.{vue,css,scss}' --fix"

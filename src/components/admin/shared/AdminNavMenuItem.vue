@@ -13,7 +13,11 @@ const isOpen = ref(false);
 
 const isChildActive = (item) => {
   if (item.path && props.activePath === item.path) return true;
-  if (item.path && item.path !== '/admin' && props.activePath.startsWith(item.path)) {
+  if (
+    item.path &&
+    item.path !== '/admin' &&
+    props.activePath.startsWith(item.path)
+  ) {
     return true;
   }
   return item.children?.some((child) => isChildActive(child)) || false;
