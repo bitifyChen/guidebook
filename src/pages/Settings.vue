@@ -47,6 +47,7 @@ import {
   MapPin,
 } from 'lucide-vue-next';
 import { getFCMToken } from '@/firebase/index';
+import { hasPackingItems } from '@/utils/packingList';
 
 const router = useRouter();
 const userStore = useUserStore();
@@ -100,6 +101,15 @@ const shouldShowMyTripsSection = computed(() =>
 const deferredPrompt = ref(null);
 const isStandalone = ref(false);
 const isPackingListOpen = ref(false);
+const packingTemplate = computed(
+  () => tripStore.currentTrip?.packingList || []
+);
+const hasTripPackingList = computed(() =>
+  hasPackingItems(packingTemplate.value)
+);
+const packingParticipantId = computed(
+  () => userStore.myParticipant?.id || userStore.localParticipantId || 'guest'
+);
 
 // FCM 推播相關狀態
 const notificationPermission = ref('default');
@@ -318,6 +328,7 @@ const handleInstallClick = async () => {
 };
 
 const reloadTripData = async () => {
+  await tripStore.init();
   await participantsStore.init();
   await travelStore.init();
   await expensesStore.init();
@@ -1078,7 +1089,7 @@ const disableNotificationForCurrentTrip = async () => {
 
         <!-- Packing List Button -->
         <button
-          v-if="!tripStore.isPublicTrip"
+          v-if="!tripStore.isPublicTrip && hasTripPackingList"
           @click="isPackingListOpen = true"
           class="w-full p-6 flex items-center gap-4 hover:bg-lime-50 transition-colors group border-b border-slate-50"
         >
@@ -1453,7 +1464,12 @@ const disableNotificationForCurrentTrip = async () => {
     </Teleport>
 
     <!-- Packing List Drawer -->
-    <PackingList v-model:visible="isPackingListOpen" />
+    <PackingList
+      v-model:visible="isPackingListOpen"
+      :template="packingTemplate"
+      :trip-id="tripStore.currentTripId"
+      :participant-id="packingParticipantId"
+    />
 
     <!-- Edit Profile Modal -->
     <div

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, watch, computed } from 'vue';
+import { ref, watch, computed } from 'vue';
 import {
   X,
   Luggage,
@@ -10,35 +10,98 @@ import {
   Trash2,
   MoreVertical,
 } from 'lucide-vue-next';
-import defaultList from '@/data/packingList.json';
+import {
+  DEFAULT_PACKING_CATALOG,
+  createPackingStateFromTemplate,
+  getPackingStorageKey,
+  getPackingTemplateSignature,
+  mergePackingState,
+} from '@/utils/packingList';
 
 const props = defineProps({
   visible: Boolean,
+  template: { type: Array, default: () => [] },
+  tripId: { type: String, default: '' },
+  participantId: { type: String, default: 'guest' },
 });
 
-const emit = defineEmits(['update:visible']);
+const emit = defineEmits(['update:visible', 'change']);
 
 const STORAGE_KEY = 'guidebook_packing_list_v2';
 const LEGACY_STORAGE_KEY = ['jeju', 'packing', 'list', 'v2'].join('_');
+const LEGACY_MIGRATION_KEY = 'guidebook_packing_list_v3_legacy_migrated';
 
 const list = ref([]);
+const templateSignature = ref('');
+const isReady = ref(false);
 
-// 初始化資料
-onMounted(() => {
-  const saved =
-    localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
-  if (saved) {
-    list.value = JSON.parse(saved);
-  } else {
-    list.value = JSON.parse(JSON.stringify(defaultList));
+const effectiveTemplate = computed(() =>
+  props.template.length
+    ? props.template
+    : props.tripId
+      ? []
+      : DEFAULT_PACKING_CATALOG
+);
+const scopedStorageKey = computed(() =>
+  getPackingStorageKey(props.tripId, props.participantId)
+);
+
+const parseSavedState = (value) => {
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    console.warn('Unable to parse packing list state', error);
+    return null;
   }
+};
+
+const loadList = () => {
+  isReady.value = false;
+  const scopedSaved = parseSavedState(
+    localStorage.getItem(scopedStorageKey.value)
+  );
+  const canMigrateLegacy = !localStorage.getItem(LEGACY_MIGRATION_KEY);
+  const legacySaved =
+    scopedSaved || !canMigrateLegacy
+      ? null
+      : parseSavedState(
+          localStorage.getItem(STORAGE_KEY) ||
+            localStorage.getItem(LEGACY_STORAGE_KEY)
+        );
+  const state = mergePackingState({
+    saved: scopedSaved || legacySaved,
+    template: effectiveTemplate.value,
+  });
+  templateSignature.value = state.templateSignature;
+  list.value = state.list;
+  localStorage.setItem(scopedStorageKey.value, JSON.stringify(state));
+  if (legacySaved) {
+    localStorage.setItem(LEGACY_MIGRATION_KEY, scopedStorageKey.value);
+  }
+  isReady.value = true;
+  emit('change', state.list);
+};
+
+watch(() => [props.tripId, props.participantId, props.template], loadList, {
+  deep: true,
+  immediate: true,
 });
 
 // 監聽變動即時儲存
 watch(
   list,
   (newVal) => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(newVal));
+    if (!isReady.value) return;
+    const state = {
+      version: 3,
+      templateSignature:
+        templateSignature.value ||
+        getPackingTemplateSignature(effectiveTemplate.value),
+      list: newVal,
+    };
+    localStorage.setItem(scopedStorageKey.value, JSON.stringify(state));
+    emit('change', newVal);
   },
   { deep: true }
 );
@@ -67,10 +130,20 @@ const newCategoryName = ref('');
 const addCategory = () => {
   if (!newCategoryName.value.trim()) return;
   list.value.push({
+    id: `custom-category-${crypto.randomUUID?.() || Date.now()}`,
     category: newCategoryName.value.trim(),
+    source: 'custom',
     items: [],
   });
   newCategoryName.value = '';
+};
+
+const removeCategory = (catIdx) => {
+  const category = list.value[catIdx];
+  if (category?.source !== 'custom') return;
+  if (confirm(`確定要刪除「${category.category}」分類嗎？`)) {
+    list.value.splice(catIdx, 1);
+  }
 };
 
 const newItemNames = ref({}); // 用於存放每個分類對應的新增項目輸入值
@@ -78,8 +151,10 @@ const addItem = (catIdx) => {
   const name = newItemNames.value[catIdx];
   if (!name || !name.trim()) return;
   list.value[catIdx].items.push({
+    id: `custom-item-${crypto.randomUUID?.() || Date.now()}`,
     name: name.trim(),
     checked: false,
+    source: 'custom',
   });
   newItemNames.value[catIdx] = '';
 };
@@ -100,7 +175,9 @@ const clearAllChecked = () => {
 
 const resetList = () => {
   if (confirm('確定要還原為預設清單嗎？這將覆蓋您目前的先前新增的項目。')) {
-    list.value = JSON.parse(JSON.stringify(defaultList));
+    const state = createPackingStateFromTemplate(effectiveTemplate.value);
+    templateSignature.value = state.templateSignature;
+    list.value = state.list;
   }
 };
 
@@ -181,6 +258,15 @@ const close = () => emit('update:visible', false);
                 <div class="w-1.5 h-3 bg-orange-300 rounded-full"></div>
                 {{ cat.category }}
               </h3>
+              <button
+                v-if="cat.source === 'custom'"
+                type="button"
+                class="flex h-8 w-8 items-center justify-center text-slate-300 transition-colors hover:text-red-400"
+                title="刪除自訂分類"
+                @click="removeCategory(catIdx)"
+              >
+                <Trash2 :size="15" />
+              </button>
             </div>
 
             <div class="grid gap-3">
@@ -246,6 +332,26 @@ const close = () => emit('update:visible', false);
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <div class="px-2 pt-2">
+            <div class="relative">
+              <input
+                v-model="newCategoryName"
+                type="text"
+                placeholder="新增自訂分類..."
+                class="w-full rounded-2xl border border-dashed border-orange-200 bg-white p-3 pr-10 text-xs font-bold text-slate-600 outline-none transition-all placeholder:text-slate-300 focus:border-orange-300 focus:ring-2 focus:ring-orange-100"
+                @keyup.enter="addCategory"
+              />
+              <button
+                type="button"
+                class="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center text-orange-400"
+                title="新增自訂分類"
+                @click="addCategory"
+              >
+                <Plus :size="16" stroke-width="3" />
+              </button>
             </div>
           </div>
         </main>

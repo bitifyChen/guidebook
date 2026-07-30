@@ -8,6 +8,10 @@ import {
 } from '@/api/itinerary';
 import { uploadImage } from '@/api/storage';
 import {
+  getClipboardImageFiles,
+  uploadClipboardImages,
+} from '@/utils/clipboardImage';
+import {
   parseGoogleMapsCoordinates,
   parseGoogleMapsPlaceId,
 } from '@/utils/mapUrlParser';
@@ -44,7 +48,9 @@ const isUploadingImages = ref(false);
 const coverInput = ref(null);
 const imagesInput = ref(null);
 
-const isEditMode = computed(() => props.mode === 'edit' && !!currentItem.value?.id);
+const isEditMode = computed(
+  () => props.mode === 'edit' && !!currentItem.value?.id
+);
 const hasUnknownCategory = computed(
   () =>
     currentItem.value?.category &&
@@ -76,9 +82,10 @@ const createDefaultItem = () => {
     category: '景點',
     cover: '',
     map: '',
-    geo: { lat: null, lng: null, placeId: '', mapUrl: '' },
+    geo: { lat: null, lng: null, placeId: '' },
     duration: 0,
     delay: 0,
+    fixedStartTime: '',
     nextDrive: { time: 0, km: '' },
     description: '',
     detail: '',
@@ -95,8 +102,9 @@ const resetForm = () => {
         lat: item.geo?.lat ?? null,
         lng: item.geo?.lng ?? null,
         placeId: item.geo?.placeId || '',
-        mapUrl: item.geo?.mapUrl || item.map || '',
       },
+      map: item.map || item.geo?.mapUrl || '',
+      fixedStartTime: item.fixedStartTime || '',
       nextDrive: item.nextDrive || { time: 0, km: 0 },
       images: Array.isArray(item.images) ? item.images : [],
       parentId: item.parentId || '',
@@ -125,7 +133,8 @@ watch(
 watch(
   () => currentItem.value?.day,
   (day, oldDay) => {
-    if (!currentItem.value || isEditMode.value || !day || day === oldDay) return;
+    if (!currentItem.value || isEditMode.value || !day || day === oldDay)
+      return;
     currentItem.value.order = getNextOrder(day);
     currentItem.value.parentId = '';
   }
@@ -136,7 +145,10 @@ watch(
   (type, oldType) => {
     if (!currentItem.value || !type || type === oldType) return;
     const oldDefault = getItineraryTypeOption(oldType).defaultCategory;
-    if (!currentItem.value.category || currentItem.value.category === oldDefault) {
+    if (
+      !currentItem.value.category ||
+      currentItem.value.category === oldDefault
+    ) {
       currentItem.value.category = getItineraryTypeOption(type).defaultCategory;
     }
   }
@@ -165,11 +177,9 @@ const removeImage = (index) => {
 const applyMapUrlCoordinates = () => {
   if (!currentItem.value) return;
   if (!currentItem.value.geo) {
-    currentItem.value.geo = { lat: null, lng: null, placeId: '', mapUrl: '' };
+    currentItem.value.geo = { lat: null, lng: null, placeId: '' };
   }
-  const mapUrl = currentItem.value.geo.mapUrl || currentItem.value.map || '';
-  currentItem.value.geo.mapUrl = mapUrl;
-  currentItem.value.map = mapUrl;
+  const mapUrl = currentItem.value.map || '';
   const coordinates = parseGoogleMapsCoordinates(mapUrl);
   if (coordinates) {
     currentItem.value.geo.lat = coordinates.lat;
@@ -210,13 +220,43 @@ const handleImagesUpload = async (event) => {
   }
 };
 
+const handleCoverPaste = async (event) => {
+  if (!getClipboardImageFiles(event).length) return;
+
+  isUploadingCover.value = true;
+  try {
+    const { urls } = await uploadClipboardImages(event, { multiple: false });
+    if (urls[0]) currentItem.value.cover = urls[0];
+  } catch (error) {
+    alert(`封面上傳失敗：${error.message}`);
+  } finally {
+    isUploadingCover.value = false;
+  }
+};
+
+const handleGalleryPaste = async (event) => {
+  if (!getClipboardImageFiles(event).length) return;
+
+  isUploadingImages.value = true;
+  try {
+    const { urls } = await uploadClipboardImages(event);
+    if (urls.length) currentItem.value.images.push(...urls);
+  } catch (error) {
+    alert(`圖片上傳失敗：${error.message}`);
+  } finally {
+    isUploadingImages.value = false;
+  }
+};
+
 const normalizeItem = () => {
-  const { id, startTime, endTime, updatedAt, ...data } = cloneItem(currentItem.value);
+  const { id, startTime, endTime, updatedAt, ...data } = cloneItem(
+    currentItem.value
+  );
   data.day = Number(data.day) || getDefaultDay();
   data.order = Number(data.order) || getNextOrder(data.day);
   data.delay = Number(data.delay) || 0;
   data.nextDrive = data.nextDrive || { time: 0, km: '' };
-  data.geo = data.geo || { lat: null, lng: null, placeId: '', mapUrl: '' };
+  data.geo = data.geo || { lat: null, lng: null, placeId: '' };
   data.geo.lat =
     data.geo.lat === '' || data.geo.lat === null || data.geo.lat === undefined
       ? null
@@ -226,14 +266,20 @@ const normalizeItem = () => {
       ? null
       : Number(data.geo.lng);
   data.geo.placeId = data.geo.placeId ? String(data.geo.placeId).trim() : '';
-  data.geo.mapUrl = data.geo.mapUrl ? String(data.geo.mapUrl).trim() : data.map || '';
-  data.map = data.geo.mapUrl || data.map || '';
-  const parsedCoordinates = parseGoogleMapsCoordinates(data.geo.mapUrl || data.map);
-  if (parsedCoordinates && (!Number.isFinite(data.geo.lat) || !Number.isFinite(data.geo.lng))) {
+  delete data.geo.mapUrl;
+  data.map = data.map ? String(data.map).trim() : '';
+  data.fixedStartTime = data.fixedStartTime
+    ? String(data.fixedStartTime).trim()
+    : '';
+  const parsedCoordinates = parseGoogleMapsCoordinates(data.map);
+  if (
+    parsedCoordinates &&
+    (!Number.isFinite(data.geo.lat) || !Number.isFinite(data.geo.lng))
+  ) {
     data.geo.lat = parsedCoordinates.lat;
     data.geo.lng = parsedCoordinates.lng;
   }
-  const parsedPlaceId = parseGoogleMapsPlaceId(data.geo.mapUrl || data.map);
+  const parsedPlaceId = parseGoogleMapsPlaceId(data.map);
   if (parsedPlaceId && !data.geo.placeId) data.geo.placeId = parsedPlaceId;
   if (!Number.isFinite(data.geo.lat)) data.geo.lat = null;
   if (!Number.isFinite(data.geo.lng)) data.geo.lng = null;
@@ -276,6 +322,7 @@ const handleSave = async () => {
     await travelStore.init();
     emit('saved', {
       item: { ...data, id: savedId },
+      changed: true,
       timeChanged,
       action: isEditMode.value ? 'updated' : 'created',
     });
@@ -287,7 +334,7 @@ const handleSave = async () => {
 };
 
 const handleDelete = async () => {
-  if (!isEditMode.value || !confirm('確定要刪除此行程項目嗎？')) return;
+  if (!isEditMode.value || !confirm('確定要刪除此景點嗎？')) return;
 
   isDeleting.value = true;
   try {
@@ -318,10 +365,10 @@ const handleDelete = async () => {
     >
       <div class="min-w-0">
         <p class="text-xs font-bold text-slate-400">
-          {{ isEditMode ? '編輯行程' : '新增行程' }}
+          {{ isEditMode ? '編輯景點' : '新增景點' }}
         </p>
         <h3 class="truncate text-lg font-black text-slate-900">
-          {{ currentItem.location || '行程項目' }}
+          {{ currentItem.location || '景點項目' }}
         </h3>
       </div>
       <div class="hidden shrink-0 items-center gap-2 pr-14 sm:flex">
@@ -344,7 +391,9 @@ const handleDelete = async () => {
 
     <div class="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-5">
       <div class="mx-auto max-w-2xl space-y-5">
-        <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <section
+          class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
+        >
           <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <label class="space-y-1">
               <span class="text-[11px] font-black text-slate-400">天數</span>
@@ -352,7 +401,11 @@ const handleDelete = async () => {
                 v-model="currentItem.day"
                 class="w-full rounded-xl bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700 outline-none"
               >
-                <option v-for="day in travelStore.config" :key="day.day" :value="day.day">
+                <option
+                  v-for="day in travelStore.config"
+                  :key="day.day"
+                  :value="day.day"
+                >
                   Day {{ day.day }}
                 </option>
               </select>
@@ -382,18 +435,24 @@ const handleDelete = async () => {
             </label>
           </div>
 
-          <label class="mt-4 flex items-center gap-3 rounded-2xl bg-slate-50 p-3">
+          <label
+            class="mt-4 flex items-center gap-3 rounded-2xl bg-slate-50 p-3"
+          >
             <Layers :size="18" class="text-indigo-500" />
             <div class="min-w-0 flex-1">
               <span class="block text-[11px] font-black text-slate-400">
-                歸屬主行程
+                歸屬主景點
               </span>
               <select
                 v-model="currentItem.parentId"
                 class="w-full bg-transparent text-sm font-bold text-slate-700 outline-none"
               >
                 <option value="">獨立行程</option>
-                <option v-for="parent in availableParents" :key="parent.id" :value="parent.id">
+                <option
+                  v-for="parent in availableParents"
+                  :key="parent.id"
+                  :value="parent.id"
+                >
                   {{ parent.location }}
                 </option>
               </select>
@@ -401,7 +460,9 @@ const handleDelete = async () => {
           </label>
         </section>
 
-        <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <section
+          class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
+        >
           <div class="space-y-4">
             <input
               v-model="currentItem.location"
@@ -412,10 +473,7 @@ const handleDelete = async () => {
               v-model="currentItem.category"
               class="w-full bg-transparent text-sm font-bold text-indigo-600 outline-none"
             >
-              <option
-                v-if="hasUnknownCategory"
-                :value="currentItem.category"
-              >
+              <option v-if="hasUnknownCategory" :value="currentItem.category">
                 {{ currentItem.category }}（既有分類）
               </option>
               <option
@@ -429,7 +487,9 @@ const handleDelete = async () => {
           </div>
         </section>
 
-        <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <section
+          class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
+        >
           <div class="space-y-3">
             <div class="flex items-center gap-3 rounded-2xl bg-slate-50 p-3">
               <Image :size="18" class="text-slate-400" />
@@ -437,6 +497,7 @@ const handleDelete = async () => {
                 v-model="currentItem.cover"
                 class="min-w-0 flex-1 bg-transparent text-xs font-medium outline-none"
                 placeholder="封面圖片 URL"
+                @paste="handleCoverPaste"
               />
               <input
                 ref="coverInput"
@@ -451,7 +512,11 @@ const handleDelete = async () => {
                 class="rounded-lg border border-slate-200 bg-white p-2 text-slate-400 hover:text-indigo-600 disabled:opacity-60"
                 @click="coverInput?.click()"
               >
-                <Loader2 v-if="isUploadingCover" :size="14" class="animate-spin" />
+                <Loader2
+                  v-if="isUploadingCover"
+                  :size="14"
+                  class="animate-spin"
+                />
                 <Upload v-else :size="14" />
               </button>
             </div>
@@ -459,18 +524,23 @@ const handleDelete = async () => {
               v-if="currentItem.cover"
               class="aspect-video overflow-hidden rounded-2xl border border-slate-100 bg-slate-100"
             >
-              <img :src="currentItem.cover" class="h-full w-full object-cover" />
+              <img
+                :src="currentItem.cover"
+                class="h-full w-full object-cover"
+              />
             </div>
             <div class="flex items-center gap-3 rounded-2xl bg-slate-50 p-3">
               <MapPin :size="18" class="text-slate-400" />
               <input
-                v-model="currentItem.geo.mapUrl"
+                v-model="currentItem.map"
                 class="min-w-0 flex-1 bg-transparent text-xs font-medium outline-none"
                 placeholder="地圖連結"
                 @blur="applyMapUrlCoordinates"
               />
             </div>
-            <div class="grid grid-cols-1 gap-3 rounded-2xl border border-slate-100 bg-white p-3 sm:grid-cols-2">
+            <div
+              class="grid grid-cols-1 gap-3 rounded-2xl border border-slate-100 bg-white p-3 sm:grid-cols-2"
+            >
               <label class="space-y-1">
                 <span class="text-[11px] font-black text-slate-400">緯度</span>
                 <input
@@ -495,53 +565,77 @@ const handleDelete = async () => {
           </div>
         </section>
 
-        <section class="relative rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <section
+          class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
+        >
           <div
             v-if="currentItem.parentId"
-            class="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-white/70 p-6 text-center backdrop-blur-sm"
+            class="mb-3 flex items-center gap-2 rounded-xl bg-indigo-50 px-3 py-2 text-xs font-black text-indigo-700"
           >
-            <div class="rounded-2xl border border-slate-100 bg-white p-4 shadow-lg">
-              <Clock :size="28" class="mx-auto mb-2 text-indigo-500" />
-              <p class="text-xs font-black text-slate-700">時間由主行程控制</p>
-            </div>
+            <Clock :size="16" />
+            停留時間可延長主景點區段；延遲與車程由主景點控制
           </div>
 
-          <div class="grid grid-cols-2 gap-3">
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <label class="rounded-2xl bg-slate-50 p-3">
-              <span class="block text-[11px] font-black text-slate-400">停留分鐘</span>
+              <span class="block text-[11px] font-black text-slate-400"
+                >停留分鐘</span
+              >
               <input
                 v-model.number="currentItem.duration"
                 type="number"
+                min="0"
                 class="w-full bg-transparent font-mono font-black text-slate-700 outline-none"
               />
             </label>
             <label class="rounded-2xl bg-orange-50 p-3">
-              <span class="block text-[11px] font-black text-orange-400">延遲分鐘</span>
+              <span class="block text-[11px] font-black text-orange-400"
+                >延遲分鐘</span
+              >
               <input
                 v-model.number="currentItem.delay"
                 type="number"
-                class="w-full bg-transparent font-mono font-black text-orange-700 outline-none"
+                :disabled="Boolean(currentItem.parentId)"
+                class="w-full bg-transparent font-mono font-black text-orange-700 outline-none disabled:cursor-not-allowed disabled:opacity-40"
+              />
+            </label>
+            <label class="rounded-2xl bg-indigo-50 p-3">
+              <span class="block text-[11px] font-black text-indigo-400">
+                固定開始時間
+              </span>
+              <input
+                v-model="currentItem.fixedStartTime"
+                type="time"
+                class="w-full bg-transparent font-mono font-black text-indigo-700 outline-none"
               />
             </label>
           </div>
-          <div class="mt-3 rounded-2xl border border-blue-100 bg-blue-50/50 p-4">
+          <div
+            class="mt-3 rounded-2xl border border-blue-100 bg-blue-50/50 p-4"
+          >
             <span class="block text-[11px] font-black text-blue-500">
               前往下一站
             </span>
             <div class="mt-2 grid grid-cols-2 gap-3">
               <label>
-                <span class="block text-[10px] font-bold text-blue-300">分鐘</span>
+                <span class="block text-[10px] font-bold text-blue-300"
+                  >分鐘</span
+                >
                 <input
                   v-model.number="currentItem.nextDrive.time"
                   type="number"
-                  class="w-full rounded-xl bg-white px-3 py-2 text-sm font-black text-blue-700 outline-none"
+                  :disabled="Boolean(currentItem.parentId)"
+                  class="w-full rounded-xl bg-white px-3 py-2 text-sm font-black text-blue-700 outline-none disabled:cursor-not-allowed disabled:opacity-40"
                 />
               </label>
               <label>
-                <span class="block text-[10px] font-bold text-blue-300">公里</span>
+                <span class="block text-[10px] font-bold text-blue-300"
+                  >公里</span
+                >
                 <input
                   v-model="currentItem.nextDrive.km"
-                  class="w-full rounded-xl bg-white px-3 py-2 text-sm font-black text-blue-700 outline-none"
+                  :disabled="Boolean(currentItem.parentId)"
+                  class="w-full rounded-xl bg-white px-3 py-2 text-sm font-black text-blue-700 outline-none disabled:cursor-not-allowed disabled:opacity-40"
                 />
               </label>
             </div>
@@ -563,7 +657,11 @@ const handleDelete = async () => {
           ></textarea>
         </section>
 
-        <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <section
+          tabindex="0"
+          class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
+          @paste="handleGalleryPaste"
+        >
           <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
             <h4 class="text-xs font-black text-slate-400">圖片列表</h4>
             <div class="flex items-center gap-2">
@@ -581,7 +679,11 @@ const handleDelete = async () => {
                 class="flex items-center gap-1 rounded-full bg-indigo-50 px-3 py-1 text-[11px] font-black text-indigo-600 disabled:opacity-60"
                 @click="imagesInput?.click()"
               >
-                <Loader2 v-if="isUploadingImages" :size="12" class="animate-spin" />
+                <Loader2
+                  v-if="isUploadingImages"
+                  :size="12"
+                  class="animate-spin"
+                />
                 <Upload v-else :size="12" />
                 上傳
               </button>
@@ -637,7 +739,7 @@ const handleDelete = async () => {
             class="w-full rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-black text-red-600 hover:bg-red-100 disabled:opacity-60"
             @click="handleDelete"
           >
-            {{ isDeleting ? '刪除中' : '刪除此行程' }}
+            {{ isDeleting ? '刪除中' : '刪除景點' }}
           </button>
         </section>
       </div>

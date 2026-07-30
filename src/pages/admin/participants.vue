@@ -4,6 +4,10 @@ import { useParticipantsStore } from '@/store/participantsStore';
 import { useTripStore } from '@/store/tripStore';
 import { uploadImage } from '@/api/storage';
 import {
+  getClipboardImageFiles,
+  uploadClipboardImages,
+} from '@/utils/clipboardImage';
+import {
   deleteTrackingTokensByParticipant,
   ensureParticipantTrackingToken,
   getTrackingTokensByParticipant,
@@ -331,6 +335,20 @@ const handleFileUpload = async (event) => {
   }
 };
 
+const handleAvatarPaste = async (event) => {
+  if (!getClipboardImageFiles(event).length) return;
+
+  isUploading.value = true;
+  try {
+    const { urls } = await uploadClipboardImages(event, { multiple: false });
+    if (urls[0]) form.value.avatar = urls[0];
+  } catch (error) {
+    alert('圖片上傳失敗：' + error.message);
+  } finally {
+    isUploading.value = false;
+  }
+};
+
 const toggleTrip = (tripId) => {
   const next = new Set(form.value.tripIds);
   if (next.has(tripId)) next.delete(tripId);
@@ -618,7 +636,11 @@ const deleteCurrentParticipant = async () => {
     >
       <div class="flex h-full min-h-0 flex-col bg-white">
         <div class="flex-1 overflow-y-auto p-4 space-y-6 sm:p-5">
-          <section class="flex flex-col items-center">
+          <section
+            tabindex="0"
+            class="flex flex-col items-center"
+            @paste="handleAvatarPaste"
+          >
             <div
               class="w-24 h-24 rounded-2xl bg-slate-50 border border-slate-200 overflow-hidden flex items-center justify-center text-slate-300 relative"
             >

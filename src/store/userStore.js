@@ -7,6 +7,7 @@ import { useTripStore } from '@/store/tripStore';
 import app from '@/firebase/index.js';
 import { getCurrentTripId, setCurrentTripId } from '@/api/trips';
 import { getParticipantsByUid } from '@/api/participants';
+import { canParticipantManageTripTiming } from '@/utils/itineraryTiming';
 
 export const useUserStore = defineStore('user', {
   state: () => ({
@@ -56,6 +57,20 @@ export const useUserStore = defineStore('user', {
         state.googleAdmin ||
         false
       );
+    },
+
+    canManageCurrentTripTiming: () => {
+      const tripStore = useTripStore();
+      const currentStore = useUserStore();
+      const participant = currentStore.myParticipant;
+      const hasGlobalAdminAccess =
+        currentStore.isSuperAdmin || currentStore.isAdmin;
+      return canParticipantManageTripTiming({
+        trip: tripStore.currentTrip,
+        participant,
+        isPublicTrip: tripStore.isPublicTrip,
+        hasGlobalAdminAccess,
+      });
     },
   },
 

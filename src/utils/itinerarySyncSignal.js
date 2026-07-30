@@ -21,17 +21,25 @@ const clearPendingSignal = async () => {
   await cache.delete(PENDING_REQUEST_URL);
 };
 
-export const scheduleItinerarySyncRefresh = (payload, { travelStore, tripStore }) => {
-  if (!isItinerarySignal(payload) || !matchesCurrentTrip(payload, tripStore)) return;
+export const scheduleItinerarySyncRefresh = (
+  payload,
+  { travelStore, tripStore }
+) => {
+  if (!isItinerarySignal(payload) || !matchesCurrentTrip(payload, tripStore))
+    return;
 
   window.clearTimeout(refreshTimer);
   refreshTimer = window.setTimeout(async () => {
     await clearPendingSignal();
+    await tripStore.init();
     await travelStore.init({ force: true });
   }, 900);
 };
 
-export const consumePendingItinerarySyncSignal = async ({ travelStore, tripStore }) => {
+export const consumePendingItinerarySyncSignal = async ({
+  travelStore,
+  tripStore,
+}) => {
   if (typeof window === 'undefined' || !('caches' in window)) return;
   const cache = await caches.open(PENDING_CACHE_NAME);
   const response = await cache.match(PENDING_REQUEST_URL);
@@ -46,7 +54,10 @@ export const setupItinerarySyncSignals = async ({ travelStore, tripStore }) => {
   const handleServiceWorkerMessage = (event) => {
     scheduleItinerarySyncRefresh(event.data, { travelStore, tripStore });
   };
-  navigator.serviceWorker?.addEventListener('message', handleServiceWorkerMessage);
+  navigator.serviceWorker?.addEventListener(
+    'message',
+    handleServiceWorkerMessage
+  );
 
   let unsubscribeMessage = () => {};
   const supported = await isSupported().catch(() => false);
@@ -63,7 +74,10 @@ export const setupItinerarySyncSignals = async ({ travelStore, tripStore }) => {
   await consumePendingItinerarySyncSignal({ travelStore, tripStore });
 
   return () => {
-    navigator.serviceWorker?.removeEventListener('message', handleServiceWorkerMessage);
+    navigator.serviceWorker?.removeEventListener(
+      'message',
+      handleServiceWorkerMessage
+    );
     unsubscribeMessage();
   };
 };

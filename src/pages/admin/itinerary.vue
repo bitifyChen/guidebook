@@ -4,24 +4,29 @@ import { useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { useTravelStore } from '@/store/travelStore';
 import { useTripStore } from '@/store/tripStore';
-import { useUserStore } from '@/store/userStore';
 import {
   patchItineraryItem,
   bulkUpdateItinerary,
   bulkUpdateItineraryDay,
+  bulkPatchItineraryCoordinates,
+  patchDayConfig,
 } from '@/api/itinerary';
 import { sendItinerarySyncSignal } from '@/api/notifications';
 import { getDrivingRouteDistance } from '@/api/routeDistance';
 import AdminDrawer from '@/components/admin/AdminDrawer.vue';
 import AdminItineraryJsonAssistant from '@/components/admin/AdminItineraryJsonAssistant.vue';
+import AdminItineraryGeoAssistant from '@/components/admin/AdminItineraryGeoAssistant.vue';
 import AdminItineraryItemForm from '@/components/admin/AdminItineraryItemForm.vue';
 import { getItineraryCategoryLabel } from '@/constants/itineraryOptions';
 import { sanitizeItineraryJsonItems } from '@/utils/itineraryJsonAssistant';
+import {
+  buildItineraryRouteSegments,
+  getMissingRouteCoordinateItems,
+  validateCoordinateAssistantPayload,
+} from '@/utils/itineraryRoute';
 import draggable from 'vuedraggable';
 import {
-  BellRing,
   Calendar,
-  CheckCircle2,
   ChevronRight,
   ChevronLeft,
   Clock3,
@@ -35,14 +40,11 @@ import {
   Image,
   ImageOff,
   Copy,
-  LogIn,
-  LogOut,
 } from 'lucide-vue-next';
 
 const router = useRouter();
 const travelStore = useTravelStore();
 const tripStore = useTripStore();
-const userStore = useUserStore();
 const fileInput = ref(null);
 const props = defineProps({
   embedded: { type: Boolean, default: false },
@@ -53,50 +55,34 @@ const hasChanges = ref(false);
 const isCheckingImages = ref(false);
 const jsonAssistantOpen = ref(false);
 const routeCalculatingDay = ref(null);
+const itemDrawerSession = ref(0);
 const itemDrawer = ref({
   open: false,
   mode: 'create',
   item: null,
 });
-const timeAdjustmentDrawer = ref({
+const geoAssistant = ref({
   open: false,
-  item: null,
-  mode: 'arrived',
-  actualTime: '',
+  day: null,
+  items: [],
   isSaving: false,
 });
-
+const dayStartDrawer = ref({
+  open: false,
+  day: null,
+  start: '09:00',
+  isSaving: false,
+});
 const getScheduledItem = (item) =>
   travelStore
     .getDayItinerary(Number(item?.day))
     .find((scheduledItem) => scheduledItem.id === item?.id) || item;
-
-const timeToMinutes = (value) => {
-  const [hours, minutes] = String(value || '00:00')
-    .split(':')
-    .map(Number);
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
-  return hours * 60 + minutes;
+const hasScheduledTimeChange = (item, edge) => {
+  const scheduledItem = getScheduledItem(item);
+  const scheduledTime = scheduledItem[`scheduled${edge}Time`];
+  const effectiveTime = scheduledItem[`${edge.toLowerCase()}Time`];
+  return Boolean(scheduledTime && scheduledTime !== effectiveTime);
 };
-
-const formatMinutes = (value) => {
-  if (!Number.isFinite(value)) return '--:--';
-  const normalized = ((Math.round(value) % 1440) + 1440) % 1440;
-  const hours = Math.floor(normalized / 60);
-  const minutes = normalized % 60;
-  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-};
-
-const nearestMinuteDelta = (target, reference) => {
-  let delta = target - reference;
-  if (delta > 720) delta -= 1440;
-  if (delta < -720) delta += 1440;
-  return Math.round(delta);
-};
-
-const adjustmentScheduledItem = computed(() =>
-  getScheduledItem(timeAdjustmentDrawer.value.item)
-);
 
 const jsonDayOptions = computed(() =>
   travelStore.config.map((entry) => ({
@@ -104,74 +90,6 @@ const jsonDayOptions = computed(() =>
     title: entry.title || entry.date || '',
   }))
 );
-
-const adjustmentPreview = computed(() => {
-  const item = adjustmentScheduledItem.value;
-  const actualMinutes = timeToMinutes(timeAdjustmentDrawer.value.actualTime);
-  const startMinutes = timeToMinutes(item?.startTime);
-  const duration = Number(item?.duration) || 0;
-  const previousDelay = Number(item?.delay) || 0;
-  if (!Number.isFinite(actualMinutes) || !Number.isFinite(startMinutes)) {
-    return {
-      previousDelay,
-      nextDelay: previousDelay,
-      change: 0,
-      nextEndTime: item?.endTime || '--:--',
-    };
-  }
-
-  const referenceMinutes =
-    timeAdjustmentDrawer.value.mode === 'arrived'
-      ? startMinutes
-      : startMinutes + duration;
-  const nextDelay = Math.max(
-    -duration,
-    nearestMinuteDelta(actualMinutes, referenceMinutes)
-  );
-  return {
-    previousDelay,
-    nextDelay,
-    change: nextDelay - previousDelay,
-    nextEndTime: formatMinutes(startMinutes + duration + nextDelay),
-  };
-});
-
-const adjustmentDayLabel = computed(() => {
-  const item = timeAdjustmentDrawer.value.item;
-  const config = travelStore.config.find(
-    (entry) => Number(entry.day) === Number(item?.day)
-  );
-  return config?.date ? `Day ${item.day}，${config.date}` : `Day ${item?.day || '-'}`;
-});
-
-const formatDelay = (value) => {
-  const number = Number(value) || 0;
-  return number > 0 ? `+${number}` : String(number);
-};
-
-const openTimeAdjustment = (item, mode) => {
-  if (!item?.id || item.id.toString().startsWith('temp-')) {
-    ElMessage.warning('請先儲存這筆行程，再調整實際時間。');
-    return;
-  }
-  timeAdjustmentDrawer.value = {
-    open: true,
-    item,
-    mode,
-    actualTime: new Date().toTimeString().slice(0, 5),
-    isSaving: false,
-  };
-};
-
-const closeTimeAdjustment = () => {
-  timeAdjustmentDrawer.value = {
-    open: false,
-    item: null,
-    mode: 'arrived',
-    actualTime: '',
-    isSaving: false,
-  };
-};
 
 const emitItinerarySyncSignal = (item, reason = 'itineraryUpdated') => {
   if (tripStore.currentTrip?.status !== 'active') {
@@ -184,50 +102,8 @@ const emitItinerarySyncSignal = (item, reason = 'itineraryUpdated') => {
   });
 };
 
-const saveTimeAdjustment = async () => {
-  const item = timeAdjustmentDrawer.value.item;
-  if (!item?.id || !timeAdjustmentDrawer.value.actualTime) return;
-
-  const mode = timeAdjustmentDrawer.value.mode;
-  const nextDelay = adjustmentPreview.value.nextDelay;
-  const timingRecord = {
-    mode,
-    actualTime: timeAdjustmentDrawer.value.actualTime,
-    previousDelay: adjustmentPreview.value.previousDelay,
-    delay: nextDelay,
-    adjustedAt: Date.now(),
-    adjustedBy: userStore.myParticipant?.id || userStore.user?.uid || '',
-  };
-  timeAdjustmentDrawer.value.isSaving = true;
-  try {
-    await patchItineraryItem(item.id, {
-      delay: nextDelay,
-      timingStatus: mode,
-      lastTimingAdjustment: timingRecord,
-    });
-    travelStore.updateLocalItem(item.id, {
-      delay: nextDelay,
-      timingStatus: mode,
-      lastTimingAdjustment: timingRecord,
-    });
-    await travelStore.init();
-    initLocalItinerary();
-
-    try {
-      await emitItinerarySyncSignal(item, `timing-${mode}`);
-    } catch (syncError) {
-      console.error('Itinerary sync signal failed:', syncError);
-    }
-
-    ElMessage.success('行程時間已更新');
-    closeTimeAdjustment();
-  } catch (error) {
-    ElMessage.error(`時間更新失敗：${error.message}`);
-    timeAdjustmentDrawer.value.isSaving = false;
-  }
-};
-
 const openCreateItemDrawer = () => {
+  itemDrawerSession.value += 1;
   itemDrawer.value = {
     open: true,
     mode: 'create',
@@ -236,6 +112,7 @@ const openCreateItemDrawer = () => {
 };
 
 const openEditItemDrawer = (item) => {
+  itemDrawerSession.value += 1;
   itemDrawer.value = {
     open: true,
     mode: 'edit',
@@ -255,9 +132,12 @@ const handleItemDrawerDone = async (payload = {}) => {
   closeItemDrawer();
   hasChanges.value = false;
   initLocalItinerary();
-  if (!payload.timeChanged || !payload.item) return;
+  if (!payload.item) return;
   try {
-    await emitItinerarySyncSignal(payload.item, payload.action || 'item-updated');
+    await emitItinerarySyncSignal(
+      payload.item,
+      payload.action || 'item-updated'
+    );
   } catch (syncError) {
     console.error('Itinerary sync signal failed:', syncError);
   }
@@ -340,7 +220,16 @@ const initLocalItinerary = () => {
       items: travelStore.itinerary
         .filter((i) => i.day === d)
         .sort((a, b) => a.order - b.order)
-        .map((item) => ({ ...item })), // 淺拷貝以供編輯
+        .map((item) => ({
+          ...item,
+          map: item.map || item.geo?.mapUrl || '',
+          geo: {
+            lat: item.geo?.lat ?? null,
+            lng: item.geo?.lng ?? null,
+            ...(item.geo?.placeId ? { placeId: item.geo.placeId } : {}),
+          },
+          nextDrive: item.nextDrive || { time: 0, km: '' },
+        })),
     });
   }
   localItinerary.value = days;
@@ -373,7 +262,7 @@ const handleSaveOrder = async () => {
       if (saveItem.id && saveItem.id.toString().startsWith('temp-')) {
         delete saveItem.id;
       }
-      
+
       flattened.push({
         ...saveItem,
         day: dayGroup.day,
@@ -403,7 +292,9 @@ const handleSaveOrder = async () => {
 
 const handleEditItem = (item) => {
   if (item.id && item.id.toString().startsWith('temp-')) {
-    alert('請先點擊下方的「儲存更新排序」按鈕，以完成複製行程的建立，之後才能編輯詳細資訊。');
+    alert(
+      '請先點擊下方的「儲存更新排序」按鈕，以完成複製行程的建立，之後才能編輯詳細資訊。'
+    );
     return;
   }
   openEditItemDrawer(item);
@@ -420,6 +311,10 @@ const updateItem = async (item) => {
     await patchItineraryItem(item.id, {
       duration: item.duration,
       delay: item.delay,
+      nextDrive: {
+        ...(item.nextDrive || {}),
+        time: Number(item.nextDrive?.time) || 0,
+      },
     });
     // 如果沒有在拖拉狀態，同步更新 store 確保資料一致
     if (!hasChanges.value) {
@@ -500,7 +395,10 @@ const handleImport = async (event) => {
 
 const handleApplyJson = async ({ mode, day, payload }) => {
   try {
-    const { items, warnings } = sanitizeItineraryJsonItems(payload, { mode, day });
+    const { items, warnings } = sanitizeItineraryJsonItems(payload, {
+      mode,
+      day,
+    });
     if (warnings.length) {
       ElMessage.warning(warnings.join('；'));
     }
@@ -527,7 +425,10 @@ const handleApplyJson = async ({ mode, day, payload }) => {
 
     try {
       await emitItinerarySyncSignal(
-        { day: mode === 'day' ? day : travelStore.selectedDay, location: '行程' },
+        {
+          day: mode === 'day' ? day : travelStore.selectedDay,
+          location: '行程',
+        },
         mode === 'day' ? 'json-day-applied' : 'json-full-applied'
       );
     } catch (syncError) {
@@ -542,57 +443,124 @@ const handleApplyJson = async ({ mode, day, payload }) => {
   }
 };
 
-const handleCalculateDayRoutes = async (dayGroup) => {
-  if (!dayGroup?.items?.length || routeCalculatingDay.value) return;
-  const items = [...dayGroup.items].sort(
-    (a, b) => (Number(a.order) || 0) - (Number(b.order) || 0)
+const calculateDayRoutes = async (dayGroup) => {
+  const segments = buildItineraryRouteSegments(dayGroup.items).filter(
+    (segment) =>
+      segment.item?.id && !segment.item.id.toString().startsWith('temp-')
   );
   routeCalculatingDay.value = dayGroup.day;
   let updatedCount = 0;
-  let skippedCount = 0;
-
   try {
-    for (let index = 0; index < items.length - 1; index += 1) {
-      const current = items[index];
-      const next = items[index + 1];
-      if (
-        !current?.id ||
-        current.id.toString().startsWith('temp-') ||
-        !Number.isFinite(Number(current.geo?.lat)) ||
-        !Number.isFinite(Number(current.geo?.lng)) ||
-        !Number.isFinite(Number(next.geo?.lat)) ||
-        !Number.isFinite(Number(next.geo?.lng))
-      ) {
-        skippedCount += 1;
-        continue;
-      }
-
-      const distance = await getDrivingRouteDistance(current.geo, next.geo);
+    for (const segment of segments) {
+      const distance = await getDrivingRouteDistance(
+        segment.origin,
+        segment.destination
+      );
       const nextDrive = {
-        ...(current.nextDrive || {}),
+        ...(segment.item.nextDrive || {}),
         time: distance.minutes,
         km: distance.km,
       };
-      await patchItineraryItem(current.id, { nextDrive });
-      current.nextDrive = nextDrive;
+      await patchItineraryItem(segment.item.id, { nextDrive });
+      segment.item.nextDrive = nextDrive;
       updatedCount += 1;
     }
 
     await travelStore.init();
     initLocalItinerary();
-    ElMessage.success(
-      `本日行車時間已更新 ${updatedCount} 段，略過 ${skippedCount} 段。`
-    );
+    await emitItinerarySyncSignal(
+      { day: dayGroup.day },
+      'route-distance-updated'
+    ).catch((error) => console.error('Itinerary sync signal failed:', error));
+    ElMessage.success(`本日行車時間已更新 ${updatedCount} 段。`);
   } catch (error) {
     ElMessage.error(`OSRM 計算失敗，既有行車時間已保留：${error.message}`);
   } finally {
     routeCalculatingDay.value = null;
   }
 };
+
+const handleCalculateDayRoutes = async (dayGroup) => {
+  if (!dayGroup?.items?.length || routeCalculatingDay.value) return;
+  const missingItems = getMissingRouteCoordinateItems(dayGroup.items);
+  if (missingItems.length) {
+    geoAssistant.value = {
+      open: true,
+      day: dayGroup.day,
+      items: missingItems,
+      isSaving: false,
+    };
+    return;
+  }
+  await calculateDayRoutes(dayGroup);
+};
+
+const handleApplyCoordinates = async (payload) => {
+  geoAssistant.value.isSaving = true;
+  try {
+    const updates = validateCoordinateAssistantPayload(
+      payload,
+      geoAssistant.value.items
+    );
+    await bulkPatchItineraryCoordinates(updates);
+    await travelStore.init();
+    initLocalItinerary();
+    const dayGroup = localItinerary.value.find(
+      (entry) => Number(entry.day) === Number(geoAssistant.value.day)
+    );
+    geoAssistant.value.open = false;
+    if (dayGroup) await calculateDayRoutes(dayGroup);
+  } catch (error) {
+    ElMessage.error(`座標套用失敗：${error.message}`);
+  } finally {
+    geoAssistant.value.isSaving = false;
+  }
+};
+
+const openDayStartDrawer = (day) => {
+  const config = travelStore.config.find(
+    (entry) => Number(entry.day) === Number(day)
+  );
+  dayStartDrawer.value = {
+    open: true,
+    day,
+    start: config?.start || '09:00',
+    isSaving: false,
+  };
+};
+
+const saveDayStart = async () => {
+  if (!dayStartDrawer.value.start) return;
+  dayStartDrawer.value.isSaving = true;
+  try {
+    const list = travelStore.config.map((entry) =>
+      Number(entry.day) === Number(dayStartDrawer.value.day)
+        ? { ...entry, start: dayStartDrawer.value.start }
+        : { ...entry }
+    );
+    await patchDayConfig('dayConfigs', { list });
+    await travelStore.init();
+    initLocalItinerary();
+    await emitItinerarySyncSignal(
+      { day: dayStartDrawer.value.day },
+      'day-start-updated'
+    ).catch((error) => console.error('Itinerary sync signal failed:', error));
+    dayStartDrawer.value.open = false;
+    ElMessage.success('本日起始時間已更新');
+  } catch (error) {
+    ElMessage.error(`起始時間更新失敗：${error.message}`);
+  } finally {
+    dayStartDrawer.value.isSaving = false;
+  }
+};
 </script>
 
 <template>
-  <div :class="props.embedded ? 'bg-slate-50 pb-24' : 'min-h-screen bg-slate-50 pb-32'">
+  <div
+    :class="
+      props.embedded ? 'bg-slate-50 pb-24' : 'min-h-screen bg-slate-50 pb-32'
+    "
+  >
     <nav
       v-if="!props.embedded"
       class="p-6 sticky top-0 bg-slate-50/80 backdrop-blur-md z-40 flex items-center justify-between"
@@ -607,7 +575,13 @@ const handleCalculateDayRoutes = async (dayGroup) => {
       <div class="w-10"></div>
     </nav>
 
-    <main :class="props.embedded ? 'p-3 space-y-6 sm:p-5' : 'max-w-5xl mx-auto p-3 space-y-8 sm:p-6'">
+    <main
+      :class="
+        props.embedded
+          ? 'p-3 space-y-6 sm:p-5'
+          : 'max-w-5xl mx-auto p-3 space-y-8 sm:p-6'
+      "
+    >
       <!-- 工具列 -->
       <div class="flex flex-wrap gap-2 px-2">
         <AdminItineraryJsonAssistant
@@ -665,20 +639,40 @@ const handleCalculateDayRoutes = async (dayGroup) => {
         :key="dayGroup.day"
         class="space-y-4"
       >
-        <h3
-          class="text-lg font-black text-slate-800 px-2 flex items-center gap-2"
-        >
-          <Calendar :size="18" class="text-orange-500" /> Day {{ dayGroup.day }}
+        <div class="flex flex-wrap items-center gap-2 px-2">
+          <h3
+            class="mr-auto flex items-center gap-2 text-lg font-black text-slate-800"
+          >
+            <Calendar :size="18" class="text-orange-500" /> Day
+            {{ dayGroup.day }}
+          </h3>
           <button
             type="button"
-            class="ml-auto inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-600 shadow-sm disabled:opacity-50"
+            class="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-600 shadow-sm"
+            @click="openDayStartDrawer(dayGroup.day)"
+          >
+            <Clock3 :size="14" class="text-orange-500" />
+            起始
+            {{
+              travelStore.config.find(
+                (entry) => Number(entry.day) === Number(dayGroup.day)
+              )?.start || '--:--'
+            }}
+          </button>
+          <button
+            type="button"
+            class="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-600 shadow-sm disabled:opacity-50"
             :disabled="routeCalculatingDay === dayGroup.day"
             @click="handleCalculateDayRoutes(dayGroup)"
           >
             <MapPin :size="14" class="text-indigo-500" />
-            {{ routeCalculatingDay === dayGroup.day ? '計算中' : '計算本日行車時間' }}
+            {{
+              routeCalculatingDay === dayGroup.day
+                ? '計算中'
+                : '計算本日行車時間'
+            }}
           </button>
-        </h3>
+        </div>
 
         <draggable
           v-model="dayGroup.items"
@@ -711,13 +705,15 @@ const handleCalculateDayRoutes = async (dayGroup) => {
                   class="min-w-0 flex-1 text-left"
                   @click="handleEditItem(item)"
                 >
-                  <span class="flex items-center gap-1.5 font-black leading-tight text-slate-800">
+                  <span
+                    class="flex items-center gap-1.5 font-black leading-tight text-slate-800"
+                  >
                     <component
                       :is="item.map ? MapPin : MapPinOff"
                       :size="13"
                       :class="item.map ? 'text-blue-500' : 'text-slate-300'"
                     />
-                    <span class="truncate">{{ item.location }}</span>
+
                     <component
                       :is="item?.images?.[0] || item?.cover ? Image : ImageOff"
                       :size="13"
@@ -729,32 +725,121 @@ const handleCalculateDayRoutes = async (dayGroup) => {
                             : 'text-slate-300'
                       "
                     />
+                    <span class="truncate">{{ item.location }}</span>
                   </span>
-                  <span class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-bold text-slate-400">
-                    <span class="flex items-center gap-1 text-slate-500">
-                      <Clock3 :size="13" />
-                      {{ getScheduledItem(item).startTime || '--:--' }} -
-                      {{ getScheduledItem(item).endTime || '--:--' }}
-                    </span>
-                    <span>{{ getItineraryCategoryLabel(item.category, item.type) }}</span>
-                    <span
-                      v-if="item.timingStatus"
-                      class="flex items-center gap-1"
-                      :class="
-                        item.timingStatus === 'arrived'
-                          ? 'text-emerald-600'
-                          : 'text-orange-600'
-                      "
+                  <div
+                    class="mt-1.5 flex flex-wrap items-center gap-2 text-xs font-medium"
+                  >
+                    <!-- 時間對比卡片 (預計 vs 實際) -->
+                    <div
+                      class="inline-flex flex-col gap-1 rounded-lg border border-slate-200/80 bg-slate-50/80 p-2 font-mono text-[11px] leading-none shadow-xs"
                     >
-                      <CheckCircle2 :size="12" />
-                      {{ item.timingStatus === 'arrived' ? '已抵達' : '已離開' }}
-                      {{ item.lastTimingAdjustment?.actualTime || '' }}
-                    </span>
-                  </span>
+                      <!-- 1. 預計時間 (次要資訊：字體較淡、加上刪除線條件) -->
+                      <div
+                        class="grid grid-cols-[28px_1fr] items-center gap-1.5 text-slate-400"
+                      >
+                        <span
+                          class="font-sans text-[10px] font-semibold text-slate-400"
+                          >預計</span
+                        >
+                        <div class="flex items-center gap-1">
+                          <Clock3 :size="11" class="shrink-0 text-slate-300" />
+                          <span
+                            :class="{
+                              'line-through opacity-60': hasScheduledTimeChange(
+                                item,
+                                'Start'
+                              ),
+                            }"
+                          >
+                            {{
+                              getScheduledItem(item).scheduledStartTime ||
+                              '--:--'
+                            }}
+                          </span>
+                          <span class="text-slate-300">-</span>
+                          <span
+                            :class="{
+                              'line-through opacity-60': hasScheduledTimeChange(
+                                item,
+                                'End'
+                              ),
+                            }"
+                          >
+                            {{
+                              getScheduledItem(item).scheduledEndTime || '--:--'
+                            }}
+                          </span>
+                        </div>
+                      </div>
+
+                      <!-- 2. 實際時間 (主要資訊：字體加粗、高亮顯示變更狀態) -->
+                      <div
+                        class="grid grid-cols-[28px_1fr] items-center gap-1.5 text-slate-700"
+                      >
+                        <span
+                          class="font-sans text-[10px] font-bold text-slate-500"
+                          >實際</span
+                        >
+                        <div class="flex items-center gap-1 font-semibold">
+                          <Clock3 :size="11" class="shrink-0 text-slate-400" />
+                          <span
+                            :class="{
+                              'text-emerald-600 font-bold':
+                                hasScheduledTimeChange(item, 'Start'),
+                            }"
+                          >
+                            {{ getScheduledItem(item).startTime || '--:--' }}
+                          </span>
+                          <span class="text-slate-300">-</span>
+                          <span
+                            :class="{
+                              'text-amber-600 font-bold':
+                                hasScheduledTimeChange(item, 'End'),
+                            }"
+                          >
+                            {{ getScheduledItem(item).endTime || '--:--' }}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- 狀態標籤區塊 (Badges) -->
+                    <div
+                      class="flex flex-wrap items-center gap-1.5 text-[11px] font-medium"
+                    >
+                      <!-- 固定時間 -->
+                      <span
+                        v-if="item.fixedStartTime"
+                        class="inline-flex items-center rounded-md bg-indigo-50 px-2 py-0.5 text-indigo-700 ring-1 ring-indigo-700/10 ring-inset"
+                      >
+                        固定 {{ item.fixedStartTime }}
+                      </span>
+
+                      <!-- 等待時間 -->
+                      <span
+                        v-if="getScheduledItem(item).waitMinutes"
+                        class="inline-flex items-center rounded-md bg-emerald-50 px-2 py-0.5 text-emerald-700 ring-1 ring-emerald-600/10 ring-inset"
+                      >
+                        等待 {{ getScheduledItem(item).waitMinutes }} 分
+                      </span>
+
+                      <!-- 遲到時間 -->
+                      <span
+                        v-if="getScheduledItem(item).fixedTimeLateMinutes"
+                        class="inline-flex items-center rounded-md bg-rose-50 px-2 py-0.5 text-rose-700 ring-1 ring-rose-600/10 ring-inset"
+                      >
+                        遲到
+                        {{ getScheduledItem(item).fixedTimeLateMinutes }} 分
+                      </span>
+                    </div>
+                  </div>
                 </button>
               </div>
 
-              <div class="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+              <div
+                class="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end"
+              >
                 <div
                   class="flex min-w-[62px] flex-1 flex-col items-center rounded-xl border border-slate-100 bg-slate-50 px-2 py-1 sm:flex-none"
                 >
@@ -769,7 +854,9 @@ const handleCalculateDayRoutes = async (dayGroup) => {
                 <div
                   class="flex min-w-[62px] flex-1 flex-col items-center rounded-xl border border-orange-100 bg-orange-50 px-2 py-1 sm:flex-none"
                 >
-                  <span class="text-[9px] font-black text-orange-400">延遲</span>
+                  <span class="text-[9px] font-black text-orange-400"
+                    >延遲</span
+                  >
                   <input
                     v-model.number="item.delay"
                     type="number"
@@ -777,23 +864,17 @@ const handleCalculateDayRoutes = async (dayGroup) => {
                     class="w-full bg-transparent text-center font-mono font-black text-orange-600 outline-none sm:w-10"
                   />
                 </div>
-
-                <button
-                  type="button"
-                  class="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-emerald-50 px-3 text-xs font-black text-emerald-700"
-                  @click.stop="openTimeAdjustment(item, 'arrived')"
+                <div
+                  class="flex min-w-[62px] flex-1 flex-col items-center rounded-xl border border-blue-100 bg-blue-50 px-2 py-1 sm:flex-none"
                 >
-                  <LogIn :size="15" />
-                  抵達
-                </button>
-                <button
-                  type="button"
-                  class="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-orange-50 px-3 text-xs font-black text-orange-700"
-                  @click.stop="openTimeAdjustment(item, 'departed')"
-                >
-                  <LogOut :size="15" />
-                  離開
-                </button>
+                  <span class="text-[9px] font-black text-blue-400">車程</span>
+                  <input
+                    v-model.number="item.nextDrive.time"
+                    type="number"
+                    @change="updateItem(item)"
+                    class="w-full bg-transparent text-center font-mono font-black text-blue-600 outline-none sm:w-10"
+                  />
+                </div>
 
                 <div class="ml-auto flex items-center gap-1 sm:ml-1">
                   <button
@@ -849,6 +930,7 @@ const handleCalculateDayRoutes = async (dayGroup) => {
       @close="closeItemDrawer"
     >
       <AdminItineraryItemForm
+        :key="itemDrawerSession"
         :mode="itemDrawer.mode"
         :item="itemDrawer.item"
         compact
@@ -858,126 +940,40 @@ const handleCalculateDayRoutes = async (dayGroup) => {
       />
     </AdminDrawer>
 
-    <AdminDrawer
-      v-model="timeAdjustmentDrawer.open"
-      size="sm"
-      :z-index="120"
-      :title="
-        timeAdjustmentDrawer.mode === 'arrived'
-          ? '記錄抵達時間'
-          : '記錄離開時間'
-      "
-      :subtitle="timeAdjustmentDrawer.item?.location || ''"
-      :close-on-click-modal="false"
-      @close="closeTimeAdjustment"
-    >
-      <form
-        class="flex h-full min-h-0 flex-col"
-        @submit.prevent="saveTimeAdjustment"
-      >
-        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-5">
-          <section class="rounded-2xl border border-slate-200 bg-white p-4">
-            <div class="flex items-start gap-3">
-              <div
-                class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"
-                :class="
-                  timeAdjustmentDrawer.mode === 'arrived'
-                    ? 'bg-emerald-50 text-emerald-600'
-                    : 'bg-orange-50 text-orange-600'
-                "
-              >
-                <LogIn
-                  v-if="timeAdjustmentDrawer.mode === 'arrived'"
-                  :size="20"
-                />
-                <LogOut v-else :size="20" />
-              </div>
-              <div class="min-w-0">
-                <h3 class="truncate font-black text-slate-900">
-                  {{ timeAdjustmentDrawer.item?.location }}
-                </h3>
-                <p class="mt-1 text-xs font-bold text-slate-400">
-                  {{ adjustmentDayLabel }}，原訂
-                  {{ adjustmentScheduledItem?.startTime || '--:--' }} -
-                  {{ adjustmentScheduledItem?.endTime || '--:--' }}
-                </p>
-              </div>
-            </div>
-          </section>
+    <AdminItineraryGeoAssistant
+      v-model:open="geoAssistant.open"
+      :items="geoAssistant.items"
+      :is-saving="geoAssistant.isSaving"
+      @apply="handleApplyCoordinates"
+    />
 
+    <AdminDrawer
+      v-model="dayStartDrawer.open"
+      size="sm"
+      :z-index="125"
+      title="設定起始時間"
+      :subtitle="`Day ${dayStartDrawer.day || '-'}`"
+      :close-on-click-modal="false"
+    >
+      <form class="flex h-full flex-col" @submit.prevent="saveDayStart">
+        <div class="flex-1 p-5">
           <label class="block rounded-2xl border border-slate-200 bg-white p-4">
-            <span class="text-xs font-black text-slate-500">
-              {{
-                timeAdjustmentDrawer.mode === 'arrived'
-                  ? '實際抵達時間'
-                  : '實際離開時間'
-              }}
-            </span>
+            <span class="text-xs font-black text-slate-500">本日出發時間</span>
             <input
-              v-model="timeAdjustmentDrawer.actualTime"
+              v-model="dayStartDrawer.start"
               type="time"
               required
               class="mt-3 h-14 w-full rounded-xl bg-slate-50 px-4 font-mono text-xl font-black text-slate-900 outline-none focus:ring-2 focus:ring-indigo-200"
             />
-            <p class="mt-2 text-xs font-bold leading-relaxed text-slate-400">
-              {{
-                timeAdjustmentDrawer.mode === 'arrived'
-                  ? '抵達時間會與原訂開始時間比對，停留分鐘維持不變。'
-                  : '離開時間會與原訂開始時間及停留分鐘比對。'
-              }}
-            </p>
           </label>
-
-          <section class="grid grid-cols-2 gap-3">
-            <div class="rounded-2xl bg-slate-100 p-4">
-              <span class="text-[11px] font-black text-slate-400">目前延遲</span>
-              <strong class="mt-2 block font-mono text-xl text-slate-700">
-                {{ formatDelay(adjustmentPreview.previousDelay) }} 分
-              </strong>
-            </div>
-            <div class="rounded-2xl bg-orange-50 p-4">
-              <span class="text-[11px] font-black text-orange-400">更新後延遲</span>
-              <strong class="mt-2 block font-mono text-xl text-orange-700">
-                {{ formatDelay(adjustmentPreview.nextDelay) }} 分
-              </strong>
-            </div>
-          </section>
-
-          <section
-            class="flex items-center gap-3 rounded-2xl border border-indigo-100 bg-indigo-50 p-4"
-          >
-            <CheckCircle2 :size="21" class="shrink-0 text-indigo-600" />
-            <div class="min-w-0">
-              <p class="text-xs font-black text-indigo-700">更新後預計離開</p>
-              <p class="mt-1 font-mono text-lg font-black text-slate-900">
-                {{ adjustmentPreview.nextEndTime }}
-              </p>
-            </div>
-            <div class="ml-auto text-right">
-              <BellRing :size="16" class="ml-auto text-indigo-500" />
-              <p class="mt-1 text-[10px] font-bold text-indigo-500">
-                儲存後通知本旅程
-              </p>
-            </div>
-          </section>
         </div>
-
-        <footer
-          class="grid shrink-0 grid-cols-2 gap-2 border-t border-slate-200 bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]"
-        >
-          <button
-            type="button"
-            class="h-11 rounded-xl bg-slate-100 text-sm font-black text-slate-600"
-            @click="closeTimeAdjustment"
-          >
-            取消
-          </button>
+        <footer class="border-t border-slate-200 bg-white p-4">
           <button
             type="submit"
-            :disabled="timeAdjustmentDrawer.isSaving"
-            class="h-11 rounded-xl bg-indigo-600 text-sm font-black text-white disabled:opacity-60"
+            :disabled="dayStartDrawer.isSaving"
+            class="h-11 w-full rounded-xl bg-indigo-600 text-sm font-black text-white disabled:opacity-60"
           >
-            {{ timeAdjustmentDrawer.isSaving ? '更新中' : '更新並通知' }}
+            {{ dayStartDrawer.isSaving ? '儲存中' : '儲存起始時間' }}
           </button>
         </footer>
       </form>

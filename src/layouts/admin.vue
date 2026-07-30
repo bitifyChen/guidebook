@@ -5,6 +5,7 @@ import {
   Bell,
   ExternalLink,
   LayoutDashboard,
+  Luggage,
   LogOut,
   Menu,
   Plane,
@@ -27,8 +28,19 @@ const isMobileOpen = ref(false);
 const baseMenu = [
   { label: '總覽', path: '/admin', icon: LayoutDashboard },
   { label: '旅程管理', path: '/admin/trips', icon: Plane, superOnly: true },
-  { label: '成員管理', path: '/admin/participants', icon: Users, superOnly: true },
-  { label: '推播管理', path: '/admin/notifications', icon: Bell, superOnly: true },
+  {
+    label: '成員管理',
+    path: '/admin/participants',
+    icon: Users,
+    superOnly: true,
+  },
+  {
+    label: '推播管理',
+    path: '/admin/notifications',
+    icon: Bell,
+    superOnly: true,
+  },
+  { label: '行李管理', path: '/admin/packing', icon: Luggage, superOnly: true },
 ];
 
 const sideMenu = computed(() =>
@@ -50,14 +62,19 @@ const sideMenu = computed(() =>
 
 const pageTitle = computed(() => {
   const flatten = (items) =>
-    items.flatMap((item) => [item, ...(item.children ? flatten(item.children) : [])]);
+    items.flatMap((item) => [
+      item,
+      ...(item.children ? flatten(item.children) : []),
+    ]);
   const allItems = flatten(sideMenu.value);
   return (
     allItems
       .filter((item) => item.path)
       .sort((a, b) => b.path.length - a.path.length)
-      .find((item) => route.path === item.path || route.path.startsWith(`${item.path}/`))
-      ?.label || '後台管理'
+      .find(
+        (item) =>
+          route.path === item.path || route.path.startsWith(`${item.path}/`)
+      )?.label || '後台管理'
   );
 });
 
@@ -79,19 +96,25 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="min-h-[100dvh] overflow-x-hidden bg-slate-100 text-slate-800 md:h-[100dvh] md:overflow-hidden">
+  <div
+    class="min-h-[100dvh] overflow-x-hidden bg-slate-100 text-slate-800 md:h-[100dvh] md:overflow-hidden"
+  >
     <div class="flex min-h-[100dvh] md:h-[100dvh]">
       <aside
         class="hidden md:flex flex-col bg-slate-950 text-white transition-all duration-300"
         :class="isSidebarOpen ? 'w-64' : 'w-20'"
       >
         <div class="p-5 flex items-center gap-3 border-b border-white/10">
-          <div class="w-10 h-10 rounded-xl bg-indigo-500 flex items-center justify-center font-black">
+          <div
+            class="w-10 h-10 rounded-xl bg-indigo-500 flex items-center justify-center font-black"
+          >
             GB
           </div>
           <div v-if="isSidebarOpen" class="min-w-0">
             <div class="font-black leading-none">Guidebook</div>
-            <div class="text-[10px] font-bold text-slate-400 mt-1">Admin Console</div>
+            <div class="text-[10px] font-bold text-slate-400 mt-1">
+              Admin Console
+            </div>
           </div>
         </div>
 
@@ -120,14 +143,21 @@ onMounted(async () => {
         class="fixed inset-y-0 left-0 z-50 w-[min(18rem,88vw)] bg-slate-950 pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] text-white transition-transform md:hidden"
         :class="isMobileOpen ? 'translate-x-0' : '-translate-x-full'"
       >
-        <div class="p-5 flex items-center justify-between border-b border-white/10">
+        <div
+          class="p-5 flex items-center justify-between border-b border-white/10"
+        >
           <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-xl bg-indigo-500 flex items-center justify-center font-black">
+            <div
+              class="w-10 h-10 rounded-xl bg-indigo-500 flex items-center justify-center font-black"
+            >
               GB
             </div>
             <div class="font-black">Guidebook</div>
           </div>
-          <button @click="isMobileOpen = false" class="p-2 rounded-lg hover:bg-white/10">
+          <button
+            @click="isMobileOpen = false"
+            class="p-2 rounded-lg hover:bg-white/10"
+          >
             <X class="w-5 h-5" />
           </button>
         </div>
@@ -151,7 +181,9 @@ onMounted(async () => {
 
       <section class="flex min-w-0 flex-1 flex-col overflow-hidden">
         <header class="sticky top-0 z-30 border-b border-slate-200 bg-white">
-          <div class="flex min-h-16 flex-wrap items-center justify-between gap-3 px-3 py-3 sm:flex-nowrap sm:px-4 md:px-6">
+          <div
+            class="flex min-h-16 flex-wrap items-center justify-between gap-3 px-3 py-3 sm:flex-nowrap sm:px-4 md:px-6"
+          >
             <div class="flex items-center gap-3 min-w-0">
               <button
                 @click="isMobileOpen = true"
@@ -166,11 +198,15 @@ onMounted(async () => {
                 <Menu class="w-5 h-5" />
               </button>
               <div class="min-w-0">
-                <h1 class="font-black text-slate-800 truncate">{{ pageTitle }}</h1>
+                <h1 class="font-black text-slate-800 truncate">
+                  {{ pageTitle }}
+                </h1>
               </div>
             </div>
 
-            <div class="order-3 flex w-full min-w-0 items-center gap-2 sm:order-none sm:w-auto">
+            <div
+              class="order-3 flex w-full min-w-0 items-center gap-2 sm:order-none sm:w-auto"
+            >
               <AdminTripSelector />
               <button
                 @click="router.push('/')"
@@ -179,16 +215,24 @@ onMounted(async () => {
               >
                 <ExternalLink class="w-5 h-5" />
               </button>
-              <div class="hidden md:flex items-center gap-3 pl-3 border-l border-slate-200">
+              <div
+                class="hidden md:flex items-center gap-3 pl-3 border-l border-slate-200"
+              >
                 <div class="text-right">
                   <div class="text-sm font-black leading-none">
-                    {{ userStore.myParticipant?.name || userStore.user?.displayName || 'Admin' }}
+                    {{
+                      userStore.myParticipant?.name ||
+                      userStore.user?.displayName ||
+                      'Admin'
+                    }}
                   </div>
                   <div class="text-[10px] font-bold text-slate-400 mt-1">
                     {{ userStore.isSuperAdmin ? 'Super Admin' : 'Admin' }}
                   </div>
                 </div>
-                <div class="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center">
+                <div
+                  class="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center"
+                >
                   <User class="w-5 h-5" />
                 </div>
               </div>
@@ -196,7 +240,9 @@ onMounted(async () => {
           </div>
         </header>
 
-        <main class="admin-main min-h-0 flex-1 overflow-y-auto p-3 sm:p-4 md:p-6">
+        <main
+          class="admin-main min-h-0 flex-1 overflow-y-auto p-3 sm:p-4 md:p-6"
+        >
           <router-view v-slot="{ Component }">
             <transition name="admin-page" mode="out-in">
               <component :is="Component" :key="adminViewKey" />

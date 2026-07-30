@@ -4,17 +4,22 @@ import AdminDataTable from '@/components/admin/AdminDataTable.vue';
 import AdminDrawer from '@/components/admin/AdminDrawer.vue';
 import AdminItinerary from '@/pages/admin/itinerary.vue';
 import AdminConfig from '@/pages/admin/config.vue';
+import AdminTripPackingDrawer from '@/components/admin/trip/AdminTripPackingDrawer.vue';
+import { ensurePackingCatalog } from '@/api/packing';
 import { useTripStore } from '@/store/tripStore';
 import { useUserStore } from '@/store/userStore';
+import { useParticipantsStore } from '@/store/participantsStore';
 import {
   CalendarDays,
   Copy,
   Loader2,
+  Luggage,
   Pencil,
   Plane,
   Plus,
   Save,
   Settings,
+  Users,
 } from 'lucide-vue-next';
 import {
   ensureTripDayConfigsForDateRange,
@@ -30,6 +35,7 @@ import {
 
 const tripStore = useTripStore();
 const userStore = useUserStore();
+const participantsStore = useParticipantsStore();
 
 const isDrawerOpen = ref(false);
 const toolDrawer = ref({
@@ -38,6 +44,19 @@ const toolDrawer = ref({
   title: '',
 });
 const isSaving = ref(false);
+const managerDrawer = ref({
+  open: false,
+  trip: null,
+  selectedIds: [],
+  keyword: '',
+  isSaving: false,
+});
+const packingCatalog = ref([]);
+const packingDrawer = ref({
+  open: false,
+  trip: null,
+  isSaving: false,
+});
 const editingId = ref('');
 const originalDateRange = ref({
   startDate: '',
@@ -79,7 +98,9 @@ const activeToolComponent = computed(() => {
   return null;
 });
 const selectedCountry = computed(() => getCountryOption(form.countryCode));
-const weatherCityOptions = computed(() => getWeatherCitiesByCountry(form.countryCode));
+const weatherCityOptions = computed(() =>
+  getWeatherCitiesByCountry(form.countryCode)
+);
 const selectedWeatherCity = computed(() =>
   weatherCityOptions.value.find((item) => item.name === form.weatherCity)
 );
@@ -123,8 +144,10 @@ const filteredTrips = computed(() => {
   const keyword = filters.keyword.trim().toLowerCase();
 
   return tripStore.trips.filter((trip) => {
-    if (filters.status && (trip.status || 'active') !== filters.status) return false;
-    if (filters.countryCode && trip.countryCode !== filters.countryCode) return false;
+    if (filters.status && (trip.status || 'active') !== filters.status)
+      return false;
+    if (filters.countryCode && trip.countryCode !== filters.countryCode)
+      return false;
     if (!keyword) return true;
 
     return [
@@ -141,6 +164,21 @@ const filteredTrips = computed(() => {
       .toLowerCase()
       .includes(keyword);
   });
+});
+
+const managerCandidates = computed(() => {
+  const tripId = managerDrawer.value.trip?.id;
+  const keyword = managerDrawer.value.keyword.trim().toLowerCase();
+  return participantsStore.participants
+    .filter((participant) => (participant.tripIds || []).includes(tripId))
+    .filter((participant) => {
+      if (!keyword) return true;
+      return [participant.name, participant.inviteCode, participant.uid]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(keyword);
+    });
 });
 
 const applyWeatherCity = (city) => {
@@ -161,7 +199,9 @@ watch(
 watch(
   () => form.weatherCity,
   (cityName) => {
-    const city = weatherCityOptions.value.find((item) => item.name === cityName);
+    const city = weatherCityOptions.value.find(
+      (item) => item.name === cityName
+    );
     if (city) {
       form.latitude = city.latitude;
       form.longitude = city.longitude;
@@ -170,9 +210,93 @@ watch(
 );
 
 onMounted(async () => {
-  await tripStore.init();
+  await Promise.all([
+    tripStore.init(),
+    participantsStore.loadAllParticipants(),
+    ensurePackingCatalog().then((list) => {
+      packingCatalog.value = list;
+    }),
+  ]);
   await tripStore.refreshTrips();
 });
+
+const openPackingDrawer = (trip) => {
+  packingDrawer.value = {
+    open: true,
+    trip,
+    isSaving: false,
+  };
+};
+
+const saveTripPackingList = async (packingList) => {
+  const trip = packingDrawer.value.trip;
+  if (!trip?.id) return;
+  packingDrawer.value.isSaving = true;
+  try {
+    await tripStore.updateTrip(trip.id, { packingList });
+    if (trip.status === 'active') {
+      await sendItinerarySyncSignal({
+        tripId: trip.id,
+        reason: 'packing-list-updated',
+      }).catch((error) =>
+        console.error('Packing list sync signal failed:', error)
+      );
+    }
+    packingDrawer.value.open = false;
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    packingDrawer.value.isSaving = false;
+  }
+};
+
+const openManagerDrawer = (trip) => {
+  const eligibleIds = new Set(
+    participantsStore.participants
+      .filter((participant) => (participant.tripIds || []).includes(trip.id))
+      .map((participant) => participant.id)
+  );
+  managerDrawer.value = {
+    open: true,
+    trip,
+    selectedIds: (trip.managerParticipantIds || []).filter((id) =>
+      eligibleIds.has(id)
+    ),
+    keyword: '',
+    isSaving: false,
+  };
+};
+
+const toggleManager = (participantId) => {
+  const selected = new Set(managerDrawer.value.selectedIds);
+  if (selected.has(participantId)) selected.delete(participantId);
+  else selected.add(participantId);
+  managerDrawer.value.selectedIds = [...selected];
+};
+
+const saveTripManagers = async () => {
+  const tripId = managerDrawer.value.trip?.id;
+  if (!tripId) return;
+  managerDrawer.value.isSaving = true;
+  try {
+    await tripStore.updateTrip(tripId, {
+      managerParticipantIds: managerDrawer.value.selectedIds,
+    });
+    if (managerDrawer.value.trip?.status === 'active') {
+      await sendItinerarySyncSignal({
+        tripId,
+        reason: 'trip-managers-updated',
+      }).catch((error) =>
+        console.error('Trip manager sync signal failed:', error)
+      );
+    }
+    managerDrawer.value.open = false;
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    managerDrawer.value.isSaving = false;
+  }
+};
 
 const resetForm = () => {
   const defaultCountry = COUNTRY_OPTIONS[0];
@@ -271,7 +395,8 @@ const maybeSyncDayConfigs = async (tripId, payload) => {
     `旅程日期區間：${preview.targetDays} 天`,
   ];
   if (preview.addCount > 0) details.push(`將補足：${preview.addCount} 天`);
-  if (preview.removeCount > 0) details.push(`將刪除超出：${preview.removeCount} 天`);
+  if (preview.removeCount > 0)
+    details.push(`將刪除超出：${preview.removeCount} 天`);
 
   const shouldSync = confirm(
     `旅程起訖日期已變更，是否同步調整每日設定？\n\n${details.join('\n')}`
@@ -381,7 +506,6 @@ const getStatusLabel = (status) => {
   if (status === 'archived') return '已封存';
   return '進行中';
 };
-
 </script>
 
 <template>
@@ -420,7 +544,8 @@ const getStatusLabel = (status) => {
         <div class="min-w-0 sm:min-w-[220px]">
           <div class="font-black text-slate-900 truncate">{{ row.title }}</div>
           <div class="text-xs font-bold text-slate-400 mt-1 truncate">
-            {{ row.destination || '未設定目的地' }} · {{ row.country || '未設定國家' }}
+            {{ row.destination || '未設定目的地' }} ·
+            {{ row.country || '未設定國家' }}
           </div>
         </div>
       </template>
@@ -436,7 +561,8 @@ const getStatusLabel = (status) => {
           class="text-[10px] font-black px-2 py-1 rounded-lg"
           :class="{
             'bg-amber-100 text-amber-700': row.status === 'draft',
-            'bg-green-100 text-green-700': (row.status || 'active') === 'active',
+            'bg-green-100 text-green-700':
+              (row.status || 'active') === 'active',
             'bg-blue-100 text-blue-700': row.status === 'completed',
             'bg-slate-100 text-slate-600': row.status === 'archived',
           }"
@@ -451,7 +577,9 @@ const getStatusLabel = (status) => {
           @click="copyCode(row.publicCode)"
           class="inline-flex items-center gap-1 bg-slate-50 border border-slate-100 rounded-lg px-2 py-1"
         >
-          <span class="font-mono text-[11px] font-black text-slate-600">{{ row.publicCode }}</span>
+          <span class="font-mono text-[11px] font-black text-slate-600">{{
+            row.publicCode
+          }}</span>
           <Copy :size="12" class="text-slate-300" />
         </button>
         <span v-else class="text-xs font-bold text-slate-300">未建立</span>
@@ -462,14 +590,18 @@ const getStatusLabel = (status) => {
           @click="copyCode(row.inviteCode)"
           class="inline-flex items-center gap-1 bg-slate-50 border border-slate-100 rounded-lg px-2 py-1"
         >
-          <span class="font-mono text-[11px] font-black text-slate-600">{{ row.inviteCode }}</span>
+          <span class="font-mono text-[11px] font-black text-slate-600">{{
+            row.inviteCode
+          }}</span>
           <Copy :size="12" class="text-slate-300" />
         </button>
       </template>
 
       <template #weather="{ row }">
         <div class="min-w-0 sm:min-w-[180px]">
-          <div class="text-sm font-black text-slate-700">{{ row.weatherCity || '未設定' }}</div>
+          <div class="text-sm font-black text-slate-700">
+            {{ row.weatherCity || '未設定' }}
+          </div>
           <div class="text-[10px] font-bold text-slate-400 mt-1">
             {{ row.latitude || '-' }}, {{ row.longitude || '-' }}
           </div>
@@ -493,6 +625,22 @@ const getStatusLabel = (status) => {
           >
             <Settings :size="16" />
             每日
+          </button>
+          <button
+            @click="openManagerDrawer(row)"
+            class="h-10 px-3 rounded-xl bg-slate-50 text-slate-600 inline-flex items-center justify-center gap-1.5 text-xs font-black hover:bg-indigo-50 hover:text-indigo-600"
+            title="旅程管理員"
+          >
+            <Users :size="16" />
+            成員
+          </button>
+          <button
+            @click="openPackingDrawer(row)"
+            class="h-10 px-3 rounded-xl bg-slate-50 text-slate-600 inline-flex items-center justify-center gap-1.5 text-xs font-black hover:bg-indigo-50 hover:text-indigo-600"
+            title="旅程行李"
+          >
+            <Luggage :size="16" />
+            行李
           </button>
           <button
             @click="openEditDrawer(row)"
@@ -523,6 +671,94 @@ const getStatusLabel = (status) => {
       </div>
     </AdminDrawer>
 
+    <AdminTripPackingDrawer
+      v-model:open="packingDrawer.open"
+      :trip="packingDrawer.trip"
+      :catalog="packingCatalog"
+      :is-saving="packingDrawer.isSaving"
+      @save="saveTripPackingList"
+    />
+
+    <AdminDrawer
+      v-model="managerDrawer.open"
+      title="旅程管理員"
+      :subtitle="managerDrawer.trip?.title || ''"
+      size="sm"
+      :z-index="90"
+    >
+      <div class="flex h-full min-h-0 flex-col bg-white">
+        <div class="border-b border-slate-200 p-4">
+          <input
+            v-model="managerDrawer.keyword"
+            class="admin-input"
+            placeholder="搜尋成員"
+          />
+        </div>
+        <div class="min-h-0 flex-1 overflow-y-auto">
+          <button
+            v-for="participant in managerCandidates"
+            :key="participant.id"
+            type="button"
+            class="flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left hover:bg-slate-50"
+            @click="toggleManager(participant.id)"
+          >
+            <span
+              class="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-100"
+            >
+              <img
+                v-if="participant.avatar"
+                :src="participant.avatar"
+                class="h-full w-full object-cover"
+              />
+              <Users v-else :size="17" class="text-slate-400" />
+            </span>
+            <span class="min-w-0 flex-1">
+              <strong class="block truncate text-sm text-slate-800">
+                {{ participant.name || '未命名成員' }}
+              </strong>
+              <span
+                class="mt-1 block truncate text-[11px] font-bold text-slate-400"
+              >
+                {{
+                  participant.inviteCode || participant.uid || participant.id
+                }}
+              </span>
+            </span>
+            <span
+              class="flex h-6 w-6 items-center justify-center rounded-lg border"
+              :class="
+                managerDrawer.selectedIds.includes(participant.id)
+                  ? 'border-indigo-600 bg-indigo-600 text-white'
+                  : 'border-slate-200 text-transparent'
+              "
+            >
+              ✓
+            </span>
+          </button>
+          <p
+            v-if="!managerCandidates.length"
+            class="p-8 text-center text-sm font-bold text-slate-400"
+          >
+            此旅程沒有符合條件的成員
+          </p>
+        </div>
+        <footer class="border-t border-slate-200 p-4">
+          <button
+            type="button"
+            :disabled="managerDrawer.isSaving"
+            class="h-11 w-full rounded-xl bg-indigo-600 text-sm font-black text-white disabled:opacity-60"
+            @click="saveTripManagers"
+          >
+            {{
+              managerDrawer.isSaving
+                ? '儲存中'
+                : `儲存 ${managerDrawer.selectedIds.length} 位管理員`
+            }}
+          </button>
+        </footer>
+      </div>
+    </AdminDrawer>
+
     <AdminDrawer
       v-model="isDrawerOpen"
       :title="isEditing ? '編輯旅程' : '新增旅程'"
@@ -532,87 +768,156 @@ const getStatusLabel = (status) => {
     >
       <div class="flex h-full min-h-0 flex-col bg-white">
         <div class="flex-1 overflow-y-auto p-4 space-y-4 sm:p-5">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <label class="space-y-1 md:col-span-2">
-                <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">旅程名稱</span>
-                <input v-model="form.title" class="admin-input" placeholder="例如：北海道之旅" />
-              </label>
-              <label class="space-y-1">
-                <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">目的地</span>
-                <input v-model="form.destination" class="admin-input" placeholder="例如：Hokkaido" />
-              </label>
-              <label class="space-y-1">
-                <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">國家代碼</span>
-                <select v-model="form.countryCode" class="admin-input">
-                  <option
-                    v-for="country in COUNTRY_OPTIONS"
-                    :key="country.code"
-                    :value="country.code"
-                  >
-                    {{ country.code }} · {{ country.name }}
-                  </option>
-                </select>
-              </label>
-              <label class="space-y-1 md:col-span-2">
-                <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">天氣城市</span>
-                <select v-model="form.weatherCity" class="admin-input">
-                  <option
-                    v-if="hasUnknownWeatherCity"
-                    :value="form.weatherCity"
-                  >
-                    既有設定 · {{ form.weatherCity }}
-                  </option>
-                  <option
-                    v-for="city in weatherCityOptions"
-                    :key="city.name"
-                    :value="city.name"
-                  >
-                    {{ city.label }} · {{ city.name }}
-                  </option>
-                </select>
-              </label>
-              <div class="md:col-span-2 rounded-xl bg-slate-50 border border-slate-100 p-3 text-xs font-bold text-slate-500">
-                {{ selectedCountry.name }} 會自動寫入時區 {{ selectedCountry.timezone }}、幣別 {{ selectedCountry.currencyCode }} {{ selectedCountry.currencySymbol }}。選擇天氣城市會同步帶入經緯度。
-              </div>
-              <label class="space-y-1">
-                <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">緯度</span>
-                <input v-model="form.latitude" type="number" class="admin-input" placeholder="33.5097" />
-              </label>
-              <label class="space-y-1">
-                <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">經度</span>
-                <input v-model="form.longitude" type="number" class="admin-input" placeholder="126.5219" />
-              </label>
-              <label class="space-y-1">
-                <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">開始日期</span>
-                <input v-model="form.startDate" type="date" class="admin-input" />
-              </label>
-              <label class="space-y-1">
-                <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">結束日期</span>
-                <input v-model="form.endDate" type="date" class="admin-input" />
-              </label>
-              <label class="space-y-1 md:col-span-2">
-                <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">旅程狀態</span>
-                <select v-model="form.status" class="admin-input">
-                  <option value="draft">草稿中</option>
-                  <option value="active">進行中</option>
-                  <option value="completed">已完成</option>
-                  <option value="archived">已封存</option>
-                </select>
-              </label>
-              <label class="space-y-1">
-                <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">公開瀏覽碼</span>
-                <input v-model="form.publicCode" maxlength="6" class="admin-input font-mono uppercase" placeholder="空白時自動產生 6 碼" />
-              </label>
-              <label class="space-y-1">
-                <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">加入旅程碼</span>
-                <input v-model="form.inviteCode" maxlength="6" class="admin-input font-mono uppercase" placeholder="空白時自動產生 6 碼" />
-              </label>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <label class="space-y-1 md:col-span-2">
+              <span
+                class="text-[11px] font-black text-slate-400 uppercase tracking-widest"
+                >旅程名稱</span
+              >
+              <input
+                v-model="form.title"
+                class="admin-input"
+                placeholder="例如：北海道之旅"
+              />
+            </label>
+            <label class="space-y-1">
+              <span
+                class="text-[11px] font-black text-slate-400 uppercase tracking-widest"
+                >目的地</span
+              >
+              <input
+                v-model="form.destination"
+                class="admin-input"
+                placeholder="例如：Hokkaido"
+              />
+            </label>
+            <label class="space-y-1">
+              <span
+                class="text-[11px] font-black text-slate-400 uppercase tracking-widest"
+                >國家代碼</span
+              >
+              <select v-model="form.countryCode" class="admin-input">
+                <option
+                  v-for="country in COUNTRY_OPTIONS"
+                  :key="country.code"
+                  :value="country.code"
+                >
+                  {{ country.code }} · {{ country.name }}
+                </option>
+              </select>
+            </label>
+            <label class="space-y-1 md:col-span-2">
+              <span
+                class="text-[11px] font-black text-slate-400 uppercase tracking-widest"
+                >天氣城市</span
+              >
+              <select v-model="form.weatherCity" class="admin-input">
+                <option v-if="hasUnknownWeatherCity" :value="form.weatherCity">
+                  既有設定 · {{ form.weatherCity }}
+                </option>
+                <option
+                  v-for="city in weatherCityOptions"
+                  :key="city.name"
+                  :value="city.name"
+                >
+                  {{ city.label }} · {{ city.name }}
+                </option>
+              </select>
+            </label>
+            <div
+              class="md:col-span-2 rounded-xl bg-slate-50 border border-slate-100 p-3 text-xs font-bold text-slate-500"
+            >
+              {{ selectedCountry.name }} 會自動寫入時區
+              {{ selectedCountry.timezone }}、幣別
+              {{ selectedCountry.currencyCode }}
+              {{
+                selectedCountry.currencySymbol
+              }}。選擇天氣城市會同步帶入經緯度。
             </div>
-
+            <label class="space-y-1">
+              <span
+                class="text-[11px] font-black text-slate-400 uppercase tracking-widest"
+                >緯度</span
+              >
+              <input
+                v-model="form.latitude"
+                type="number"
+                class="admin-input"
+                placeholder="33.5097"
+              />
+            </label>
+            <label class="space-y-1">
+              <span
+                class="text-[11px] font-black text-slate-400 uppercase tracking-widest"
+                >經度</span
+              >
+              <input
+                v-model="form.longitude"
+                type="number"
+                class="admin-input"
+                placeholder="126.5219"
+              />
+            </label>
+            <label class="space-y-1">
+              <span
+                class="text-[11px] font-black text-slate-400 uppercase tracking-widest"
+                >開始日期</span
+              >
+              <input v-model="form.startDate" type="date" class="admin-input" />
+            </label>
+            <label class="space-y-1">
+              <span
+                class="text-[11px] font-black text-slate-400 uppercase tracking-widest"
+                >結束日期</span
+              >
+              <input v-model="form.endDate" type="date" class="admin-input" />
+            </label>
+            <label class="space-y-1 md:col-span-2">
+              <span
+                class="text-[11px] font-black text-slate-400 uppercase tracking-widest"
+                >旅程狀態</span
+              >
+              <select v-model="form.status" class="admin-input">
+                <option value="draft">草稿中</option>
+                <option value="active">進行中</option>
+                <option value="completed">已完成</option>
+                <option value="archived">已封存</option>
+              </select>
+            </label>
+            <label class="space-y-1">
+              <span
+                class="text-[11px] font-black text-slate-400 uppercase tracking-widest"
+                >公開瀏覽碼</span
+              >
+              <input
+                v-model="form.publicCode"
+                maxlength="6"
+                class="admin-input font-mono uppercase"
+                placeholder="空白時自動產生 6 碼"
+              />
+            </label>
+            <label class="space-y-1">
+              <span
+                class="text-[11px] font-black text-slate-400 uppercase tracking-widest"
+                >加入旅程碼</span
+              >
+              <input
+                v-model="form.inviteCode"
+                maxlength="6"
+                class="admin-input font-mono uppercase"
+                placeholder="空白時自動產生 6 碼"
+              />
+            </label>
+          </div>
         </div>
 
-        <footer class="admin-drawer-footer flex justify-end gap-3 border-t border-slate-200 p-5">
-          <button @click="closeDrawer" class="h-11 px-5 rounded-xl bg-slate-50 text-slate-600 font-black text-sm">
+        <footer
+          class="admin-drawer-footer flex justify-end gap-3 border-t border-slate-200 p-5"
+        >
+          <button
+            @click="closeDrawer"
+            class="h-11 px-5 rounded-xl bg-slate-50 text-slate-600 font-black text-sm"
+          >
             取消
           </button>
           <button

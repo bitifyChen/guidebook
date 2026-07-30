@@ -14,6 +14,7 @@ import {
   serverTimestamp,
   limit,
 } from 'firebase/firestore';
+import { normalizeTripPackingList } from '@/utils/packingList';
 
 const db = getFirestore(app);
 
@@ -48,11 +49,14 @@ export const getTripMetadataRef = (tripId, metadataId) =>
 export const getLegacyTripDayConfigRef = (tripId) =>
   doc(db, 'configs', getLegacyDayConfigDocId(tripId));
 
-export const getLegacyGlobalDayConfigRef = () => doc(db, 'configs', 'dayConfigs');
+export const getLegacyGlobalDayConfigRef = () =>
+  doc(db, 'configs', 'dayConfigs');
 
 const validateTripInviteCode = (code) => {
   if (!/^[A-Z0-9]{6}$/.test(code)) {
-    throw new Error('Trip invite code must be exactly 6 uppercase letters or numbers.');
+    throw new Error(
+      'Trip invite code must be exactly 6 uppercase letters or numbers.'
+    );
   }
 };
 
@@ -142,9 +146,8 @@ export const getTripDayConfigSyncPreview = async (
 
   const configRef = getTripDayConfigRef(tripId);
   const snap = await getDoc(configRef);
-  const currentList = snap.exists() && Array.isArray(snap.data().list)
-    ? snap.data().list
-    : [];
+  const currentList =
+    snap.exists() && Array.isArray(snap.data().list) ? snap.data().list : [];
   const dates = getTripDateRange(startDate, endDate);
   if (!startDate || !endDate || !dates.length) {
     return {
@@ -178,9 +181,8 @@ export const ensureTripDayConfigsForDateRange = async (
 
   const configRef = getTripDayConfigRef(tripId);
   const snap = await getDoc(configRef);
-  const currentList = snap.exists() && Array.isArray(snap.data().list)
-    ? snap.data().list
-    : [];
+  const currentList =
+    snap.exists() && Array.isArray(snap.data().list) ? snap.data().list : [];
   if (!startDate || !endDate) {
     if (!snap.exists()) {
       await setDoc(
@@ -306,7 +308,9 @@ export const isTripCodeAvailable = async (code, excludeTripId = '') => {
 export const isTripInviteCodeAvailable = isTripCodeAvailable;
 
 const createUniqueTripCode = async (reservedCodes = []) => {
-  const reserved = new Set(reservedCodes.filter(Boolean).map(normalizeInviteCode));
+  const reserved = new Set(
+    reservedCodes.filter(Boolean).map(normalizeInviteCode)
+  );
   for (let i = 0; i < 20; i += 1) {
     const code = generateTripInviteCode();
     if (!reserved.has(code) && (await isTripCodeAvailable(code))) return code;
@@ -331,7 +335,10 @@ export const getActiveTrip = async () => {
     const tripDoc = querySnapshot.docs[0];
     return { ...tripDoc.data(), id: tripDoc.id };
   } catch (error) {
-    console.warn('Unable to resolve active trip; falling back to legacy data.', error);
+    console.warn(
+      'Unable to resolve active trip; falling back to legacy data.',
+      error
+    );
     return null;
   }
 };
@@ -388,13 +395,21 @@ export const createTrip = async (params) => {
       params.longitude !== undefined && params.longitude !== ''
         ? Number(params.longitude)
         : DEFAULT_TRIP_CONTEXT.longitude,
-    weatherCity: params.weatherCity || params.destination || DEFAULT_TRIP_CONTEXT.weatherCity,
+    weatherCity:
+      params.weatherCity ||
+      params.destination ||
+      DEFAULT_TRIP_CONTEXT.weatherCity,
     currencyCode: params.currencyCode || DEFAULT_TRIP_CONTEXT.currencyCode,
-    currencySymbol: params.currencySymbol || DEFAULT_TRIP_CONTEXT.currencySymbol,
+    currencySymbol:
+      params.currencySymbol || DEFAULT_TRIP_CONTEXT.currencySymbol,
     startDate: params.startDate || '',
     endDate: params.endDate || '',
     publicCode,
     inviteCode,
+    managerParticipantIds: Array.isArray(params.managerParticipantIds)
+      ? [...new Set(params.managerParticipantIds.filter(Boolean))]
+      : [],
+    packingList: normalizeTripPackingList(params.packingList || []),
     status: params.status || 'draft',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -443,6 +458,9 @@ export const patchTrip = async (tripId, params) => {
   }
   if (payload.longitude !== undefined && payload.longitude !== '') {
     payload.longitude = Number(payload.longitude);
+  }
+  if (payload.packingList !== undefined) {
+    payload.packingList = normalizeTripPackingList(payload.packingList);
   }
 
   await updateDoc(doc(db, 'trips', tripId), {

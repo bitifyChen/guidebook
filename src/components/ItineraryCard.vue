@@ -1,14 +1,15 @@
 <script setup>
-import { ref } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import {
   Clock,
-  MapPin,
-  Info,
   X,
   FileText,
   ChevronRight,
   CarFront,
   Image,
+  LogIn,
+  LogOut,
+  Navigation,
 } from 'lucide-vue-next';
 // 引入 Swiper Vue 元件
 import { Swiper, SwiperSlide } from 'swiper/vue';
@@ -17,6 +18,7 @@ import { Pagination, Autoplay } from 'swiper/modules';
 // 引入 Swiper 樣式
 import 'swiper/css';
 import 'swiper/css/pagination';
+import { calculateStayMinutes } from '@/utils/itineraryTiming';
 
 const props = defineProps({
   item: {
@@ -43,13 +45,17 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  canManageTiming: {
+    type: Boolean,
+    default: false,
+  },
 });
+
+const emit = defineEmits(['adjust-timing']);
 
 const drawerVisible = ref(false);
 
-import { watch } from 'vue';
 import { lockScroll, unlockScroll } from '@/utils/scrollLock';
-import { es } from 'element-plus/es/locales.mjs';
 watch(drawerVisible, (val) => {
   if (val) {
     lockScroll();
@@ -63,6 +69,32 @@ const openDetail = () => {
 };
 const goUrl = (url) => {
   window.open(url, '_blank');
+};
+const mapUrl = computed(() => props.item.map || props.item.geo?.mapUrl || '');
+const scheduledStartTime = computed(
+  () => props.item.scheduledStartTime || props.item.startTime || '--:--'
+);
+const scheduledEndTime = computed(
+  () => props.item.scheduledEndTime || props.item.endTime || '--:--'
+);
+const hasStartTimeChange = computed(
+  () =>
+    Boolean(props.item.actualTiming?.arrivalTime) &&
+    scheduledStartTime.value !== props.item.startTime
+);
+const hasEndTimeChange = computed(
+  () =>
+    Boolean(
+      props.item.actualTiming?.arrivalTime ||
+      props.item.actualTiming?.departureTime
+    ) && scheduledEndTime.value !== props.item.endTime
+);
+const effectiveStayMinutes = computed(() =>
+  calculateStayMinutes(props.item.startTime, props.item.endTime)
+);
+const requestTimingAdjustment = (mode) => {
+  drawerVisible.value = false;
+  nextTick(() => emit('adjust-timing', { item: props.item, mode }));
 };
 // 設定 Swiper 模組
 const modules = [Pagination, Autoplay];
@@ -80,8 +112,14 @@ const modules = [Pagination, Autoplay];
       class="absolute left-0 top-0 bottom-0 w-[60px] px-[4px] flex flex-col items-center text-[14px] font-semibold text-slate-500 font-mono tracking-tighter uppercase"
     >
       <!-- 只有非子景點（父/獨立）才顯示 startTime -->
-      <span v-if="!item.isGroupChild">
-        {{ item?.startTime }}
+      <span v-if="!item.isGroupChild" class="flex flex-col items-center">
+        <span
+          v-if="hasStartTimeChange"
+          class="text-[11px] line-through opacity-50"
+        >
+          {{ scheduledStartTime }}
+        </span>
+        <span>{{ item?.startTime }}</span>
       </span>
 
       <div class="flex-1 py-1">
@@ -93,8 +131,14 @@ const modules = [Pagination, Autoplay];
       </div>
 
       <!-- 只有群組的最後一個項目才顯示 endTime -->
-      <span v-if="item.isGroupLast">
-        {{ item?.endTime }}
+      <span v-if="item.isGroupLast" class="flex flex-col items-center">
+        <span
+          v-if="hasEndTimeChange"
+          class="text-[11px] line-through opacity-50"
+        >
+          {{ scheduledEndTime }}
+        </span>
+        <span>{{ item?.endTime }}</span>
       </span>
     </div>
 
@@ -279,7 +323,10 @@ const modules = [Pagination, Autoplay];
         <X :size="20" />
       </button>
       <div
-        class="flex-1 p-4 pb-[100px] overflow-y-auto overflow-x-hidden space-y-[20px]"
+        class="flex-1 p-4 overflow-y-auto overflow-x-hidden space-y-[20px]"
+        :class="
+          canManageTiming && !item.isGroupChild ? 'pb-[190px]' : 'pb-[100px]'
+        "
       >
         <!-- 頂部圖片容器 -->
         <div
@@ -311,27 +358,67 @@ const modules = [Pagination, Autoplay];
           </div>
         </div>
 
-        <!-- 時間區塊：如果目前顯示的是子景點，可以稍微調整或提示 -->
-        <div class="bg-[#68686820] rounded-xl p-2 !mt-[4px]">
+        <!-- 時間區塊：以目前有效的抵達與離開時間為主要資訊 -->
+        <div class="rounded-2xl bg-slate-100/90 p-4 !mt-[4px]">
           <template v-if="!item.isGroupChild">
-            <p
-              class="text-[12px] font-black text-slate-800 uppercase tracking-tighter"
-            >
-              停留
-              <span class="text-orange-500 text-[16px]">
-                {{ item.duration }}
+            <div class="mb-3 flex items-center justify-between">
+              <span class="text-[11px] font-black text-slate-400"
+                >本次時間</span
+              >
+              <span class="text-xs font-black text-slate-600">
+                本次停留
+                {{
+                  effectiveStayMinutes === null
+                    ? '時間需確認'
+                    : `${effectiveStayMinutes} 分鐘`
+                }}
               </span>
-              分鐘 / 延遲
-              <span class="text-[#f58585] text-[16px]">{{
-                item.delay == '0' ? '-' : item.delay
-              }}</span>
-              分鐘
-            </p>
-            <p
-              class="text-2xl font-black text-orange-500 font-mono italic text-right"
-            >
-              {{ item.startTime }} - {{ item.endTime }}
-            </p>
+            </div>
+            <div class="grid grid-cols-[1fr_auto_1fr] items-end gap-3">
+              <div>
+                <p
+                  class="text-[10px] font-black tracking-widest text-slate-400"
+                >
+                  抵達
+                </p>
+                <p
+                  v-if="hasStartTimeChange"
+                  class="mt-1 font-mono text-xs font-bold text-slate-400 line-through"
+                >
+                  {{ scheduledStartTime }}
+                </p>
+                <p
+                  class="font-mono text-3xl font-black leading-none"
+                  :class="
+                    hasStartTimeChange ? 'text-emerald-600' : 'text-slate-800'
+                  "
+                >
+                  {{ item.startTime }}
+                </p>
+              </div>
+              <span class="pb-1 text-xl font-black text-slate-300">→</span>
+              <div class="text-right">
+                <p
+                  class="text-[10px] font-black tracking-widest text-slate-400"
+                >
+                  離開
+                </p>
+                <p
+                  v-if="hasEndTimeChange"
+                  class="mt-1 font-mono text-xs font-bold text-slate-400 line-through"
+                >
+                  {{ scheduledEndTime }}
+                </p>
+                <p
+                  class="font-mono text-3xl font-black leading-none"
+                  :class="
+                    hasEndTimeChange ? 'text-orange-600' : 'text-slate-800'
+                  "
+                >
+                  {{ item.endTime }}
+                </p>
+              </div>
+            </div>
           </template>
           <template v-else>
             <p
@@ -396,17 +483,43 @@ const modules = [Pagination, Autoplay];
       <div
         class="absolute bottom-[0px] left-0 right-0 p-6 bg-gradient-to-t from-white via-white to-transparent pt-10 z-10"
       >
-        <div class="flex gap-3 max-w-lg mx-auto">
+        <div
+          class="grid gap-2 max-w-lg mx-auto"
+          :class="
+            canManageTiming && !item.isGroupChild
+              ? 'grid-cols-2'
+              : 'grid-cols-1'
+          "
+        >
           <el-button
-            v-if="item.map"
-            @click="goUrl(item.map)"
+            v-if="mapUrl"
+            @click.stop="goUrl(mapUrl)"
             type="primary"
-            class="flex-1 !rounded-[24px] !h-14 !bg-slate-900 !border-none !text-base font-black shadow-xl shadow-slate-200"
+            class="!m-0 !w-full !rounded-[24px] !h-14 !bg-slate-900 !border-none !text-base font-black shadow-xl shadow-slate-200"
+            :class="canManageTiming && !item.isGroupChild ? 'col-span-2' : ''"
           >
             <div class="flex items-center gap-2">
-              <Navigation :size="18" /> 開啟 Naver Map
+              <Navigation :size="18" /> 開啟地圖
             </div>
           </el-button>
+          <template v-if="canManageTiming && !item.isGroupChild">
+            <button
+              type="button"
+              class="inline-flex h-14 items-center justify-center gap-2 rounded-3xl bg-emerald-500 px-4 text-sm font-black text-white"
+              @click.stop="requestTimingAdjustment('arrived')"
+            >
+              <LogIn :size="18" />
+              抵達
+            </button>
+            <button
+              type="button"
+              class="inline-flex h-14 items-center justify-center gap-2 rounded-3xl bg-orange-500 px-4 text-sm font-black text-white"
+              @click.stop="requestTimingAdjustment('departed')"
+            >
+              <LogOut :size="18" />
+              離開
+            </button>
+          </template>
         </div>
       </div>
     </div>

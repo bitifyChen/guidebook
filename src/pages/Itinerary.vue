@@ -2,13 +2,29 @@
 import { ref, watch, computed, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import ItineraryCard from '@/components/ItineraryCard.vue';
+import ItineraryTimingDrawer from '@/components/ItineraryTimingDrawer.vue';
 import { useTravelStore } from '@/store/travelStore';
+import { useTripStore } from '@/store/tripStore';
+import { useUserStore } from '@/store/userStore';
+import { patchItineraryItem } from '@/api/itinerary';
+import { sendItinerarySyncSignal } from '@/api/notifications';
+import { calculateTimingAdjustment } from '@/utils/itineraryTiming';
+import { ElMessage } from 'element-plus';
 
 const route = useRoute();
 const travelStore = useTravelStore();
+const tripStore = useTripStore();
+const userStore = useUserStore();
 const activeDay = ref(travelStore.currentDay || 1);
 const dayTabsRef = ref(null);
 const days = computed(() => travelStore.totalDays);
+const timingDrawer = ref({
+  open: false,
+  item: null,
+  mode: 'arrived',
+  actualTime: '',
+  isSaving: false,
+});
 const itinerary = computed(() => {
   const items = travelStore.dailyItinerary;
   return items.map((item, index) => {
@@ -35,6 +51,14 @@ const itinerary = computed(() => {
       const parent = items.find((i) => i.id === item.parentId);
       if (parent) {
         displayNextDrive = parent.nextDrive;
+        return {
+          ...item,
+          scheduledEndTime: parent.scheduledEndTime,
+          endTime: parent.endTime,
+          isGroupChild: true,
+          isGroupLast: true,
+          nextDrive: displayNextDrive,
+        };
       }
     }
 
@@ -123,6 +147,92 @@ const handleTouchEnd = (e) => {
     }
   }
 };
+
+const openTimingAdjustment = ({ item, mode }) => {
+  if (!userStore.canManageCurrentTripTiming || item?.isGroupChild) return;
+  timingDrawer.value = {
+    open: true,
+    item,
+    mode,
+    actualTime: new Date().toTimeString().slice(0, 5),
+    isSaving: false,
+  };
+};
+
+const saveTimingAdjustment = async ({ actualTime, arrivalPolicy = '' }) => {
+  const item = timingDrawer.value.item;
+  if (
+    !item?.id ||
+    !actualTime ||
+    item.isGroupChild ||
+    !userStore.canManageCurrentTripTiming ||
+    tripStore.currentTrip?.status !== 'active'
+  ) {
+    return;
+  }
+
+  timingDrawer.value.actualTime = actualTime;
+  const preview = calculateTimingAdjustment({
+    item,
+    mode: timingDrawer.value.mode,
+    actualTime,
+    arrivalPolicy,
+  });
+  const recordedAt = Date.now();
+  const recordedBy = userStore.myParticipant?.id || userStore.user?.uid || '';
+  const actualTiming = {
+    ...(item.actualTiming || {}),
+    ...(timingDrawer.value.mode === 'arrived'
+      ? {
+          arrivalTime: actualTime,
+          arrivalPolicy,
+          arrivalRecordedAt: recordedAt,
+          arrivalRecordedBy: recordedBy,
+        }
+      : {
+          departureTime: actualTime,
+          departureRecordedAt: recordedAt,
+          departureRecordedBy: recordedBy,
+        }),
+  };
+  const timingRecord = {
+    mode: timingDrawer.value.mode,
+    actualTime,
+    arrivalPolicy: timingDrawer.value.mode === 'arrived' ? arrivalPolicy : '',
+    previousDelay: preview.previousDelay,
+    delay: preview.nextDelay,
+    adjustedAt: recordedAt,
+    adjustedBy: recordedBy,
+  };
+  const changes = {
+    delay: preview.nextDelay,
+    actualTiming,
+    timingStatus: timingDrawer.value.mode,
+    lastTimingAdjustment: timingRecord,
+  };
+
+  timingDrawer.value.isSaving = true;
+  try {
+    await patchItineraryItem(item.id, changes);
+    travelStore.updateLocalItem(item.id, changes);
+    await travelStore.init({ force: true });
+    if (tripStore.currentTrip?.status === 'active') {
+      await sendItinerarySyncSignal({
+        tripId: tripStore.currentTripId,
+        day: item.day,
+        reason: `timing-${timingDrawer.value.mode}`,
+      }).catch((error) =>
+        console.error('Itinerary sync signal failed:', error)
+      );
+    }
+    timingDrawer.value.open = false;
+    ElMessage.success('行程時間已更新');
+  } catch (error) {
+    ElMessage.error(`時間更新失敗：${error.message}`);
+  } finally {
+    timingDrawer.value.isSaving = false;
+  }
+};
 </script>
 
 <template>
@@ -136,7 +246,12 @@ const handleTouchEnd = (e) => {
       @touchstart.stop
       @touchend.stop
     >
-      <el-tabs ref="dayTabsRef" v-model="activeDay" class="custom-tabs">
+      <el-tabs
+        ref="dayTabsRef"
+        v-model="activeDay"
+        class="custom-tabs"
+        :class="{ 'custom-tabs--compact': days <= 5 }"
+      >
         <el-tab-pane
           :label="`D${day}`"
           :name="day"
@@ -153,6 +268,8 @@ const handleTouchEnd = (e) => {
         :isNow="item.id === travelStore.currentActivity?.id"
         :isNext="item.id === travelStore.nextActivity?.id"
         :isLast="idx === itinerary.length - 1"
+        :can-manage-timing="userStore.canManageCurrentTripTiming"
+        @adjust-timing="openTimingAdjustment"
       />
       <div
         v-if="itinerary.length === 0"
@@ -161,6 +278,14 @@ const handleTouchEnd = (e) => {
         本日無行程，享受悠閒時光吧！
       </div>
     </div>
+
+    <ItineraryTimingDrawer
+      v-model:open="timingDrawer.open"
+      :item="timingDrawer.item"
+      :mode="timingDrawer.mode"
+      :is-saving="timingDrawer.isSaving"
+      @save="saveTimingAdjustment"
+    />
   </div>
 </template>
 
@@ -232,6 +357,15 @@ const handleTouchEnd = (e) => {
   width: max-content;
   min-width: 100%;
   display: flex;
+}
+
+.custom-tabs--compact .el-tabs__nav {
+  width: 100%;
+}
+
+.custom-tabs--compact .el-tabs__item {
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .custom-tabs .el-tabs__nav-wrap {

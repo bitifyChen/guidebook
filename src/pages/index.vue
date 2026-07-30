@@ -4,6 +4,7 @@ import { useExpensesStore } from '@/store/expensesStore';
 import { useParticipantsStore } from '@/store/participantsStore';
 import { useTravelStore } from '@/store/travelStore';
 import { useTripStore } from '@/store/tripStore';
+import { useUserStore } from '@/store/userStore';
 import {
   User,
   X,
@@ -19,11 +20,18 @@ import PackingList from '@/components/PackingList.vue';
 import WeatherCard from '@/components/WeatherCard.vue';
 import ItineraryCard from '@/components/ItineraryCard.vue';
 import dayjs from 'dayjs';
+import {
+  getPackingProgress,
+  getPackingStorageKey,
+  hasPackingItems,
+  mergePackingState,
+} from '@/utils/packingList';
 
 const travelStore = useTravelStore();
 const expense = useExpensesStore();
 const participants = useParticipantsStore();
 const tripStore = useTripStore();
+const userStore = useUserStore();
 
 const isParticipantsModalOpen = ref(false);
 const isPackingListOpen = ref(false);
@@ -39,31 +47,55 @@ watch([isParticipantsModalOpen, isPackingListOpen], ([p, l]) => {
 
 // 行李準備進度
 const packingProgress = ref(0);
+const packingTemplate = computed(
+  () => tripStore.currentTrip?.packingList || []
+);
+const hasTripPackingList = computed(() =>
+  hasPackingItems(packingTemplate.value)
+);
+const packingParticipantId = computed(
+  () => userStore.myParticipant?.id || userStore.localParticipantId || 'guest'
+);
 const updatePackingProgress = () => {
-  const saved =
+  if (!hasTripPackingList.value) {
+    packingProgress.value = 0;
+    return;
+  }
+  const storageKey = getPackingStorageKey(
+    tripStore.currentTripId,
+    packingParticipantId.value
+  );
+  const raw =
+    localStorage.getItem(storageKey) ||
     localStorage.getItem('guidebook_packing_list_v2') ||
     localStorage.getItem(['jeju', 'packing', 'list', 'v2'].join('_'));
-  if (saved) {
-    const list = JSON.parse(saved);
-    let total = 0;
-    let checked = 0;
-    list.forEach((cat) => {
-      cat.items.forEach((item) => {
-        total++;
-        if (item.checked) checked++;
-      });
-    });
-    packingProgress.value =
-      total === 0 ? 0 : Math.round((checked / total) * 100);
-  } else {
-    packingProgress.value = 0;
+  let saved = null;
+  try {
+    saved = raw ? JSON.parse(raw) : null;
+  } catch (error) {
+    console.warn('Unable to parse packing progress state', error);
   }
+  const state = mergePackingState({
+    saved,
+    template: packingTemplate.value,
+  });
+  localStorage.setItem(storageKey, JSON.stringify(state));
+  packingProgress.value = getPackingProgress(state);
 };
 
 // 當清單關閉時重新計算進度
 watch(isPackingListOpen, (val) => {
   if (!val) updatePackingProgress();
 });
+watch(
+  () => [
+    tripStore.currentTripId,
+    packingParticipantId.value,
+    packingTemplate.value,
+  ],
+  updatePackingProgress,
+  { deep: true }
+);
 
 const currentActivity = computed(() => travelStore.currentActivity);
 const currentSubActivity = computed(() => travelStore.currentSubActivity);
@@ -96,7 +128,9 @@ const getWeather = async () => {
         'temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,uv_index',
       timezone: tripContext.timezone,
     });
-    const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`);
+    const response = await fetch(
+      `https://api.open-meteo.com/v1/forecast?${params.toString()}`
+    );
     const data = await response.json();
     weather.value = data;
 
@@ -131,7 +165,8 @@ onMounted(() => {
           >
             <p class="text-xs text-slate-400 font-bold mb-1">已支出</p>
             <p class="text-xl font-bold text-slate-800">
-              {{ tripStore.currencySymbol }}{{ expense.totalSpent.toLocaleString() }}
+              {{ tripStore.currencySymbol
+              }}{{ expense.totalSpent.toLocaleString() }}
             </p>
           </div>
         </router-link>
@@ -156,6 +191,7 @@ onMounted(() => {
 
       <!-- 行李準備進度卡片 -->
       <div
+        v-if="hasTripPackingList"
         @click="isPackingListOpen = true"
         class="mt-4 bg-white p-4 rounded-2xl border border-slate-100 shadow-sm active:scale-95 transition-transform cursor-pointer group overflow-hidden relative"
       >
@@ -187,7 +223,13 @@ onMounted(() => {
       </div>
     </section>
 
-    <PackingList v-model:visible="isPackingListOpen" />
+    <PackingList
+      v-model:visible="isPackingListOpen"
+      :template="packingTemplate"
+      :trip-id="tripStore.currentTripId"
+      :participant-id="packingParticipantId"
+      @change="packingProgress = getPackingProgress($event)"
+    />
 
     <!-- 原有的行程區塊保持不變 -->
     <section>

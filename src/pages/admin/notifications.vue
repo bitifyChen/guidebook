@@ -1,14 +1,6 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
-import {
-  Check,
-  Image,
-  Loader2,
-  Plus,
-  Send,
-  Users,
-  X,
-} from 'lucide-vue-next';
+import { Check, Image, Loader2, Plus, Send, Users, X } from 'lucide-vue-next';
 import AdminDataTable from '@/components/admin/AdminDataTable.vue';
 import AdminDrawer from '@/components/admin/AdminDrawer.vue';
 import {
@@ -18,6 +10,10 @@ import {
 } from '@/api/notifications';
 import { useParticipantsStore } from '@/store/participantsStore';
 import { useTripStore } from '@/store/tripStore';
+import {
+  getClipboardImageFiles,
+  uploadClipboardImages,
+} from '@/utils/clipboardImage';
 
 const participantsStore = useParticipantsStore();
 const tripStore = useTripStore();
@@ -60,7 +56,10 @@ const sortedLogs = computed(() => sortNotificationLogs(logs.value));
 const filteredLogs = computed(() => {
   const keyword = appliedSearch.value.keyword.trim().toLowerCase();
   return sortedLogs.value.filter((item) => {
-    if (appliedSearch.value.tripId && item.tripId !== appliedSearch.value.tripId) {
+    if (
+      appliedSearch.value.tripId &&
+      item.tripId !== appliedSearch.value.tripId
+    ) {
       return false;
     }
     if (!keyword) return true;
@@ -95,7 +94,9 @@ const tripParticipants = computed(() => {
   if (!form.value.tripId) return [];
   const keyword = memberSearch.value.trim().toLowerCase();
   return participantsStore.participants
-    .filter((participant) => (participant.tripIds || []).includes(form.value.tripId))
+    .filter((participant) =>
+      (participant.tripIds || []).includes(form.value.tripId)
+    )
     .filter((participant) => {
       if (!keyword) return true;
       return [participant.name, participant.inviteCode, participant.uid]
@@ -108,11 +109,16 @@ const tripParticipants = computed(() => {
 
 const selectedParticipants = computed(() => {
   const selected = new Set(selectedParticipantIds.value);
-  return participantsStore.participants.filter((participant) => selected.has(participant.id));
+  return participantsStore.participants.filter((participant) =>
+    selected.has(participant.id)
+  );
 });
 
-const availablePushCount = computed(() =>
-  selectedParticipants.value.filter((participant) => hasPushEnabled(participant)).length
+const availablePushCount = computed(
+  () =>
+    selectedParticipants.value.filter((participant) =>
+      hasPushEnabled(participant)
+    ).length
 );
 
 const hasPushEnabled = (participant) => {
@@ -201,11 +207,28 @@ const clearSelected = () => {
   selectedParticipantIds.value = [];
 };
 
+const isImageUploading = ref(false);
+
+const handleImagePaste = async (event) => {
+  if (!getClipboardImageFiles(event).length) return;
+
+  isImageUploading.value = true;
+  try {
+    const { urls } = await uploadClipboardImages(event, { multiple: false });
+    if (urls[0]) form.value.imageUrl = urls[0];
+  } catch (error) {
+    alert('圖片上傳失敗：' + error.message);
+  } finally {
+    isImageUploading.value = false;
+  }
+};
+
 const sendNotification = async () => {
   if (!form.value.title.trim()) return alert('請輸入推播標題。');
   if (!form.value.body.trim()) return alert('請輸入推播內容。');
   if (!form.value.tripId) return alert('請先選擇旅程。');
-  if (selectedParticipantIds.value.length === 0) return alert('請至少選擇一位成員。');
+  if (selectedParticipantIds.value.length === 0)
+    return alert('請至少選擇一位成員。');
 
   isSending.value = true;
   try {
@@ -219,7 +242,9 @@ const sendNotification = async () => {
     });
     await loadLogs();
     closeDrawer();
-    alert(`推播已送出：成功 ${result.successCount}，失敗 ${result.failureCount}`);
+    alert(
+      `推播已送出：成功 ${result.successCount}，失敗 ${result.failureCount}`
+    );
   } catch (error) {
     alert('推播發送失敗：' + error.message);
   } finally {
@@ -282,7 +307,9 @@ onMounted(async () => {
       </template>
 
       <template #audience="{ row }">
-        <span class="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-600">
+        <span
+          class="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-600"
+        >
           <Users :size="12" />
           {{ row.participantIds?.length || 0 }} 人
         </span>
@@ -290,7 +317,9 @@ onMounted(async () => {
 
       <template #result="{ row }">
         <div class="flex flex-wrap gap-2">
-          <span class="rounded-lg bg-green-100 px-2 py-1 text-[10px] font-black text-green-700">
+          <span
+            class="rounded-lg bg-green-100 px-2 py-1 text-[10px] font-black text-green-700"
+          >
             成功 {{ row.successCount || 0 }}
           </span>
           <span
@@ -320,22 +349,39 @@ onMounted(async () => {
         <div class="flex-1 overflow-y-auto p-4 space-y-5 sm:p-5">
           <section class="grid grid-cols-1 gap-4">
             <label class="space-y-1 block">
-              <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">旅程</span>
+              <span
+                class="text-[11px] font-black text-slate-400 uppercase tracking-widest"
+                >旅程</span
+              >
               <select v-model="form.tripId" class="admin-input">
                 <option value="">請選擇旅程</option>
-                <option v-for="trip in tripStore.trips" :key="trip.id" :value="trip.id">
+                <option
+                  v-for="trip in tripStore.trips"
+                  :key="trip.id"
+                  :value="trip.id"
+                >
                   {{ trip.title }}
                 </option>
               </select>
             </label>
 
             <label class="space-y-1 block">
-              <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">標題</span>
-              <input v-model="form.title" class="admin-input" placeholder="例如：集合時間提醒" />
+              <span
+                class="text-[11px] font-black text-slate-400 uppercase tracking-widest"
+                >標題</span
+              >
+              <input
+                v-model="form.title"
+                class="admin-input"
+                placeholder="例如：集合時間提醒"
+              />
             </label>
 
             <label class="space-y-1 block">
-              <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">內容</span>
+              <span
+                class="text-[11px] font-black text-slate-400 uppercase tracking-widest"
+                >內容</span
+              >
               <textarea
                 v-model="form.body"
                 rows="4"
@@ -345,29 +391,53 @@ onMounted(async () => {
             </label>
 
             <label class="space-y-1 block">
-              <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">圖片 URL</span>
+              <span
+                class="text-[11px] font-black text-slate-400 uppercase tracking-widest"
+                >圖片 URL</span
+              >
               <div class="relative">
-                <Image :size="16" class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
+                <Image
+                  :size="16"
+                  class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300"
+                />
                 <input
                   v-model="form.imageUrl"
                   class="admin-input pl-9"
                   placeholder="選填，部分手機系統可能不顯示"
+                  @paste="handleImagePaste"
+                />
+                <Loader2
+                  v-if="isImageUploading"
+                  :size="16"
+                  class="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-indigo-500"
                 />
               </div>
             </label>
 
             <label class="space-y-1 block">
-              <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">點擊連結</span>
-              <input v-model="form.clickUrl" class="admin-input" placeholder="選填，例如前台頁面網址" />
+              <span
+                class="text-[11px] font-black text-slate-400 uppercase tracking-widest"
+                >點擊連結</span
+              >
+              <input
+                v-model="form.clickUrl"
+                class="admin-input"
+                placeholder="選填，例如前台頁面網址"
+              />
             </label>
           </section>
 
-          <section class="rounded-2xl border border-slate-100 bg-slate-50 p-4 space-y-3">
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <section
+            class="rounded-2xl border border-slate-100 bg-slate-50 p-4 space-y-3"
+          >
+            <div
+              class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+            >
               <div>
                 <h4 class="font-black text-slate-800">發送對象</h4>
                 <p class="text-xs font-bold text-slate-400 mt-1">
-                  已選 {{ selectedParticipantIds.length }} 人，可推播 {{ availablePushCount }} 人
+                  已選 {{ selectedParticipantIds.length }} 人，可推播
+                  {{ availablePushCount }} 人
                 </p>
               </div>
               <div class="flex gap-2">
@@ -400,28 +470,52 @@ onMounted(async () => {
                 :key="participant.id"
                 @click="toggleParticipant(participant.id)"
                 class="w-full rounded-xl border bg-white p-3 text-left flex items-center justify-between gap-3"
-                :class="selectedParticipantIds.includes(participant.id) ? 'border-indigo-200' : 'border-slate-100'"
+                :class="
+                  selectedParticipantIds.includes(participant.id)
+                    ? 'border-indigo-200'
+                    : 'border-slate-100'
+                "
               >
                 <span class="flex items-center gap-3 min-w-0">
-                  <span class="w-10 h-10 rounded-xl bg-slate-100 overflow-hidden flex items-center justify-center text-slate-300 shrink-0">
-                    <img v-if="participant.avatar" :src="participant.avatar" class="w-full h-full object-cover" />
+                  <span
+                    class="w-10 h-10 rounded-xl bg-slate-100 overflow-hidden flex items-center justify-center text-slate-300 shrink-0"
+                  >
+                    <img
+                      v-if="participant.avatar"
+                      :src="participant.avatar"
+                      class="w-full h-full object-cover"
+                    />
                     <Users v-else :size="18" />
                   </span>
                   <span class="min-w-0">
-                    <span class="block font-black text-sm text-slate-800 truncate">
+                    <span
+                      class="block font-black text-sm text-slate-800 truncate"
+                    >
                       {{ participant.name }}
                     </span>
                     <span
                       class="block text-[10px] font-bold"
-                      :class="hasPushEnabled(participant) ? 'text-green-600' : 'text-slate-400'"
+                      :class="
+                        hasPushEnabled(participant)
+                          ? 'text-green-600'
+                          : 'text-slate-400'
+                      "
                     >
-                      {{ hasPushEnabled(participant) ? '推播已啟用' : '推播未啟用' }}
+                      {{
+                        hasPushEnabled(participant)
+                          ? '推播已啟用'
+                          : '推播未啟用'
+                      }}
                     </span>
                   </span>
                 </span>
                 <span
                   class="w-6 h-6 rounded-lg border flex items-center justify-center shrink-0"
-                  :class="selectedParticipantIds.includes(participant.id) ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-200 text-transparent'"
+                  :class="
+                    selectedParticipantIds.includes(participant.id)
+                      ? 'bg-indigo-600 border-indigo-600 text-white'
+                      : 'border-slate-200 text-transparent'
+                  "
                 >
                   <Check :size="14" />
                 </span>
@@ -443,7 +537,9 @@ onMounted(async () => {
           </section>
         </div>
 
-        <footer class="admin-drawer-footer flex justify-end gap-3 border-t border-slate-200 p-5">
+        <footer
+          class="admin-drawer-footer flex justify-end gap-3 border-t border-slate-200 p-5"
+        >
           <button
             @click="closeDrawer"
             class="h-11 px-5 rounded-xl bg-slate-50 text-slate-600 font-black text-sm inline-flex items-center gap-2"

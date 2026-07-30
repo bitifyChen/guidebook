@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { getItinerary, getDayConfigs, getGlobalVersion } from '@/api/itinerary';
 import { useTripStore } from '@/store/tripStore';
+import { calculateDayItinerary } from '@/utils/itinerarySchedule';
 import dayjs from 'dayjs';
 export const useTravelStore = defineStore('travel', {
   state: () => ({
@@ -131,7 +132,9 @@ export const useTravelStore = defineStore('travel', {
           this.config = localCache.config;
           const savedDay = Number(localStorage.getItem(SELECTED_DAY_KEY));
           this.selectedDay =
-            savedDay || (tripStore.isTimeLocked ? this.selectedDay : this.currentDay) || 1;
+            savedDay ||
+            (tripStore.isTimeLocked ? this.selectedDay : this.currentDay) ||
+            1;
         }
       } catch (e) {
         console.warn('Cache load failed', e);
@@ -142,7 +145,11 @@ export const useTravelStore = defineStore('travel', {
         const remoteMeta = await getGlobalVersion();
 
         // 3. 如果版本一致且已有資料，就不再抓取大宗資料
-        if (!force && localCache && localCache.timestamp === remoteMeta.lastUpdate) {
+        if (
+          !force &&
+          localCache &&
+          localCache.timestamp === remoteMeta.lastUpdate
+        ) {
           console.log('Using travel cache (version match)');
           return;
         }
@@ -222,61 +229,10 @@ export const useTravelStore = defineStore('travel', {
     getDayItinerary(day) {
       const dayConfig = this.config.find((c) => c.day === day);
       if (!dayConfig || this.itinerary.length === 0) return [];
-
-      // 1. 取得起始時間種子 (例如 "07:00")
-      let [hours, minutes] = dayConfig.start.split(':').map(Number);
-      let rollingMinutes = hours * 60 + minutes;
-
-      // 2. 排序當天原始資料
       const rawDayItems = this.itinerary
         .filter((item) => item.day === day)
         .sort((a, b) => a.order - b.order);
-
-      // 3. 開始累加計算
-      return rawDayItems
-        .map((item, index) => {
-          const startH = Math.floor(rollingMinutes / 60);
-          const startM = rollingMinutes % 60;
-          const computedStartTime = `${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}`;
-
-          const totalStay = (item.duration || 0) + (item.delay || 0);
-          rollingMinutes += totalStay;
-
-          const endH = Math.floor(rollingMinutes / 60);
-          const endM = rollingMinutes % 60;
-          const computedEndTime = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
-
-          // --- 車程時間累加邏輯修正 ---
-          // 只有當此項目是：
-          // 1. 獨立項目 (無 parentId 且 無子項目)
-          // 2. 子項目且是該群組最後一個 (後續沒有相同 parentId 的項目)
-          const isChild = !!item.parentId;
-          const nextItem = rawDayItems[index + 1];
-          const hasChildren = rawDayItems.some((i) => i.parentId === item.id);
-          const isLastInGroup = isChild
-            ? !nextItem || nextItem.parentId !== item.parentId
-            : !hasChildren;
-
-          if (isLastInGroup) {
-            // 如果是子景點結尾，要用父景點的車程時間
-            if (isChild) {
-              const parent = rawDayItems.find((i) => i.id === item.parentId);
-              rollingMinutes += parent?.nextDrive?.time || 0;
-            } else {
-              // 獨立景點用自己的
-              rollingMinutes += item.nextDrive?.time || 0;
-            }
-          }
-
-          return {
-            ...item,
-            startTime: computedStartTime,
-            endTime: computedEndTime,
-          };
-        })
-        .sort((a, b) => {
-          return dayjs(a.startTime, 'HH:mm').diff(dayjs(b.startTime, 'HH:mm'));
-        });
+      return calculateDayItinerary(rawDayItems, dayConfig.start);
     },
   },
 });

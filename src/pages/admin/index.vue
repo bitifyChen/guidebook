@@ -3,11 +3,7 @@ import { computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { useUserStore } from '@/store/userStore';
 import { useTripStore } from '@/store/tripStore';
-import {
-  Bell,
-  Plane,
-  Users,
-} from 'lucide-vue-next';
+import { Bell, Luggage, Plane, Users } from 'lucide-vue-next';
 
 const router = useRouter();
 const userStore = useUserStore();
@@ -42,6 +38,15 @@ const cards = computed(() =>
       bg: 'bg-emerald-50',
       superOnly: true,
     },
+    {
+      title: '行李管理',
+      desc: '維護行李分類與物品範本',
+      icon: Luggage,
+      path: '/admin/packing',
+      color: 'text-orange-600',
+      bg: 'bg-orange-50',
+      superOnly: true,
+    },
   ].filter((card) => !card.superOnly || userStore.isSuperAdmin)
 );
 </script>
@@ -49,7 +54,9 @@ const cards = computed(() =>
 <template>
   <div class="space-y-6">
     <section class="rounded-2xl bg-white border border-slate-200 p-6">
-      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div
+        class="flex flex-col md:flex-row md:items-center md:justify-between gap-4"
+      >
         <div>
           <h2 class="text-2xl font-black text-slate-900">後台總覽</h2>
           <p class="text-sm font-bold text-slate-400 mt-1">

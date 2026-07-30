@@ -79,10 +79,12 @@ export const getItinerary = () => {
           query(collection(db, 'itinerary'), where('tripId', '==', tripId))
         );
       }
-      const data = querySnapshot.docs.map((doc) => ({
-        ...doc.data(),
-        id: doc.id,
-      })).sort((a, b) => (a.order || 0) - (b.order || 0));
+      const data = querySnapshot.docs
+        .map((doc) => ({
+          ...doc.data(),
+          id: doc.id,
+        }))
+        .sort((a, b) => (a.order || 0) - (b.order || 0));
       resolve({ status: 200, data });
     } catch (error) {
       reject(error);
@@ -273,6 +275,26 @@ export const bulkUpdateItineraryDay = async (day, newItems) => {
   }
 };
 
+export const bulkPatchItineraryCoordinates = async (items) => {
+  await assertCurrentTripWritable();
+  const tripId = await resolveTripId();
+  if (!tripId) throw new Error('請先選擇旅程');
+
+  const batch = writeBatch(db);
+  items.forEach(({ id, geo }) => {
+    if (!id) throw new Error('景點缺少 ID');
+    batch.update(getTripDocRef(tripId, 'itinerary', id), {
+      'geo.lat': Number(geo.lat),
+      'geo.lng': Number(geo.lng),
+      tripId,
+      updatedAt: serverTimestamp(),
+    });
+  });
+  await batch.commit();
+  await updateGlobalVersion();
+  return { status: 200, updated: items.length };
+};
+
 // ==========================================
 // 2. 每日設定管理 (Configs)
 // ==========================================
@@ -316,7 +338,9 @@ export const patchDayConfig = (id, params) => {
     try {
       await assertCurrentTripWritable();
       const tripId = await resolveTripId();
-      const docRef = tripId ? getTripDayConfigRef(tripId) : doc(db, 'configs', id);
+      const docRef = tripId
+        ? getTripDayConfigRef(tripId)
+        : doc(db, 'configs', id);
       await setDoc(
         docRef,
         {
