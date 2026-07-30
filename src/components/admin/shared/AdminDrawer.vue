@@ -50,8 +50,13 @@ const closeDrawer = () => {
         class="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-5"
       >
         <div class="min-w-0">
-          <h3 class="truncate text-base font-black text-slate-900">{{ title }}</h3>
-          <p v-if="subtitle" class="mt-1 truncate text-[11px] font-bold text-slate-400">
+          <h3 class="truncate text-base font-black text-slate-900">
+            {{ title }}
+          </h3>
+          <p
+            v-if="subtitle"
+            class="mt-1 truncate text-[11px] font-bold text-slate-400"
+          >
             {{ subtitle }}
           </p>
         </div>

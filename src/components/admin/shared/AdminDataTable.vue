@@ -1,6 +1,12 @@
 <script setup>
 import { computed, reactive, ref, useSlots, watch } from 'vue';
-import { ChevronLeft, ChevronRight, RefreshCw, Search, X } from 'lucide-vue-next';
+import {
+  ChevronLeft,
+  ChevronRight,
+  RefreshCw,
+  Search,
+  X,
+} from 'lucide-vue-next';
 
 const props = defineProps({
   rows: { type: Array, default: () => [] },
@@ -72,7 +78,9 @@ const goToPage = (page) => {
 </script>
 
 <template>
-  <section class="admin-data-table flex h-full min-h-[420px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white md:min-h-[520px]">
+  <section
+    class="admin-data-table flex h-full min-h-[420px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white md:min-h-[520px]"
+  >
     <div
       v-if="hasSearch || slots.toolbar"
       class="p-4 border-b border-slate-100 space-y-3 shrink-0"
@@ -85,9 +93,13 @@ const goToPage = (page) => {
         v-if="hasSearch"
         class="flex flex-col lg:flex-row lg:items-end gap-3"
       >
-        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 flex-1">
+        <div
+          class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 flex-1"
+        >
           <label v-for="field in search" :key="field.name" class="space-y-1">
-            <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">
+            <span
+              class="text-[11px] font-black text-slate-400 uppercase tracking-widest"
+            >
               {{ field.label }}
             </span>
             <input
@@ -190,7 +202,10 @@ const goToPage = (page) => {
               <slot name="actions" :row="row" />
             </td>
           </tr>
-          <tr v-if="!loading && rows.length === 0" class="admin-data-table__state-row">
+          <tr
+            v-if="!loading && rows.length === 0"
+            class="admin-data-table__state-row"
+          >
             <td
               :colspan="columns.length + (slots.actions ? 1 : 0)"
               class="px-4 py-12 text-center text-sm font-bold text-slate-400"
@@ -210,13 +225,20 @@ const goToPage = (page) => {
       </table>
     </div>
 
-    <div class="px-4 py-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shrink-0">
-      <div class="text-xs font-bold text-slate-400">
-        共 {{ totalRows }} 筆
-      </div>
+    <div
+      class="px-4 py-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shrink-0"
+    >
+      <div class="text-xs font-bold text-slate-400">共 {{ totalRows }} 筆</div>
       <div class="flex items-center justify-end gap-2">
-        <select v-model.number="pageSize" class="h-9 rounded-xl bg-slate-50 border border-slate-100 px-2 text-xs font-bold text-slate-600">
-          <option v-for="option in pageSizeOptions" :key="option" :value="option">
+        <select
+          v-model.number="pageSize"
+          class="h-9 rounded-xl bg-slate-50 border border-slate-100 px-2 text-xs font-bold text-slate-600"
+        >
+          <option
+            v-for="option in pageSizeOptions"
+            :key="option"
+            :value="option"
+          >
             {{ option }} / 頁
           </option>
         </select>

@@ -29,20 +29,27 @@ const updateField = (name, value) => {
 <template>
   <section class="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
     <div v-if="title || description" class="mb-5">
-      <h3 v-if="title" class="text-lg font-black text-slate-800">{{ title }}</h3>
+      <h3 v-if="title" class="text-lg font-black text-slate-800">
+        {{ title }}
+      </h3>
       <p v-if="description" class="text-sm font-bold text-slate-400 mt-1">
         {{ description }}
       </p>
     </div>
 
-    <form class="grid grid-cols-1 md:grid-cols-2 gap-4" @submit.prevent="$emit('submit')">
+    <form
+      class="grid grid-cols-1 md:grid-cols-2 gap-4"
+      @submit.prevent="$emit('submit')"
+    >
       <label
         v-for="field in fields"
         :key="field.name"
         class="space-y-1"
         :class="field.full ? 'md:col-span-2' : ''"
       >
-        <span class="text-[11px] font-black text-slate-400 uppercase tracking-widest">
+        <span
+          class="text-[11px] font-black text-slate-400 uppercase tracking-widest"
+        >
           {{ field.label }}
         </span>
         <input

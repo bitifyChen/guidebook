@@ -2,7 +2,14 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useTripStore } from '@/store/tripStore';
-import { CheckCircle2, ChevronDown, Circle, Loader2, Plane, Settings } from 'lucide-vue-next';
+import {
+  CheckCircle2,
+  ChevronDown,
+  Circle,
+  Loader2,
+  Plane,
+  Settings,
+} from 'lucide-vue-next';
 
 const router = useRouter();
 const tripStore = useTripStore();
@@ -26,9 +33,12 @@ const currentTitle = computed(() => {
 });
 
 const currentStatusClass = computed(() => {
-  if (tripStore.currentTrip?.status === 'completed') return 'bg-blue-100 text-blue-700';
-  if (tripStore.currentTrip?.status === 'archived') return 'bg-slate-100 text-slate-600';
-  if (tripStore.currentTrip?.status === 'active') return 'bg-green-100 text-green-700';
+  if (tripStore.currentTrip?.status === 'completed')
+    return 'bg-blue-100 text-blue-700';
+  if (tripStore.currentTrip?.status === 'archived')
+    return 'bg-slate-100 text-slate-600';
+  if (tripStore.currentTrip?.status === 'active')
+    return 'bg-green-100 text-green-700';
   return 'bg-amber-100 text-amber-700';
 });
 
@@ -81,14 +91,25 @@ const switchTrip = async (tripId) => {
       @click="isOpen = !isOpen"
       class="flex h-11 w-full items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 text-left transition-colors hover:border-indigo-200 hover:bg-white sm:w-[320px] sm:max-w-[34vw] sm:gap-3"
     >
-      <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-indigo-500">
+      <div
+        class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-indigo-500"
+      >
         <Plane :size="16" />
       </div>
       <div class="min-w-0 flex-1">
-        <div class="text-[10px] font-black text-slate-400 uppercase tracking-widest">目前旅程</div>
-        <div class="text-sm font-black text-slate-800 truncate">{{ currentTitle }}</div>
+        <div
+          class="text-[10px] font-black text-slate-400 uppercase tracking-widest"
+        >
+          目前旅程
+        </div>
+        <div class="text-sm font-black text-slate-800 truncate">
+          {{ currentTitle }}
+        </div>
       </div>
-      <span class="hidden shrink-0 rounded-lg px-2 py-1 text-[10px] font-black md:inline-flex" :class="currentStatusClass">
+      <span
+        class="hidden shrink-0 rounded-lg px-2 py-1 text-[10px] font-black md:inline-flex"
+        :class="currentStatusClass"
+      >
         {{ currentStatusLabel }}
       </span>
       <ChevronDown
@@ -102,13 +123,20 @@ const switchTrip = async (tripId) => {
       v-if="isOpen"
       class="absolute right-0 top-12 z-50 w-[calc(100vw-2rem)] max-w-[360px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl"
     >
-      <div class="p-3 border-b border-slate-100 flex items-center justify-between">
+      <div
+        class="p-3 border-b border-slate-100 flex items-center justify-between"
+      >
         <div>
           <div class="text-sm font-black text-slate-900">切換旅程</div>
-          <div class="text-[10px] font-bold text-slate-400">切換後會重新載入本頁資料</div>
+          <div class="text-[10px] font-bold text-slate-400">
+            切換後會重新載入本頁資料
+          </div>
         </div>
         <button
-          @click="router.push('/admin/trips'); isOpen = false"
+          @click="
+            router.push('/admin/trips');
+            isOpen = false;
+          "
           class="w-9 h-9 rounded-xl bg-slate-50 text-slate-500 flex items-center justify-center hover:bg-slate-100"
           title="旅程管理"
         >
@@ -127,28 +155,36 @@ const switchTrip = async (tripId) => {
           <component
             :is="trip.id === tripStore.currentTripId ? CheckCircle2 : Circle"
             :size="18"
-            :class="trip.id === tripStore.currentTripId ? 'text-indigo-600' : 'text-slate-300'"
+            :class="
+              trip.id === tripStore.currentTripId
+                ? 'text-indigo-600'
+                : 'text-slate-300'
+            "
           />
           <div class="min-w-0 flex-1">
-            <div class="font-black text-sm text-slate-800 truncate">{{ trip.title }}</div>
+            <div class="font-black text-sm text-slate-800 truncate">
+              {{ trip.title }}
+            </div>
             <div class="text-[11px] font-bold text-slate-400 truncate">
-              {{ trip.destination || '未設定目的地' }} · {{ trip.inviteCode || '未設定邀請碼' }}
+              {{ trip.destination || '未設定目的地' }} ·
+              {{ trip.inviteCode || '未設定邀請碼' }}
             </div>
           </div>
-          <span class="text-[10px] font-black text-slate-400 uppercase">{{ getTripStatusLabel(trip.status || 'active') }}</span>
+          <span class="text-[10px] font-black text-slate-400 uppercase">{{
+            getTripStatusLabel(trip.status || 'active')
+          }}</span>
         </button>
 
-        <div v-if="tripStore.trips.length === 0" class="py-8 text-center text-xs font-bold text-slate-400">
+        <div
+          v-if="tripStore.trips.length === 0"
+          class="py-8 text-center text-xs font-bold text-slate-400"
+        >
           尚未建立旅程
         </div>
       </div>
     </div>
 
-    <div
-      v-if="isOpen"
-      class="fixed inset-0 z-40"
-      @click="isOpen = false"
-    ></div>
+    <div v-if="isOpen" class="fixed inset-0 z-40" @click="isOpen = false"></div>
 
     <div
       v-if="isSwitching"

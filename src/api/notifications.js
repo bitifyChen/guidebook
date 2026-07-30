@@ -11,6 +11,7 @@ import { getAuth } from 'firebase/auth';
 
 const db = getFirestore(app);
 const COLLECTION_NAME = 'notificationLogs';
+const PUSH_DELIVERY_ENABLED = false;
 
 const getBackendBaseUrl = () =>
   (
@@ -57,6 +58,18 @@ export const sendGuidebookNotification = async ({
   silent = false,
   data = {},
 }) => {
+  if (!PUSH_DELIVERY_ENABLED) {
+    return {
+      status: 'disabled',
+      skipped: true,
+      reason: 'push-delivery-disabled',
+      targetCount: 0,
+      successCount: 0,
+      failureCount: 0,
+      failures: [],
+    };
+  }
+
   const idToken = await getAdminIdToken();
   const response = await fetch(`${getBackendBaseUrl()}/notifications/send`, {
     method: 'POST',

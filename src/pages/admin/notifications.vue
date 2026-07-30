@@ -1,8 +1,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
-import { Check, Image, Loader2, Plus, Send, Users, X } from 'lucide-vue-next';
-import AdminDataTable from '@/components/admin/AdminDataTable.vue';
-import AdminDrawer from '@/components/admin/AdminDrawer.vue';
+import AdminNotificationFormDrawer from '@/components/admin/notification/AdminNotificationFormDrawer.vue';
+import AdminNotificationTable from '@/components/admin/notification/AdminNotificationTable.vue';
 import {
   getNotificationLogs,
   sendGuidebookNotification,
@@ -129,6 +128,12 @@ const hasPushEnabled = (participant) => {
       : [];
   return tokens.some((item) => item?.token && item.permission !== 'denied');
 };
+
+const pushEnabledParticipantIds = computed(() =>
+  tripParticipants.value
+    .filter((participant) => hasPushEnabled(participant))
+    .map((participant) => participant.id)
+);
 
 const formatDate = (value) => {
   if (!value) return '-';
@@ -270,295 +275,35 @@ onMounted(async () => {
 
 <template>
   <main class="h-full min-h-[calc(100dvh-180px)] md:min-h-[620px]">
-    <AdminDataTable
+    <AdminNotificationTable
       :rows="filteredLogs"
       :columns="columns"
       :loading="isLoading"
       :search="searchFields"
       :initial-search="appliedSearch"
-      empty-text="尚未建立推播紀錄"
+      :trip-name-by-id="tripNameById"
+      :format-date="formatDate"
+      @create="openDrawer"
       @search="applySearch"
       @reset="resetSearch"
       @refresh="loadLogs"
-    >
-      <template #toolbar>
-        <button
-          @click="openDrawer"
-          class="h-10 px-4 rounded-xl bg-indigo-600 text-white font-black text-sm flex items-center justify-center gap-2 hover:bg-indigo-700"
-        >
-          <Plus :size="16" />
-          新增
-        </button>
-      </template>
+    />
 
-      <template #content="{ row }">
-        <div class="min-w-0 sm:min-w-[240px]">
-          <div class="font-black text-slate-900 truncate">{{ row.title }}</div>
-          <div class="text-xs font-bold text-slate-400 mt-1 line-clamp-2">
-            {{ row.body }}
-          </div>
-        </div>
-      </template>
-
-      <template #trip="{ row }">
-        <span class="text-xs font-black text-slate-600">
-          {{ tripNameById[row.tripId] || row.tripId || '-' }}
-        </span>
-      </template>
-
-      <template #audience="{ row }">
-        <span
-          class="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-600"
-        >
-          <Users :size="12" />
-          {{ row.participantIds?.length || 0 }} 人
-        </span>
-      </template>
-
-      <template #result="{ row }">
-        <div class="flex flex-wrap gap-2">
-          <span
-            class="rounded-lg bg-green-100 px-2 py-1 text-[10px] font-black text-green-700"
-          >
-            成功 {{ row.successCount || 0 }}
-          </span>
-          <span
-            v-if="row.failureCount"
-            class="rounded-lg bg-red-100 px-2 py-1 text-[10px] font-black text-red-700"
-          >
-            失敗 {{ row.failureCount }}
-          </span>
-        </div>
-      </template>
-
-      <template #createdAt="{ row }">
-        <span class="text-xs font-bold text-slate-400">
-          {{ formatDate(row.createdAt) }}
-        </span>
-      </template>
-    </AdminDataTable>
-
-    <AdminDrawer
-      v-model="isDrawerOpen"
-      title="新增推播"
-      size="md"
-      :z-index="80"
+    <AdminNotificationFormDrawer
+      v-model:open="isDrawerOpen"
+      v-model:selected-ids="selectedParticipantIds"
+      v-model:member-search="memberSearch"
+      :form="form"
+      :trips="tripStore.trips"
+      :participants="tripParticipants"
+      :push-enabled-ids="pushEnabledParticipantIds"
+      :available-push-count="availablePushCount"
+      :is-sending="isSending"
+      :is-image-uploading="isImageUploading"
       @close="closeDrawer"
-    >
-      <div class="flex h-full min-h-0 flex-col bg-white">
-        <div class="flex-1 overflow-y-auto p-4 space-y-5 sm:p-5">
-          <section class="grid grid-cols-1 gap-4">
-            <label class="space-y-1 block">
-              <span
-                class="text-[11px] font-black text-slate-400 uppercase tracking-widest"
-                >旅程</span
-              >
-              <select v-model="form.tripId" class="admin-input">
-                <option value="">請選擇旅程</option>
-                <option
-                  v-for="trip in tripStore.trips"
-                  :key="trip.id"
-                  :value="trip.id"
-                >
-                  {{ trip.title }}
-                </option>
-              </select>
-            </label>
-
-            <label class="space-y-1 block">
-              <span
-                class="text-[11px] font-black text-slate-400 uppercase tracking-widest"
-                >標題</span
-              >
-              <input
-                v-model="form.title"
-                class="admin-input"
-                placeholder="例如：集合時間提醒"
-              />
-            </label>
-
-            <label class="space-y-1 block">
-              <span
-                class="text-[11px] font-black text-slate-400 uppercase tracking-widest"
-                >內容</span
-              >
-              <textarea
-                v-model="form.body"
-                rows="4"
-                class="admin-textarea"
-                placeholder="輸入要傳給成員的訊息"
-              ></textarea>
-            </label>
-
-            <label class="space-y-1 block">
-              <span
-                class="text-[11px] font-black text-slate-400 uppercase tracking-widest"
-                >圖片 URL</span
-              >
-              <div class="relative">
-                <Image
-                  :size="16"
-                  class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300"
-                />
-                <input
-                  v-model="form.imageUrl"
-                  class="admin-input pl-9"
-                  placeholder="選填，部分手機系統可能不顯示"
-                  @paste="handleImagePaste"
-                />
-                <Loader2
-                  v-if="isImageUploading"
-                  :size="16"
-                  class="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-indigo-500"
-                />
-              </div>
-            </label>
-
-            <label class="space-y-1 block">
-              <span
-                class="text-[11px] font-black text-slate-400 uppercase tracking-widest"
-                >點擊連結</span
-              >
-              <input
-                v-model="form.clickUrl"
-                class="admin-input"
-                placeholder="選填，例如前台頁面網址"
-              />
-            </label>
-          </section>
-
-          <section
-            class="rounded-2xl border border-slate-100 bg-slate-50 p-4 space-y-3"
-          >
-            <div
-              class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
-            >
-              <div>
-                <h4 class="font-black text-slate-800">發送對象</h4>
-                <p class="text-xs font-bold text-slate-400 mt-1">
-                  已選 {{ selectedParticipantIds.length }} 人，可推播
-                  {{ availablePushCount }} 人
-                </p>
-              </div>
-              <div class="flex gap-2">
-                <button
-                  @click="selectAllVisible"
-                  :disabled="!form.tripId || tripParticipants.length === 0"
-                  class="h-9 px-3 rounded-xl bg-white border border-slate-100 text-xs font-black text-slate-600 disabled:opacity-50"
-                >
-                  全選
-                </button>
-                <button
-                  @click="clearSelected"
-                  class="h-9 px-3 rounded-xl bg-white border border-slate-100 text-xs font-black text-slate-600"
-                >
-                  清除
-                </button>
-              </div>
-            </div>
-
-            <input
-              v-model="memberSearch"
-              :disabled="!form.tripId"
-              class="admin-input"
-              placeholder="搜尋成員"
-            />
-
-            <div class="max-h-80 overflow-y-auto space-y-2">
-              <button
-                v-for="participant in tripParticipants"
-                :key="participant.id"
-                @click="toggleParticipant(participant.id)"
-                class="w-full rounded-xl border bg-white p-3 text-left flex items-center justify-between gap-3"
-                :class="
-                  selectedParticipantIds.includes(participant.id)
-                    ? 'border-indigo-200'
-                    : 'border-slate-100'
-                "
-              >
-                <span class="flex items-center gap-3 min-w-0">
-                  <span
-                    class="w-10 h-10 rounded-xl bg-slate-100 overflow-hidden flex items-center justify-center text-slate-300 shrink-0"
-                  >
-                    <img
-                      v-if="participant.avatar"
-                      :src="participant.avatar"
-                      class="w-full h-full object-cover"
-                    />
-                    <Users v-else :size="18" />
-                  </span>
-                  <span class="min-w-0">
-                    <span
-                      class="block font-black text-sm text-slate-800 truncate"
-                    >
-                      {{ participant.name }}
-                    </span>
-                    <span
-                      class="block text-[10px] font-bold"
-                      :class="
-                        hasPushEnabled(participant)
-                          ? 'text-green-600'
-                          : 'text-slate-400'
-                      "
-                    >
-                      {{
-                        hasPushEnabled(participant)
-                          ? '推播已啟用'
-                          : '推播未啟用'
-                      }}
-                    </span>
-                  </span>
-                </span>
-                <span
-                  class="w-6 h-6 rounded-lg border flex items-center justify-center shrink-0"
-                  :class="
-                    selectedParticipantIds.includes(participant.id)
-                      ? 'bg-indigo-600 border-indigo-600 text-white'
-                      : 'border-slate-200 text-transparent'
-                  "
-                >
-                  <Check :size="14" />
-                </span>
-              </button>
-
-              <div
-                v-if="form.tripId && tripParticipants.length === 0"
-                class="py-8 text-center text-xs font-black text-slate-400"
-              >
-                沒有符合條件的成員
-              </div>
-              <div
-                v-if="!form.tripId"
-                class="py-8 text-center text-xs font-black text-slate-400"
-              >
-                請先選擇旅程
-              </div>
-            </div>
-          </section>
-        </div>
-
-        <footer
-          class="admin-drawer-footer flex justify-end gap-3 border-t border-slate-200 p-5"
-        >
-          <button
-            @click="closeDrawer"
-            class="h-11 px-5 rounded-xl bg-slate-50 text-slate-600 font-black text-sm inline-flex items-center gap-2"
-          >
-            <X :size="16" />
-            取消
-          </button>
-          <button
-            @click="sendNotification"
-            :disabled="isSending"
-            class="h-11 px-5 rounded-xl bg-indigo-600 text-white font-black text-sm flex items-center gap-2 disabled:opacity-50 hover:bg-indigo-700"
-          >
-            <Loader2 v-if="isSending" class="animate-spin" :size="16" />
-            <Send v-else :size="16" />
-            發送推播
-          </button>
-        </footer>
-      </div>
-    </AdminDrawer>
+      @send="sendNotification"
+      @paste-image="handleImagePaste"
+    />
   </main>
 </template>
 
