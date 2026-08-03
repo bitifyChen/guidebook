@@ -33,7 +33,16 @@ const COLLECTION_NAME = 'participants';
 
 const withTripIds = (data) => ({
   ...data,
-  tripIds: data.tripIds || (data.tripId ? [data.tripId] : []),
+  tripIds: [
+    ...new Set(
+      (Array.isArray(data.tripIds)
+        ? data.tripIds
+        : data.tripId
+          ? [data.tripId]
+          : []
+      ).filter(Boolean)
+    ),
+  ],
   canViewTeamLocationHistory: data.canViewTeamLocationHistory === true,
 });
 
@@ -80,6 +89,15 @@ const updateParticipantsVersionForTrip = async (tripId) => {
     { lastUpdate: Date.now(), updatedAt: serverTimestamp() },
     { merge: true }
   );
+};
+
+export const updateParticipantsVersionForTrips = async (tripIds = []) => {
+  const uniqueTripIds = [...new Set(tripIds.filter(Boolean))];
+  if (!uniqueTripIds.length) {
+    await updateParticipantsVersion();
+    return;
+  }
+  await Promise.all(uniqueTripIds.map(updateParticipantsVersionForTrip));
 };
 
 // ==========================================
@@ -217,7 +235,10 @@ export const claimParticipantByCode = async (
     if (tripId) updateData.tripIds = arrayUnion(tripId);
 
     await updateDoc(docRef, updateData);
-    await updateParticipantsVersion();
+    await updateParticipantsVersionForTrips([
+      ...participantData.tripIds,
+      tripId,
+    ]);
 
     return {
       status: 200,
@@ -252,7 +273,7 @@ export const postParticipant = async (params) => {
     };
     await setDoc(docRef, data);
     await ensureTrackingTokenForParticipant(docRef.id, data.name || '', tripId);
-    await updateParticipantsVersion();
+    await updateParticipantsVersionForTrips(tripIds);
     return { status: 200, id: docRef.id };
   } catch (error) {
     throw error;
@@ -262,28 +283,34 @@ export const postParticipant = async (params) => {
 /**
  * [PATCH] 部分更新參與者
  */
-export const patchParticipant = (id, params) => {
-  return new Promise(async (resolve, reject) => {
-    try {
-      await assertCurrentTripWritable();
-      const tripId = await resolveTripId();
-      const docRef = doc(db, COLLECTION_NAME, id);
-      const payload = {
-        ...params,
-        id,
-        updatedAt: serverTimestamp(),
-      };
-      if (tripId && !params.tripIds) {
-        payload.tripIds = arrayUnion(tripId);
-        payload.tripId = tripId;
-      }
-      await updateDoc(docRef, payload);
-      await updateParticipantsVersion();
-      resolve({ status: 200 });
-    } catch (error) {
-      reject(error);
-    }
-  });
+export const patchParticipant = async (id, params) => {
+  await assertCurrentTripWritable();
+  const tripId = await resolveTripId();
+  const docRef = doc(db, COLLECTION_NAME, id);
+  const currentSnap = await getDoc(docRef);
+  const currentData = currentSnap.exists()
+    ? withTripIds(currentSnap.data())
+    : { tripIds: [] };
+  const previousTripIds = currentData.tripIds;
+  const payload = {
+    ...params,
+    id,
+    updatedAt: serverTimestamp(),
+  };
+  if (tripId && !params.tripIds) {
+    payload.tripIds = arrayUnion(tripId);
+    payload.tripId = tripId;
+  }
+  const nextTripIds = params.tripIds
+    ? [...new Set(params.tripIds.filter(Boolean))]
+    : [...new Set([...previousTripIds, tripId].filter(Boolean))];
+
+  await updateDoc(docRef, payload);
+  await updateParticipantsVersionForTrips([
+    ...previousTripIds,
+    ...nextTripIds,
+  ]);
+  return { status: 200 };
 };
 
 export const upsertParticipantPushToken = async (
@@ -411,9 +438,13 @@ export const disableParticipantPushForTrip = async (
 export const deleteParticipant = async (id) => {
   try {
     await assertCurrentTripWritable();
+    const participantSnap = await getDoc(doc(db, COLLECTION_NAME, id));
+    const participant = participantSnap.exists()
+      ? withTripIds(participantSnap.data())
+      : { tripIds: [] };
     await deleteTrackingTokensByParticipant(id);
     await deleteDoc(doc(db, COLLECTION_NAME, id));
-    await updateParticipantsVersion();
+    await updateParticipantsVersionForTrips(participant.tripIds);
     return { status: 200 };
   } catch (error) {
     throw error;
@@ -453,6 +484,16 @@ export const getParticipantByUid = async (uid, tripId = '') => {
   };
 };
 
+export const getParticipantById = async (participantId) => {
+  if (!participantId) return null;
+  const participantSnap = await getDoc(doc(db, COLLECTION_NAME, participantId));
+  if (!participantSnap.exists()) return null;
+  return {
+    ...withTripIds(participantSnap.data()),
+    id: participantSnap.id,
+  };
+};
+
 export const getParticipantsByUid = async (uid) => {
   if (!uid) return [];
   const q = query(collection(db, COLLECTION_NAME), where('uid', '==', uid));
@@ -488,81 +529,95 @@ export const getOrCreateTripInviteParticipant = async (
   if (!tripId) throw new Error('tripId is required.');
 
   const uid = profile.uid || null;
+  const participantId = profile.participantId || '';
   const guestId = profile.guestId || '';
   const name = profile.name || profile.email || '訪客';
   const avatar = profile.avatar || '';
   const email = profile.email || '';
 
-  if (uid) {
-    const memberships = await getParticipantsByUid(uid);
-    const existingForTrip = memberships.find((participant) =>
-      participant.tripIds.includes(tripId)
-    );
-    if (existingForTrip) {
-      await ensureParticipantTrackingToken({
-        participantId: existingForTrip.id,
-        tripId,
-        deviceId: existingForTrip.name || name,
-        minIntervalSeconds: 30,
-      });
-      return { ...existingForTrip, isNewParticipant: false };
-    }
+  const identityParticipant = participantId
+    ? await getParticipantById(participantId)
+    : null;
+  if (participantId && !identityParticipant) {
+    throw new Error('找不到目前的成員身份，請重新登入。');
+  }
+  if (
+    identityParticipant?.uid &&
+    uid &&
+    identityParticipant.uid !== uid
+  ) {
+    throw new Error('目前登入身份與成員資料不一致，請先登出再重新登入。');
+  }
 
-    if (memberships.length) {
-      const target = memberships[0];
-      await updateDoc(doc(db, COLLECTION_NAME, target.id), {
+  const memberships = uid ? await getParticipantsByUid(uid) : [];
+  if (
+    identityParticipant &&
+    memberships.length &&
+    !memberships.some((participant) => participant.id === identityParticipant.id)
+  ) {
+    throw new Error('目前登入身份與成員資料不一致，請先登出再重新登入。');
+  }
+
+  const existingIdentity =
+    identityParticipant ||
+    memberships.find((participant) => participant.tripIds.includes(tripId)) ||
+    memberships[0] ||
+    null;
+
+  if (existingIdentity) {
+    const alreadyMember = existingIdentity.tripIds.includes(tripId);
+    if (!alreadyMember) {
+      await updateDoc(doc(db, COLLECTION_NAME, existingIdentity.id), {
         tripIds: arrayUnion(tripId),
-        uid,
-        name: target.name || name,
-        avatar: target.avatar || avatar,
-        email: target.email || email,
-        isClaimed: true,
+        uid: uid || existingIdentity.uid || null,
+        isClaimed: Boolean(uid || existingIdentity.isClaimed),
         updatedAt: serverTimestamp(),
       });
-      await ensureParticipantTrackingToken({
-        participantId: target.id,
+      await updateParticipantsVersionForTrips([
+        ...existingIdentity.tripIds,
         tripId,
-        deviceId: target.name || name,
-        minIntervalSeconds: 30,
-      });
-      await updateParticipantsVersionForTrip(tripId);
-      return {
-        ...target,
-        tripIds: [...new Set([...target.tripIds, tripId])],
-        uid,
-        isClaimed: true,
-        isNewParticipant: false,
-      };
+      ]);
     }
+    await ensureTrackingTokenForParticipant(
+      existingIdentity.id,
+      existingIdentity.name || name,
+      tripId
+    );
+    return {
+      ...existingIdentity,
+      tripIds: [...new Set([...existingIdentity.tripIds, tripId])],
+      uid: uid || existingIdentity.uid || null,
+      isNewParticipant: false,
+      joinedTrip: !alreadyMember,
+      alreadyMember,
+    };
   }
 
   if (!uid && guestId) {
     const existingGuest = await getParticipantByGuestId(guestId);
     if (existingGuest) {
-      if (!existingGuest.tripIds.includes(tripId)) {
+      const alreadyMember = existingGuest.tripIds.includes(tripId);
+      if (!alreadyMember) {
         await updateDoc(doc(db, COLLECTION_NAME, existingGuest.id), {
           tripIds: arrayUnion(tripId),
           updatedAt: serverTimestamp(),
         });
-        await ensureParticipantTrackingToken({
-          participantId: existingGuest.id,
+        await updateParticipantsVersionForTrips([
+          ...existingGuest.tripIds,
           tripId,
-          deviceId: existingGuest.name || name,
-          minIntervalSeconds: 30,
-        });
-        await updateParticipantsVersionForTrip(tripId);
-      } else {
-        await ensureParticipantTrackingToken({
-          participantId: existingGuest.id,
-          tripId,
-          deviceId: existingGuest.name || name,
-          minIntervalSeconds: 30,
-        });
+        ]);
       }
+      await ensureTrackingTokenForParticipant(
+        existingGuest.id,
+        existingGuest.name || name,
+        tripId
+      );
       return {
         ...existingGuest,
         tripIds: [...new Set([...existingGuest.tripIds, tripId])],
         isNewParticipant: false,
+        joinedTrip: !alreadyMember,
+        alreadyMember,
       };
     }
   }
@@ -592,7 +647,7 @@ export const getOrCreateTripInviteParticipant = async (
     deviceId: name,
     minIntervalSeconds: 30,
   });
-  await updateParticipantsVersionForTrip(tripId);
+  await updateParticipantsVersionForTrips([tripId]);
 
   return {
     ...participant,
@@ -600,6 +655,8 @@ export const getOrCreateTripInviteParticipant = async (
     createdAt: null,
     updatedAt: null,
     isNewParticipant: true,
+    joinedTrip: true,
+    alreadyMember: false,
   };
 };
 

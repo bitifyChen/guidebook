@@ -17,7 +17,8 @@ export const useParticipantsStore = defineStore('participants', {
   }),
 
   actions: {
-    async init() {
+    async init(options = {}) {
+      const { force = false } = options;
       const tripStore = useTripStore();
       if (!tripStore.currentTripId) await tripStore.init();
       if (!tripStore.currentTripId || tripStore.isPublicTrip) {
@@ -44,7 +45,11 @@ export const useParticipantsStore = defineStore('participants', {
         const remoteMeta = await getParticipantsVersion();
 
         // 3. 如果版本一致且已有資料，就不再抓取大宗資料
-        if (localCache && localCache.timestamp === remoteMeta.lastUpdate) {
+        if (
+          !force &&
+          localCache &&
+          localCache.timestamp === remoteMeta.lastUpdate
+        ) {
           console.log('Using participants cache (version match)');
           return;
         }

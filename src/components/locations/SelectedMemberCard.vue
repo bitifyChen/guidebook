@@ -1,5 +1,5 @@
 <script setup>
-import { Battery, Navigation, NavigationOff, X } from 'lucide-vue-next';
+import { Battery, Navigation, NavigationOff, Route, X } from 'lucide-vue-next';
 
 defineProps({
   member: { type: Object, default: null },
@@ -7,9 +7,10 @@ defineProps({
   batteryText: { type: String, default: '--' },
   batteryToneClass: { type: String, default: 'battery-tone--unknown' },
   timeText: { type: String, default: '' },
+  canViewHistory: { type: Boolean, default: false },
 });
 
-defineEmits(['toggle-track', 'close']);
+defineEmits(['toggle-track', 'view-history', 'close']);
 </script>
 
 <template>
@@ -41,7 +42,9 @@ defineEmits(['toggle-track', 'close']);
         </div>
       </div>
       <span class="min-w-0 flex-1">
-        <span class="flex items-center justify-between gap-2 text-[10px] font-bold">
+        <span
+          class="flex items-center justify-between gap-2 text-[10px] font-bold"
+        >
           <span class="location-member-card__status">
             {{ isTracked ? '追蹤中' : member.isOnline ? '在線' : '離線' }}
           </span>
@@ -56,10 +59,22 @@ defineEmits(['toggle-track', 'close']);
         <span class="mt-0.5 block truncate text-sm font-black">
           {{ member.name }}
         </span>
-        <span class="mt-0.5 block truncate text-[10px] font-bold text-slate-400">
+        <span
+          class="mt-0.5 block truncate text-[10px] font-bold text-slate-400"
+        >
           {{ timeText }}
         </span>
       </span>
+      <button
+        v-if="canViewHistory"
+        type="button"
+        title="查看歷史軌跡"
+        aria-label="查看歷史軌跡"
+        class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-500"
+        @click="$emit('view-history')"
+      >
+        <Route :size="16" :stroke-width="2.5" />
+      </button>
       <button
         type="button"
         title="追蹤成員"

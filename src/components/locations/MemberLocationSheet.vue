@@ -1,5 +1,13 @@
 <script setup>
-import { Battery, Clock, MapPin, Navigation, Route, X } from 'lucide-vue-next';
+import {
+  Battery,
+  Clock,
+  MapPin,
+  Navigation,
+  Route,
+  UsersRound,
+  X,
+} from 'lucide-vue-next';
 
 defineProps({
   open: { type: Boolean, default: false },
@@ -12,9 +20,10 @@ defineProps({
   getBatteryToneClass: { type: Function, required: true },
   canViewHistory: { type: Function, required: true },
   historyParticipantId: { type: String, default: '' },
+  canOpenMultiHistory: { type: Boolean, default: false },
 });
 
-defineEmits(['close', 'select-member', 'view-history']);
+defineEmits(['close', 'select-member', 'view-history', 'open-multi-history']);
 </script>
 
 <template>
@@ -38,15 +47,28 @@ defineEmits(['close', 'select-member', 'view-history']);
             >
           </p>
         </div>
-        <button
-          type="button"
-          title="關閉"
-          aria-label="關閉成員位置"
-          class="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-600"
-          @click="$emit('close')"
-        >
-          <X :size="19" :stroke-width="2.4" />
-        </button>
+        <div class="flex items-center gap-2">
+          <button
+            v-if="canOpenMultiHistory"
+            type="button"
+            title="多人軌跡"
+            aria-label="開啟多人軌跡"
+            class="flex h-10 items-center gap-1.5 rounded-xl bg-orange-50 px-3 text-xs font-black text-orange-600"
+            @click="$emit('open-multi-history')"
+          >
+            <UsersRound :size="16" :stroke-width="2.5" />
+            多人軌跡
+          </button>
+          <button
+            type="button"
+            title="關閉"
+            aria-label="關閉成員位置"
+            class="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-600"
+            @click="$emit('close')"
+          >
+            <X :size="19" :stroke-width="2.4" />
+          </button>
+        </div>
       </header>
 
       <div

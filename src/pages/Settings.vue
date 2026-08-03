@@ -9,6 +9,7 @@ import { useExpensesStore } from '@/store/expensesStore';
 import {
   disableParticipantPushForTrip,
   getParticipantByGuestId,
+  getParticipantById,
   getParticipantsByUid,
   updateParticipantNotificationPreference,
   upsertParticipantPushToken,
@@ -327,11 +328,11 @@ const handleInstallClick = async () => {
   }
 };
 
-const reloadTripData = async () => {
+const reloadTripData = async (force = false) => {
   await tripStore.init();
-  await participantsStore.init();
-  await travelStore.init();
-  await expensesStore.init();
+  await participantsStore.init({ force });
+  await travelStore.init({ force });
+  await expensesStore.init({ force });
 };
 
 const clearTripCaches = () => {
@@ -340,10 +341,42 @@ const clearTripCaches = () => {
     .forEach((key) => localStorage.removeItem(key));
 };
 
+const getParticipantTripIds = (participant) => [
+  ...new Set(
+    (Array.isArray(participant?.tripIds)
+      ? participant.tripIds
+      : participant?.tripId
+        ? [participant.tripId]
+        : []
+    ).filter(Boolean)
+  ),
+];
+
+const buildUserTripRows = async (memberships) => {
+  const rows = [];
+  const seenTripIds = new Set();
+  for (const membership of memberships.filter(Boolean)) {
+    for (const tripId of getParticipantTripIds(membership)) {
+      if (seenTripIds.has(tripId)) continue;
+      seenTripIds.add(tripId);
+      const trip = await getTripById(tripId);
+      if (trip) rows.push({ trip, participant: membership });
+    }
+  }
+  return rows;
+};
+
 const loadUserTrips = async () => {
   if (!userStore.user?.uid) {
+    const localParticipantId =
+      userStore.localParticipantId ||
+      localStorage.getItem(`claimedParticipantId_${tripStore.currentTripId}`) ||
+      localStorage.getItem('claimedParticipantId');
     const guestId = localStorage.getItem(GUEST_ID_KEY);
-    if (!guestId && !tripStore.currentTripId) {
+    const localParticipant = localParticipantId
+      ? await getParticipantById(localParticipantId)
+      : null;
+    if (!localParticipant && !guestId && !tripStore.currentTripId) {
       userTrips.value = [];
       tripPickerHint.value = '';
       return;
@@ -352,15 +385,9 @@ const loadUserTrips = async () => {
     const guestParticipant = guestId
       ? await getParticipantByGuestId(guestId)
       : null;
-    const guestTripIds =
-      guestParticipant?.tripIds ||
-      (guestParticipant?.tripId ? [guestParticipant.tripId] : []);
-    const rows = await Promise.all(
-      guestTripIds.map(async (tripId) => {
-        const trip = await getTripById(tripId);
-        return trip ? { trip, participant: guestParticipant } : null;
-      })
-    );
+    const rows = await buildUserTripRows([
+      localParticipant || guestParticipant,
+    ]);
 
     if (!rows.filter(Boolean).length && tripStore.currentTripId) {
       if (!tripStore.currentTrip) await tripStore.init();
@@ -385,17 +412,7 @@ const loadUserTrips = async () => {
   isLoadingUserTrips.value = true;
   try {
     const memberships = await getParticipantsByUid(userStore.user.uid);
-    const rows = await Promise.all(
-      memberships.flatMap((membership) =>
-        (
-          membership.tripIds || (membership.tripId ? [membership.tripId] : [])
-        ).map(async (tripId) => {
-          const trip = await getTripById(tripId);
-          return trip ? { trip, participant: membership } : null;
-        })
-      )
-    );
-    userTrips.value = rows.filter(Boolean);
+    userTrips.value = await buildUserTripRows(memberships);
     const selectedTrip = userTrips.value.find(
       (row) => row.trip.id === tripStore.currentTripId
     );
@@ -428,7 +445,7 @@ const switchUserTrip = async (row, options = {}) => {
   await tripStore.switchTrip(row.trip.id);
   userStore.setLocalParticipant(row.participant.id);
   clearTripCaches();
-  await reloadTripData();
+  await reloadTripData(true);
   isTripPickerOpen.value = false;
   if (options.redirect !== false) {
     router.push('/');
@@ -454,7 +471,7 @@ const selectTripFromPicker = async (row) => {
   tripPickerHint.value = '';
   inviteCode.value = '';
   clearTripCaches();
-  await reloadTripData();
+  await reloadTripData(true);
   await loadUserTrips();
   await loadCurrentTrackingSetup();
   isTripPickerOpen.value = false;
@@ -652,6 +669,7 @@ const handleClaim = async () => {
     }
     const profile = {
       uid: firebaseUser?.uid || null,
+      participantId: userStore.localParticipantId || '',
       name: firebaseUser?.displayName || firebaseUser?.email || '',
       email: firebaseUser?.email || '',
       avatar: firebaseUser?.photoURL || '',
@@ -674,14 +692,20 @@ const handleClaim = async () => {
         alert('已進入行程瀏覽。');
       } else if (res.participant?.id) {
         userStore.setLocalParticipant(res.participant.id);
-        alert(
-          res.mode === 'guestParticipant' ? '已加入旅程。' : '已綁定身份。'
-        );
+        const message =
+          res.mode === 'existingParticipantTrip'
+            ? '已切換至此旅程。'
+            : res.mode === 'participantJoinedTrip'
+              ? '已加入此旅程。'
+              : res.mode === 'guestParticipant'
+                ? '已加入旅程。'
+                : '已綁定身份。';
+        alert(message);
       }
 
       inviteCode.value = '';
       clearTripCaches();
-      await reloadTripData();
+      await reloadTripData(true);
       await loadUserTrips();
       if (res.mode === 'guestParticipant' && res.isNewParticipant) {
         await promptNotificationAfterNewParticipant();

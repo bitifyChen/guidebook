@@ -5,7 +5,7 @@ status: Done
 assignee:
   - '@codex'
 created_date: '2026-07-30 07:15'
-updated_date: '2026-07-30 08:34'
+updated_date: '2026-08-03 04:45'
 labels: []
 dependencies: []
 references:
@@ -55,6 +55,22 @@ ordinal: 14000
 
 依 QA 回饋完成 page ownership 修正：Trip、Participant、Notification、Packing 第一層畫面與流程已回到 page；Config、Itinerary page 自己持有頁面 chrome，只將跨 Trip Drawer 重用的編輯區保留為 Workspace。移除六個 Admin{Domain}Manager，架構檢查新增禁止無意義整頁 wrapper。驗證：40 個 Admin SFC 編譯、production/PWA build、架構檢查、Prettier、UTF-8、git diff 均通過；與 main JSON reporter 仍為 12 suites / 22 tests / 22 passed 且名稱結果一致。
 <!-- SECTION:NOTES:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: @codex
+created: 2026-08-03 04:40
+---
+TASK-14 已完成並合併；本次補充的是後續維護與回歸驗收指引，不重新開啟實作。
+---
+
+author: @codex
+created: 2026-08-03 04:45
+---
+更正：上一則 TASK-13／TASK-14 分析為編號誤植；本次需求實際為 TASK-13 與 TASK-16，TASK-14 不做任何後續規格或實作調整。
+---
+<!-- COMMENTS:END -->
 
 ## Final Summary
 

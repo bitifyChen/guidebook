@@ -29,3 +29,5 @@ backend/etc/secrets/
 *.sw?
 
 AGENTS.md
+
+backlog/*

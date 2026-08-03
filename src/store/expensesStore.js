@@ -15,7 +15,8 @@ export const useExpensesStore = defineStore('expenses', {
 
   actions: {
     // --- 核心：從 Firebase 初始化資料 ---
-    async init() {
+    async init(options = {}) {
+      const { force = false } = options;
       const tripStore = useTripStore();
       if (!tripStore.currentTripId) await tripStore.init();
       if (!tripStore.currentTripId || tripStore.isPublicTrip) {
@@ -42,7 +43,7 @@ export const useExpensesStore = defineStore('expenses', {
         const remoteMeta = await getWalletVersion();
 
         // 3. 如果版本一致且已有資料，就不再抓取大宗資料
-        if (localCache && localCache.timestamp === remoteMeta.lastUpdate) {
+        if (!force && localCache && localCache.timestamp === remoteMeta.lastUpdate) {
           console.log('Using wallet cache (version match)');
           return;
         }

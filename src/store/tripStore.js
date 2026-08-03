@@ -15,6 +15,7 @@ import {
 } from '@/api/trips';
 import {
   getParticipantByGuestId,
+  getParticipantById,
   getParticipantByInviteCode,
   getOrCreateTripInviteParticipant,
   patchParticipant,
@@ -175,11 +176,16 @@ export const useTripStore = defineStore('trip', {
       if (trip) {
         if (trip.status === 'archived') throw new Error('這個旅程已封存。');
         const guestId = profile.uid ? '' : getLocalGuestId();
+        const existingIdentity = profile.participantId
+          ? await getParticipantById(profile.participantId)
+          : null;
         const existingGuest = !profile.uid && guestId
           ? await getParticipantByGuestId(guestId)
           : null;
-        const guestName = profile.name?.trim() || existingGuest?.name || '';
-        if (!profile.uid && !guestName) {
+        const knownIdentity = existingIdentity || existingGuest;
+        const guestName =
+          profile.name?.trim() || knownIdentity?.name || '';
+        if (!profile.uid && !knownIdentity && !guestName) {
           return {
             status: 301,
             mode: 'guestNameRequired',
@@ -196,13 +202,18 @@ export const useTripStore = defineStore('trip', {
 
         return {
           status: 200,
-          mode: profile.uid ? 'participant' : 'guestParticipant',
+          mode: participant.isNewParticipant
+            ? 'guestParticipant'
+            : participant.alreadyMember
+              ? 'existingParticipantTrip'
+              : 'participantJoinedTrip',
           trip: participantTrip,
           participant: {
             id: participant.id,
             tripId: trip.id,
           },
           isNewParticipant: Boolean(participant.isNewParticipant),
+          joinedTrip: Boolean(participant.joinedTrip),
         };
       }
 

@@ -36,7 +36,16 @@ const isRefreshing = ref(false);
 const pullThreshold = 80;
 let touchStartY = 0;
 
+const pullRefreshEnabled = computed(
+  () => !route.meta?.fullBleed && route.meta?.disablePullRefresh !== true
+);
+
 const handleTouchStart = (e) => {
+  if (!pullRefreshEnabled.value) {
+    touchStartY = -1;
+    pullDistance.value = 0;
+    return;
+  }
   if (window.scrollY === 0) {
     touchStartY = e.touches[0].pageY;
   } else {
@@ -45,7 +54,8 @@ const handleTouchStart = (e) => {
 };
 
 const handleTouchMove = (e) => {
-  if (touchStartY === -1 || isRefreshing.value) return;
+  if (!pullRefreshEnabled.value || touchStartY === -1 || isRefreshing.value)
+    return;
 
   const touchY = e.touches[0].pageY;
   const diff = touchY - touchStartY;
@@ -65,7 +75,11 @@ const handleTouchMove = (e) => {
 };
 
 const handleTouchEnd = () => {
-  if (touchStartY === -1 || isRefreshing.value) return;
+  if (!pullRefreshEnabled.value || touchStartY === -1 || isRefreshing.value) {
+    touchStartY = -1;
+    pullDistance.value = 0;
+    return;
+  }
 
   if (pullDistance.value >= pullThreshold) {
     isRefreshing.value = true;
@@ -85,6 +99,13 @@ const handleTouchEnd = () => {
   }
   touchStartY = -1;
 };
+
+watch(pullRefreshEnabled, (enabled) => {
+  if (enabled) return;
+  touchStartY = -1;
+  pullDistance.value = 0;
+  isRefreshing.value = false;
+});
 
 const handleScroll = () => {
   const scrollTop = window.pageYOffset || document.documentElement.scrollTop;

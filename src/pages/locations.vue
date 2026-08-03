@@ -23,7 +23,10 @@ import GatheringPointEditor from '@/components/locations/GatheringPointEditor.vu
 import GatheringPointSheet from '@/components/locations/GatheringPointSheet.vue';
 import LocationActionBar from '@/components/locations/LocationActionBar.vue';
 import LocationNavigationCard from '@/components/locations/LocationNavigationCard.vue';
+import LocationMemberTrackPicker from '@/components/locations/LocationMemberTrackPicker.vue';
+import LocationMultiTrackSheet from '@/components/locations/LocationMultiTrackSheet.vue';
 import LocationTrackSheet from '@/components/locations/LocationTrackSheet.vue';
+import LocationTrackStopsSheet from '@/components/locations/LocationTrackStopsSheet.vue';
 import MemberLocationSheet from '@/components/locations/MemberLocationSheet.vue';
 import SelectedMemberCard from '@/components/locations/SelectedMemberCard.vue';
 import {
@@ -33,7 +36,14 @@ import {
 import { useParticipantsStore } from '@/store/participantsStore';
 import { useTripStore } from '@/store/tripStore';
 import { useUserStore } from '@/store/userStore';
-import { detectTrackStops } from '@/utils/locationTrack';
+import {
+  detectTrackStops,
+  findNearestTrackPointIndex,
+  getTrackPointAtTimestamp,
+  runWithConcurrency,
+  sanitizeTrackPoints,
+  splitTrackSegments,
+} from '@/utils/locationTrack';
 
 const tripStore = useTripStore();
 const participantsStore = useParticipantsStore();
@@ -46,6 +56,9 @@ const isLoading = ref(true);
 const isMemberPanelOpen = ref(false);
 const isGatheringPanelOpen = ref(false);
 const isHistoryPanelOpen = ref(false);
+const isHistoryStopsOpen = ref(false);
+const isMultiHistoryPanelOpen = ref(false);
+const isMultiHistoryPickerOpen = ref(false);
 const isSelectingGatheringPoint = ref(false);
 const isUpdatingMyLocation = ref(false);
 const isSavingGatheringPoint = ref(false);
@@ -64,6 +77,22 @@ const historyDate = ref('');
 const historyPoints = ref([]);
 const historyError = ref('');
 const isHistoryLoading = ref(false);
+const historyViewMode = ref('overview');
+const historyCurrentIndex = ref(0);
+const historyIsPlaying = ref(false);
+const historyPlaybackSpeed = ref('1');
+const historySelectedStopIndex = ref(-1);
+const historyRejectedCount = ref(0);
+const multiHistoryDate = ref('');
+const multiHistoryParticipantIds = ref([]);
+const multiHistoryTracks = ref([]);
+const multiHistoryVisibleIds = ref([]);
+const multiHistoryFocusedId = ref('');
+const multiHistoryCurrentTimestamp = ref(0);
+const multiHistoryIsPlaying = ref(false);
+const multiHistoryPlaybackMode = ref(false);
+const multiHistoryPlaybackSpeed = ref('1');
+const multiHistoryError = ref('');
 
 const gatheringForm = reactive({
   id: '',
@@ -76,16 +105,45 @@ let unsubscribeGatheringPoints = null;
 let mapInstance = null;
 let markerLayer = null;
 let historyLayer = null;
+let historyPlaybackLayer = null;
 let hasAutoFit = false;
 let isOrientationListening = false;
 let noticeTimer = null;
 let deleteTimer = null;
 let onlineStatusTimer = null;
 let historyRequestSequence = 0;
+let multiHistoryRequestSequence = 0;
 const markersByParticipantId = new Map();
 const markerAnimationsByParticipantId = new Map();
 const gatheringMarkersById = new Map();
 const historyTrackCache = new Map();
+let historyPlaybackTimer = null;
+let multiHistoryPlaybackTimer = null;
+
+const HISTORY_PLAYBACK_INTERVALS = Object.freeze({
+  0.5: 650,
+  1: 350,
+  2: 170,
+});
+
+const MULTI_HISTORY_PLAYBACK_INTERVALS = Object.freeze({
+  0.5: 650,
+  1: 350,
+  2: 170,
+});
+
+const HISTORY_ROUTE_COLORS = Object.freeze([
+  '#f97316',
+  '#2563eb',
+  '#059669',
+  '#db2777',
+  '#7c3aed',
+  '#0891b2',
+  '#ca8a04',
+  '#dc2626',
+  '#4f46e5',
+  '#65a30d',
+]);
 
 const easeOutCubic = (value) => 1 - Math.pow(1 - value, 3);
 
@@ -130,6 +188,11 @@ const historyLastPointTime = computed(() => {
   return point ? formatTrackTime(point.ts) : '';
 });
 
+const historyCurrentTime = computed(() => {
+  const point = historyPoints.value[historyCurrentIndex.value];
+  return point ? formatTrackTime(point.ts) : '';
+});
+
 const historyStops = computed(() => detectTrackStops(historyPoints.value));
 
 const getTimestamp = (item) => Number(item.updatedAt || item.ts || 0);
@@ -159,6 +222,49 @@ const locations = computed(() =>
       };
     })
     .sort((a, b) => b.timestamp - a.timestamp)
+);
+
+const historyEligibleMembers = computed(() => {
+  const liveLocationById = new Map(
+    locations.value.map((item) => [item.participantId, item])
+  );
+  return participantsStore.participants
+    .filter((participant) => {
+      const tripIds = Array.isArray(participant.tripIds)
+        ? participant.tripIds
+        : participant.tripId
+          ? [participant.tripId]
+          : [];
+      return (
+        tripIds.includes(tripStore.currentTripId) &&
+        canViewMemberHistory(participant.id)
+      );
+    })
+    .map((participant) => ({
+      ...participant,
+      participantId: participant.id,
+      name: participant.name || '未命名成員',
+      avatar: participant.avatar || '',
+      ...(liveLocationById.get(participant.id) || {}),
+    }));
+});
+
+const canOpenMultiHistory = computed(
+  () => historyEligibleMembers.value.length > 1
+);
+
+const multiHistoryTimelineStart = computed(() =>
+  multiHistoryTracks.value.reduce((result, track) => {
+    const value = track.points?.[0]?.ts;
+    return Number.isFinite(value) ? Math.min(result, value) : result;
+  }, Number.POSITIVE_INFINITY)
+);
+
+const multiHistoryTimelineEnd = computed(() =>
+  multiHistoryTracks.value.reduce((result, track) => {
+    const value = track.points?.[track.points.length - 1]?.ts;
+    return Number.isFinite(value) ? Math.max(result, value) : result;
+  }, 0)
 );
 
 const validGatheringPoints = computed(() =>
@@ -402,33 +508,92 @@ const showLocationNotice = (message, type = 'success') => {
 
 const clearHistoryLayer = () => {
   historyLayer?.clearLayers();
+  historyPlaybackLayer?.clearLayers();
+};
+
+const stopHistoryPlayback = () => {
+  historyIsPlaying.value = false;
+  if (historyPlaybackTimer) {
+    window.clearInterval(historyPlaybackTimer);
+    historyPlaybackTimer = null;
+  }
+};
+
+const stopMultiHistoryPlayback = () => {
+  multiHistoryIsPlaying.value = false;
+  if (multiHistoryPlaybackTimer) {
+    window.clearInterval(multiHistoryPlaybackTimer);
+    multiHistoryPlaybackTimer = null;
+  }
+};
+
+const resetHistoryPlayback = () => {
+  stopHistoryPlayback();
+  historyCurrentIndex.value = 0;
+  historySelectedStopIndex.value = -1;
+  historyViewMode.value = 'overview';
+};
+
+const resetMultiHistoryPlayback = () => {
+  stopMultiHistoryPlayback();
+  multiHistoryCurrentTimestamp.value = 0;
+  multiHistoryPlaybackMode.value = false;
 };
 
 const getHistoryCacheKey = ({ tripId, participantId, date }) =>
   `${tripId}:${participantId}:${date}`;
 
+const getHistoryColor = (participantId) => {
+  const value = String(participantId || '')
+    .split('')
+    .reduce(
+      (hash, character) => (hash * 31 + character.charCodeAt(0)) >>> 0,
+      7
+    );
+  return HISTORY_ROUTE_COLORS[value % HISTORY_ROUTE_COLORS.length];
+};
+
+const fitHistoryBounds = (latLngs) => {
+  if (!mapInstance || !latLngs.length) return;
+  const bounds = L.latLngBounds(latLngs);
+  if (bounds.isValid()) {
+    mapInstance.fitBounds(bounds, {
+      animate: true,
+      paddingTopLeft: [28, 72],
+      paddingBottomRight: [28, 210],
+      maxZoom: 17,
+    });
+  }
+};
+
 const renderHistoryTrack = () => {
-  if (!mapInstance || !historyLayer) return;
+  if (!mapInstance || !historyLayer || !historyPlaybackLayer) return;
   clearHistoryLayer();
   if (!historyPoints.value.length) return;
 
   const latLngs = historyPoints.value.map((point) => [point.lat, point.lng]);
-  if (latLngs.length > 1) {
-    L.polyline(latLngs, {
-      color: '#f97316',
-      weight: 5,
-      opacity: 0.88,
-      lineCap: 'round',
-      lineJoin: 'round',
-    }).addTo(historyLayer);
-  }
+  splitTrackSegments(historyPoints.value).forEach((segment) => {
+    if (segment.length < 2) return;
+    L.polyline(
+      segment.map((point) => [point.lat, point.lng]),
+      {
+        color: historyViewMode.value === 'overview' ? '#f97316' : '#94a3b8',
+        weight: historyViewMode.value === 'overview' ? 5 : 4,
+        opacity: historyViewMode.value === 'overview' ? 0.82 : 0.72,
+        lineCap: 'round',
+        lineJoin: 'round',
+        dashArray: historyViewMode.value === 'overview' ? undefined : '2 7',
+      }
+    ).addTo(historyLayer);
+  });
 
-  historyStops.value.forEach((stop) => {
+  historyStops.value.forEach((stop, stopIndex) => {
+    const isSelected = historySelectedStopIndex.value === stopIndex;
     L.circleMarker([stop.lat, stop.lng], {
-      radius: 5,
-      color: '#ffffff',
-      weight: 2,
-      fillColor: '#0f172a',
+      radius: isSelected ? 10 : 8,
+      color: isSelected ? '#fff7ed' : '#0f172a',
+      weight: isSelected ? 3 : 2,
+      fillColor: isSelected ? '#f97316' : '#0f172a',
       fillOpacity: 0.96,
     })
       .bindPopup(
@@ -439,6 +604,13 @@ const renderHistoryTrack = () => {
           className: 'location-track-stop-popup',
         }
       )
+      .bindTooltip(String(stopIndex + 1), {
+        permanent: true,
+        direction: 'top',
+        offset: [0, -6],
+        className: 'location-track-stop-label',
+      })
+      .on('click', () => jumpToHistoryStop(stopIndex))
       .addTo(historyLayer);
   });
 
@@ -467,15 +639,248 @@ const renderHistoryTrack = () => {
       .addTo(historyLayer);
   });
 
-  const bounds = L.latLngBounds(latLngs);
-  if (bounds.isValid()) {
-    mapInstance.fitBounds(bounds, {
-      animate: true,
-      paddingTopLeft: [28, 72],
-      paddingBottomRight: [28, 210],
-      maxZoom: 17,
-    });
+  if (historyViewMode.value === 'playback') updateHistoryPlaybackCursor();
+  fitHistoryBounds(latLngs);
+};
+
+const updateHistoryPlaybackCursor = () => {
+  if (!historyPlaybackLayer || !historyPoints.value.length) return;
+  historyPlaybackLayer.clearLayers();
+  const currentIndex = Math.min(
+    Math.max(historyCurrentIndex.value, 0),
+    historyPoints.value.length - 1
+  );
+  const currentPoint = historyPoints.value[currentIndex];
+  splitTrackSegments(historyPoints.value.slice(0, currentIndex + 1)).forEach(
+    (segment) => {
+      if (segment.length < 2) return;
+      L.polyline(
+        segment.map((point) => [point.lat, point.lng]),
+        {
+          color: '#f97316',
+          weight: 5,
+          opacity: 0.92,
+          lineCap: 'round',
+          lineJoin: 'round',
+        }
+      ).addTo(historyPlaybackLayer);
+    }
+  );
+
+  L.circleMarker([currentPoint.lat, currentPoint.lng], {
+    radius: 8,
+    color: '#fff7ed',
+    weight: 3,
+    fillColor: '#f97316',
+    fillOpacity: 1,
+  })
+    .bindTooltip(formatTrackTime(currentPoint.ts), {
+      permanent: true,
+      direction: 'top',
+      offset: [0, -7],
+      className: 'location-track-cursor-label',
+    })
+    .addTo(historyPlaybackLayer);
+};
+
+const seekHistory = (index, { center = true } = {}) => {
+  if (!historyPoints.value.length) return;
+  if (historyViewMode.value !== 'playback') {
+    historyViewMode.value = 'playback';
+    renderHistoryTrack();
   }
+  historyCurrentIndex.value = Math.min(
+    Math.max(Number(index) || 0, 0),
+    historyPoints.value.length - 1
+  );
+  updateHistoryPlaybackCursor();
+  if (center && mapInstance) {
+    const point = historyPoints.value[historyCurrentIndex.value];
+    mapInstance.panTo([point.lat, point.lng], { animate: true, duration: 0.2 });
+  }
+};
+
+const jumpToHistoryStop = (stopIndex) => {
+  const stop = historyStops.value[stopIndex];
+  if (!stop) return;
+  historySelectedStopIndex.value = stopIndex;
+  renderHistoryTrack();
+  seekHistory(findNearestTrackPointIndex(historyPoints.value, stop.arrivedAt));
+};
+
+const jumpHistoryStopRelative = (direction) => {
+  if (!historyStops.value.length) return;
+  const currentStopIndex = historyStops.value.reduce(
+    (nearestIndex, stop, index) => {
+      const stopPointIndex = findNearestTrackPointIndex(
+        historyPoints.value,
+        stop.arrivedAt
+      );
+      const currentDistance = Math.abs(
+        stopPointIndex - historyCurrentIndex.value
+      );
+      const nearestDistance = Math.abs(
+        findNearestTrackPointIndex(
+          historyPoints.value,
+          historyStops.value[nearestIndex]?.arrivedAt
+        ) - historyCurrentIndex.value
+      );
+      return currentDistance < nearestDistance ? index : nearestIndex;
+    },
+    0
+  );
+  const nextIndex =
+    direction === 'previous'
+      ? Math.max(0, currentStopIndex - 1)
+      : Math.min(historyStops.value.length - 1, currentStopIndex + 1);
+  jumpToHistoryStop(nextIndex);
+};
+
+const changeHistoryPlaybackSpeed = (speed) => {
+  historyPlaybackSpeed.value = speed;
+  if (historyIsPlaying.value) {
+    stopHistoryPlayback();
+    toggleHistoryPlayback();
+  }
+};
+
+const toggleHistoryPlayback = () => {
+  if (!historyPoints.value.length) return;
+  if (historyIsPlaying.value) {
+    stopHistoryPlayback();
+    return;
+  }
+  if (historyCurrentIndex.value >= historyPoints.value.length - 1) {
+    historyCurrentIndex.value = 0;
+  }
+  if (historyViewMode.value !== 'playback') {
+    historyViewMode.value = 'playback';
+    renderHistoryTrack();
+  }
+  historyIsPlaying.value = true;
+  historyPlaybackTimer = window.setInterval(() => {
+    const nextIndex = historyCurrentIndex.value + 1;
+    if (nextIndex >= historyPoints.value.length) {
+      stopHistoryPlayback();
+      return;
+    }
+    seekHistory(nextIndex, { center: true });
+  }, HISTORY_PLAYBACK_INTERVALS[historyPlaybackSpeed.value] || 350);
+};
+
+const showHistoryOverview = () => {
+  resetHistoryPlayback();
+  renderHistoryTrack();
+};
+
+const updateMultiHistoryPlaybackCursor = () => {
+  if (!historyPlaybackLayer) return;
+  historyPlaybackLayer.clearLayers();
+  if (!multiHistoryPlaybackMode.value) return;
+
+  multiHistoryTracks.value.forEach((track) => {
+    if (!multiHistoryVisibleIds.value.includes(track.participantId)) return;
+    const point = getTrackPointAtTimestamp(
+      track.points,
+      multiHistoryCurrentTimestamp.value
+    );
+    if (!point) return;
+
+    splitTrackSegments(
+      track.points.filter(
+        (item) => item.ts <= multiHistoryCurrentTimestamp.value
+      )
+    ).forEach((segment) => {
+      const progressPoints = segment.map((item) => [item.lat, item.lng]);
+      if (segment[segment.length - 1]?.ts < point.ts) return;
+      progressPoints.push([point.lat, point.lng]);
+      if (progressPoints.length > 1) {
+        L.polyline(progressPoints, {
+          color: track.color,
+          weight: 5,
+          opacity: 0.92,
+          lineCap: 'round',
+          lineJoin: 'round',
+        }).addTo(historyPlaybackLayer);
+      }
+    });
+    L.circleMarker([point.lat, point.lng], {
+      radius: 7,
+      color: '#fff',
+      weight: 3,
+      fillColor: track.color,
+      fillOpacity: 1,
+    })
+      .bindTooltip(
+        `${track.member?.name || '成員'} · ${formatTrackTime(point.ts)}`,
+        {
+          permanent: true,
+          direction: 'top',
+          offset: [0, -7],
+          className: 'location-track-cursor-label',
+        }
+      )
+      .addTo(historyPlaybackLayer);
+    if (track.participantId === multiHistoryFocusedId.value) {
+      mapInstance?.panTo([point.lat, point.lng], { animate: false });
+    }
+  });
+};
+
+const renderMultiHistoryTrack = () => {
+  if (!mapInstance || !historyLayer || !historyPlaybackLayer) return;
+  historyLayer.clearLayers();
+  historyPlaybackLayer.clearLayers();
+  const bounds = [];
+
+  multiHistoryTracks.value.forEach((track) => {
+    if (!multiHistoryVisibleIds.value.includes(track.participantId)) return;
+    const points = track.points || [];
+    if (!points.length) return;
+    points.forEach((point) => bounds.push([point.lat, point.lng]));
+    splitTrackSegments(points).forEach((segment) => {
+      if (segment.length < 2) return;
+      L.polyline(
+        segment.map((point) => [point.lat, point.lng]),
+        {
+          color: track.color,
+          weight: multiHistoryPlaybackMode.value ? 3 : 4,
+          opacity: multiHistoryPlaybackMode.value ? 0.3 : 0.72,
+          lineCap: 'round',
+          lineJoin: 'round',
+        }
+      ).addTo(historyLayer);
+    });
+
+    if (track.participantId !== multiHistoryFocusedId.value) return;
+    track.stops.forEach((stop, stopIndex) => {
+      L.circleMarker([stop.lat, stop.lng], {
+        radius: 8,
+        color: '#0f172a',
+        weight: 2,
+        fillColor: track.color,
+        fillOpacity: 0.96,
+      })
+        .bindPopup(
+          `停留 ${stop.durationMinutes} 分鐘<br>${formatTrackTime(stop.arrivedAt)} - ${formatTrackTime(stop.leftAt)}`,
+          {
+            closeButton: false,
+            offset: [0, -3],
+            className: 'location-track-stop-popup',
+          }
+        )
+        .bindTooltip(String(stopIndex + 1), {
+          permanent: true,
+          direction: 'top',
+          offset: [0, -6],
+          className: 'location-track-stop-label',
+        })
+        .addTo(historyLayer);
+    });
+  });
+
+  updateMultiHistoryPlaybackCursor();
+  if (!multiHistoryPlaybackMode.value) fitHistoryBounds(bounds);
 };
 
 const loadParticipantHistory = async () => {
@@ -510,6 +915,8 @@ const loadParticipantHistory = async () => {
   isHistoryLoading.value = true;
   historyError.value = '';
   historyPoints.value = [];
+  historyRejectedCount.value = 0;
+  resetHistoryPlayback();
   clearHistoryLayer();
 
   const cacheKey = getHistoryCacheKey({
@@ -518,7 +925,9 @@ const loadParticipantHistory = async () => {
     date: selectedDate,
   });
   if (historyTrackCache.has(cacheKey)) {
-    historyPoints.value = historyTrackCache.get(cacheKey);
+    const cachedTrack = historyTrackCache.get(cacheKey);
+    historyPoints.value = cachedTrack.points;
+    historyRejectedCount.value = cachedTrack.rejectedCount;
     renderHistoryTrack();
     isHistoryLoading.value = false;
     return;
@@ -532,8 +941,10 @@ const loadParticipantHistory = async () => {
     });
     if (requestId !== historyRequestSequence) return;
 
-    historyTrackCache.set(cacheKey, points);
-    historyPoints.value = points;
+    const sanitizedTrack = sanitizeTrackPoints(points);
+    historyTrackCache.set(cacheKey, sanitizedTrack);
+    historyPoints.value = sanitizedTrack.points;
+    historyRejectedCount.value = sanitizedTrack.rejectedCount;
     renderHistoryTrack();
   } catch (error) {
     if (requestId !== historyRequestSequence) return;
@@ -547,6 +958,259 @@ const loadParticipantHistory = async () => {
   }
 };
 
+const getMultiHistoryMember = (participantId) =>
+  historyEligibleMembers.value.find(
+    (member) => member.participantId === participantId
+  ) || null;
+
+const closeMultiHistoryPicker = () => {
+  isMultiHistoryPickerOpen.value = false;
+};
+
+const openMultiHistoryPicker = () => {
+  if (!canOpenMultiHistory.value) return;
+  if (isHistoryPanelOpen.value) closeParticipantHistory();
+  isMemberPanelOpen.value = false;
+  isHistoryStopsOpen.value = false;
+  multiHistoryDate.value = multiHistoryDate.value || getLocalDateValue();
+  if (!multiHistoryParticipantIds.value.length) {
+    multiHistoryParticipantIds.value = historyEligibleMembers.value
+      .slice(0, 2)
+      .map((member) => member.participantId);
+  }
+  isMultiHistoryPickerOpen.value = true;
+};
+
+const toggleMultiHistoryMember = (participantId) => {
+  if (!participantId) return;
+  const selected = new Set(multiHistoryParticipantIds.value);
+  if (selected.has(participantId)) selected.delete(participantId);
+  else selected.add(participantId);
+  multiHistoryParticipantIds.value = Array.from(selected);
+};
+
+const loadMultiParticipantHistory = async () => {
+  const requestId = ++multiHistoryRequestSequence;
+  const tripId = tripStore.currentTripId;
+  const selectedDate = multiHistoryDate.value;
+  const selectedIds = multiHistoryParticipantIds.value.filter((id) =>
+    historyEligibleMembers.value.some((member) => member.participantId === id)
+  );
+  const range = getLocalDateRange(selectedDate);
+
+  resetMultiHistoryPlayback();
+  clearHistoryLayer();
+  multiHistoryTracks.value = [];
+  multiHistoryVisibleIds.value = [];
+  multiHistoryFocusedId.value = '';
+  multiHistoryError.value = '';
+
+  if (!tripId || !range || selectedIds.length === 0) {
+    multiHistoryError.value = '請選擇至少一位成員與正確日期。';
+    return;
+  }
+
+  isHistoryLoading.value = true;
+  const results = await runWithConcurrency(
+    selectedIds,
+    async (participantId) => {
+      const cacheKey = getHistoryCacheKey({
+        tripId,
+        participantId,
+        date: selectedDate,
+      });
+      const member = getMultiHistoryMember(participantId);
+      const color = getHistoryColor(participantId);
+      try {
+        let sanitizedTrack = historyTrackCache.get(cacheKey);
+        if (!sanitizedTrack) {
+          const points = await getParticipantLocationTrack({
+            tripId,
+            participantId,
+            ...range,
+          });
+          sanitizedTrack = sanitizeTrackPoints(points);
+          historyTrackCache.set(cacheKey, sanitizedTrack);
+        }
+        return {
+          participantId,
+          member,
+          color,
+          points: sanitizedTrack.points,
+          stops: detectTrackStops(sanitizedTrack.points),
+          rejectedCount: sanitizedTrack.rejectedCount,
+          error: '',
+        };
+      } catch (error) {
+        return {
+          participantId,
+          member,
+          color,
+          points: [],
+          stops: [],
+          rejectedCount: 0,
+          error: error.message || '讀取失敗',
+        };
+      }
+    },
+    3
+  );
+
+  if (requestId !== multiHistoryRequestSequence) return;
+  multiHistoryTracks.value = results;
+  const validTracks = results.filter((track) => track.points.length);
+  multiHistoryVisibleIds.value = validTracks.map(
+    (track) => track.participantId
+  );
+  multiHistoryFocusedId.value = validTracks[0]?.participantId || '';
+  multiHistoryCurrentTimestamp.value =
+    validTracks.reduce(
+      (result, track) => Math.min(result, track.points[0].ts),
+      Number.POSITIVE_INFINITY
+    ) || 0;
+  if (results.some((track) => track.error)) {
+    multiHistoryError.value = '部分成員軌跡讀取失敗，仍可查看其他成員。';
+  }
+  renderMultiHistoryTrack();
+  isHistoryLoading.value = false;
+};
+
+const applyMultiHistorySelection = async () => {
+  if (!multiHistoryParticipantIds.value.length) {
+    showLocationNotice('請至少選擇一位成員。', 'error');
+    return;
+  }
+  closeMultiHistoryPicker();
+  isHistoryPanelOpen.value = false;
+  isHistoryStopsOpen.value = false;
+  isMultiHistoryPanelOpen.value = true;
+  await loadMultiParticipantHistory();
+};
+
+const changeMultiHistoryDate = async (date) => {
+  if (!date || date === multiHistoryDate.value) return;
+  multiHistoryDate.value = date;
+  if (isMultiHistoryPanelOpen.value) await loadMultiParticipantHistory();
+};
+
+const toggleMultiHistoryVisible = (participantId) => {
+  const visible = new Set(multiHistoryVisibleIds.value);
+  if (visible.has(participantId)) visible.delete(participantId);
+  else if (
+    multiHistoryTracks.value.some(
+      (track) => track.participantId === participantId && track.points.length
+    )
+  ) {
+    visible.add(participantId);
+  }
+  multiHistoryVisibleIds.value = Array.from(visible);
+  if (!visible.has(multiHistoryFocusedId.value)) {
+    multiHistoryFocusedId.value = multiHistoryVisibleIds.value[0] || '';
+  }
+  renderMultiHistoryTrack();
+};
+
+const focusMultiHistoryMember = (participantId) => {
+  const track = multiHistoryTracks.value.find(
+    (item) => item.participantId === participantId && item.points.length
+  );
+  if (!track) return;
+  multiHistoryFocusedId.value = participantId;
+  if (!multiHistoryVisibleIds.value.includes(participantId)) {
+    multiHistoryVisibleIds.value = [
+      ...multiHistoryVisibleIds.value,
+      participantId,
+    ];
+  }
+  renderMultiHistoryTrack();
+  fitHistoryBounds(track.points.map((point) => [point.lat, point.lng]));
+};
+
+const seekMultiHistory = (timestamp) => {
+  const start = multiHistoryTimelineStart.value;
+  const end = multiHistoryTimelineEnd.value;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return;
+  multiHistoryPlaybackMode.value = true;
+  multiHistoryCurrentTimestamp.value = Math.min(
+    Math.max(Number(timestamp) || start, start),
+    end
+  );
+  renderMultiHistoryTrack();
+  const focusedTrack = multiHistoryTracks.value.find(
+    (track) => track.participantId === multiHistoryFocusedId.value
+  );
+  const point = focusedTrack
+    ? getTrackPointAtTimestamp(
+        focusedTrack.points,
+        multiHistoryCurrentTimestamp.value
+      )
+    : null;
+  if (point) mapInstance?.panTo([point.lat, point.lng], { animate: true });
+};
+
+const toggleMultiHistoryPlayback = () => {
+  const start = multiHistoryTimelineStart.value;
+  const end = multiHistoryTimelineEnd.value;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return;
+  if (multiHistoryIsPlaying.value) {
+    stopMultiHistoryPlayback();
+    return;
+  }
+  if (
+    !multiHistoryCurrentTimestamp.value ||
+    multiHistoryCurrentTimestamp.value >= end
+  ) {
+    multiHistoryCurrentTimestamp.value = start;
+  }
+  multiHistoryPlaybackMode.value = true;
+  multiHistoryIsPlaying.value = true;
+  renderMultiHistoryTrack();
+  const step = Math.max(30000, (end - start) / 180);
+  multiHistoryPlaybackTimer = window.setInterval(() => {
+    const speed = Number(multiHistoryPlaybackSpeed.value) || 1;
+    const next = multiHistoryCurrentTimestamp.value + step * speed;
+    if (next >= end) {
+      multiHistoryCurrentTimestamp.value = end;
+      renderMultiHistoryTrack();
+      stopMultiHistoryPlayback();
+      return;
+    }
+    multiHistoryCurrentTimestamp.value = next;
+    renderMultiHistoryTrack();
+  }, MULTI_HISTORY_PLAYBACK_INTERVALS[multiHistoryPlaybackSpeed.value] || 350);
+};
+
+const changeMultiHistoryPlaybackSpeed = (speed) => {
+  multiHistoryPlaybackSpeed.value = speed;
+  if (multiHistoryIsPlaying.value) {
+    stopMultiHistoryPlayback();
+    toggleMultiHistoryPlayback();
+  }
+};
+
+const showMultiHistoryOverview = () => {
+  resetMultiHistoryPlayback();
+  renderMultiHistoryTrack();
+};
+
+const closeMultiHistory = () => {
+  multiHistoryRequestSequence += 1;
+  isMultiHistoryPanelOpen.value = false;
+  isMultiHistoryPickerOpen.value = false;
+  multiHistoryTracks.value = [];
+  multiHistoryVisibleIds.value = [];
+  multiHistoryFocusedId.value = '';
+  multiHistoryError.value = '';
+  resetMultiHistoryPlayback();
+  clearHistoryLayer();
+  isHistoryLoading.value = false;
+};
+
+const selectHistoryStop = (stopIndex) => {
+  isHistoryStopsOpen.value = false;
+  jumpToHistoryStop(stopIndex);
+};
+
 const changeParticipantHistoryDate = async (date) => {
   if (!date || date === historyDate.value) return;
   historyDate.value = date;
@@ -555,10 +1219,14 @@ const changeParticipantHistoryDate = async (date) => {
 
 const openParticipantHistory = async (participantId) => {
   if (!canViewMemberHistory(participantId)) return;
+  if (isMultiHistoryPanelOpen.value) closeMultiHistory();
   historyParticipantId.value = participantId;
   historyDate.value = historyDate.value || getLocalDateValue();
   historyPoints.value = [];
+  historyRejectedCount.value = 0;
+  resetHistoryPlayback();
   historyError.value = '';
+  isHistoryStopsOpen.value = false;
   isMemberPanelOpen.value = false;
   isHistoryPanelOpen.value = true;
   trackedParticipantId.value = '';
@@ -570,8 +1238,11 @@ const openParticipantHistory = async (participantId) => {
 const closeParticipantHistory = () => {
   historyRequestSequence += 1;
   isHistoryPanelOpen.value = false;
+  isHistoryStopsOpen.value = false;
   historyParticipantId.value = '';
   historyPoints.value = [];
+  historyRejectedCount.value = 0;
+  resetHistoryPlayback();
   historyError.value = '';
   isHistoryLoading.value = false;
   clearHistoryLayer();
@@ -842,6 +1513,7 @@ const animateMarkerTo = (participantId, marker, nextLatLng) => {
 const selectParticipant = (participantId, { closePanel = false } = {}) => {
   if (!mapInstance) return;
   if (isHistoryPanelOpen.value) closeParticipantHistory();
+  if (isMultiHistoryPanelOpen.value) closeMultiHistory();
   const item = locations.value.find(
     (location) => location.participantId === participantId
   );
@@ -925,18 +1597,21 @@ const stopTracking = ({ clearSelection = true } = {}) => {
 
 const showAllMembers = () => {
   if (isHistoryPanelOpen.value) closeParticipantHistory();
+  if (isMultiHistoryPanelOpen.value) closeMultiHistory();
   stopTracking();
   fitAllLocations();
 };
 
 const openMemberPanel = () => {
   if (isHistoryPanelOpen.value) closeParticipantHistory();
+  if (isMultiHistoryPanelOpen.value) closeMultiHistory();
   isGatheringPanelOpen.value = false;
   isMemberPanelOpen.value = true;
 };
 
 const openGatheringPanel = () => {
   if (isHistoryPanelOpen.value) closeParticipantHistory();
+  if (isMultiHistoryPanelOpen.value) closeMultiHistory();
   isMemberPanelOpen.value = false;
   isGatheringPanelOpen.value = true;
 };
@@ -1112,6 +1787,7 @@ const initMap = async () => {
     maxZoom: 19,
   }).addTo(mapInstance);
   historyLayer = L.layerGroup().addTo(mapInstance);
+  historyPlaybackLayer = L.layerGroup().addTo(mapInstance);
   markerLayer = L.layerGroup().addTo(mapInstance);
   setTimeout(() => mapInstance?.invalidateSize(), 120);
   await centerMapOnBrowserPosition();
@@ -1121,6 +1797,9 @@ const initMap = async () => {
 const destroyMap = () => {
   markerLayer = null;
   historyLayer = null;
+  historyPlaybackLayer = null;
+  stopHistoryPlayback();
+  stopMultiHistoryPlayback();
   markerAnimationsByParticipantId.forEach((animationId) => {
     window.cancelAnimationFrame(animationId);
   });
@@ -1187,6 +1866,7 @@ watch(
   () => [tripStore.currentTripId, tripStore.isPublicTrip],
   async () => {
     historyRequestSequence += 1;
+    multiHistoryRequestSequence += 1;
     historyTrackCache.clear();
     stopTracking();
     selectedParticipantId.value = '';
@@ -1195,6 +1875,15 @@ watch(
     isMemberPanelOpen.value = false;
     isGatheringPanelOpen.value = false;
     isHistoryPanelOpen.value = false;
+    isHistoryStopsOpen.value = false;
+    isMultiHistoryPanelOpen.value = false;
+    isMultiHistoryPickerOpen.value = false;
+    multiHistoryParticipantIds.value = [];
+    multiHistoryTracks.value = [];
+    multiHistoryVisibleIds.value = [];
+    multiHistoryFocusedId.value = '';
+    multiHistoryError.value = '';
+    resetMultiHistoryPlayback();
     isSelectingGatheringPoint.value = false;
     rawLocations.value = [];
     gatheringPoints.value = [];
@@ -1226,6 +1915,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   historyRequestSequence += 1;
+  multiHistoryRequestSequence += 1;
   historyTrackCache.clear();
   if (unsubscribeLocations) unsubscribeLocations();
   if (unsubscribeGatheringPoints) unsubscribeGatheringPoints();
@@ -1334,7 +2024,9 @@ onUnmounted(() => {
             : 'battery-tone--unknown'
         "
         :time-text="selectedMember ? formatTime(selectedMember.timestamp) : ''"
+        :can-view-history="canViewMemberHistory(selectedMember)"
         @toggle-track="toggleSelectedMemberTracking"
+        @view-history="openParticipantHistory(selectedMember?.participantId)"
         @close="stopTracking"
       />
     </div>
@@ -1349,10 +2041,12 @@ onUnmounted(() => {
       :format-battery="formatBattery"
       :get-battery-tone-class="getBatteryToneClass"
       :can-view-history="canViewMemberHistory"
+      :can-open-multi-history="canOpenMultiHistory"
       :history-participant-id="historyParticipantId"
       @close="isMemberPanelOpen = false"
       @select-member="selectParticipant($event, { closePanel: true })"
       @view-history="openParticipantHistory"
+      @open-multi-history="openMultiHistoryPicker"
     />
 
     <LocationTrackSheet
@@ -1365,8 +2059,67 @@ onUnmounted(() => {
       :first-point-time="historyFirstPointTime"
       :last-point-time="historyLastPointTime"
       :error="historyError"
+      :current-index="historyCurrentIndex"
+      :max-index="Math.max(0, historyPoints.length - 1)"
+      :is-playing="historyIsPlaying"
+      :playback-speed="historyPlaybackSpeed"
+      :current-time-text="historyCurrentTime"
+      :view-mode="historyViewMode"
       @close="closeParticipantHistory"
       @change-date="changeParticipantHistoryDate"
+      @toggle-playback="toggleHistoryPlayback"
+      @seek="seekHistory($event, { center: false })"
+      @change-speed="changeHistoryPlaybackSpeed"
+      @jump-stop="jumpHistoryStopRelative"
+      @open-stops="isHistoryStopsOpen = true"
+      @show-overview="showHistoryOverview"
+    />
+
+    <LocationTrackStopsSheet
+      :open="isHistoryStopsOpen"
+      :member="historyParticipant"
+      :stops="historyStops"
+      :selected-stop-index="historySelectedStopIndex"
+      :format-time="formatTrackTime"
+      @close="isHistoryStopsOpen = false"
+      @select="selectHistoryStop"
+    />
+
+    <LocationMultiTrackSheet
+      :open="isMultiHistoryPanelOpen"
+      :tracks="multiHistoryTracks"
+      :visible-participant-ids="multiHistoryVisibleIds"
+      :focused-participant-id="multiHistoryFocusedId"
+      :selected-date="multiHistoryDate"
+      :is-loading="isHistoryLoading"
+      :is-playing="multiHistoryIsPlaying"
+      :is-playback-mode="multiHistoryPlaybackMode"
+      :playback-speed="multiHistoryPlaybackSpeed"
+      :timeline-start="multiHistoryTimelineStart"
+      :timeline-end="multiHistoryTimelineEnd"
+      :current-timestamp="multiHistoryCurrentTimestamp"
+      :error="multiHistoryError"
+      :format-time="formatTrackTime"
+      @close="closeMultiHistory"
+      @change-date="changeMultiHistoryDate"
+      @edit-members="openMultiHistoryPicker"
+      @toggle-visible="toggleMultiHistoryVisible"
+      @focus-member="focusMultiHistoryMember"
+      @toggle-playback="toggleMultiHistoryPlayback"
+      @show-overview="showMultiHistoryOverview"
+      @seek="seekMultiHistory"
+      @change-speed="changeMultiHistoryPlaybackSpeed"
+    />
+
+    <LocationMemberTrackPicker
+      :open="isMultiHistoryPickerOpen"
+      :members="historyEligibleMembers"
+      :selected-participant-ids="multiHistoryParticipantIds"
+      :selected-date="multiHistoryDate"
+      @close="closeMultiHistoryPicker"
+      @toggle-member="toggleMultiHistoryMember"
+      @change-date="changeMultiHistoryDate"
+      @apply="applyMultiHistorySelection"
     />
 
     <GatheringPointSheet
@@ -1418,6 +2171,22 @@ onUnmounted(() => {
 
 .location-page .location-track-stop-popup .leaflet-popup-tip {
   background: #0f172a;
+}
+
+.location-page .location-track-stop-label,
+.location-page .location-track-cursor-label {
+  border: 0;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  background: #0f172a;
+  border-radius: 999px;
+  box-shadow: 0 4px 10px rgb(15 23 42 / 24%);
+}
+
+.location-page .location-track-cursor-label {
+  background: #f97316;
 }
 
 .location-notice-enter-active,
