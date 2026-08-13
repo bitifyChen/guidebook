@@ -35,6 +35,10 @@ const props = defineProps({
   item: { type: Object, default: null },
   mode: { type: String, default: 'create' },
   compact: { type: Boolean, default: false },
+  draft: { type: Boolean, default: false },
+  availableItems: { type: Array, default: () => [] },
+  defaultDay: { type: Number, default: 1 },
+  lockDay: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['cancel', 'deleted', 'saved']);
@@ -61,11 +65,17 @@ const hasUnknownCategory = computed(
 
 const cloneItem = (item) => JSON.parse(JSON.stringify(item || {}));
 
+const sourceItems = computed(() =>
+  props.draft ? props.availableItems : travelStore.itinerary
+);
+
 const getDefaultDay = () =>
-  travelStore.selectedDay || travelStore.config[0]?.day || 1;
+  (props.draft ? props.defaultDay : travelStore.selectedDay) ||
+  travelStore.config[0]?.day ||
+  1;
 
 const getNextOrder = (day) => {
-  const orders = travelStore.itinerary
+  const orders = sourceItems.value
     .filter((item) => Number(item.day) === Number(day))
     .map((item) => Number(item.order) || 0);
   return orders.length ? Math.max(...orders) + 1 : 1;
@@ -118,7 +128,11 @@ const resetForm = () => {
 };
 
 onMounted(async () => {
-  if (!travelStore.config.length && !travelStore.itinerary.length) {
+  if (
+    !props.draft &&
+    !travelStore.config.length &&
+    !travelStore.itinerary.length
+  ) {
     await travelStore.init();
   }
   resetForm();
@@ -156,7 +170,7 @@ watch(
 
 const availableParents = computed(() => {
   if (!currentItem.value) return [];
-  return travelStore.itinerary.filter(
+  return sourceItems.value.filter(
     (item) =>
       Number(item.day) === Number(currentItem.value.day) &&
       item.id !== currentItem.value.id &&
@@ -312,6 +326,15 @@ const handleSave = async () => {
       !isEditMode.value ||
       Number(data.duration || 0) !== Number(props.item?.duration || 0) ||
       Number(data.delay || 0) !== Number(props.item?.delay || 0);
+    if (props.draft) {
+      emit('saved', {
+        item: { ...data, id: id || currentItem.value.id },
+        changed: true,
+        timeChanged,
+        action: isEditMode.value ? 'updated' : 'created',
+      });
+      return;
+    }
     let savedId = id;
     if (isEditMode.value) {
       await patchItineraryItem(id, data);
@@ -335,6 +358,15 @@ const handleSave = async () => {
 
 const handleDelete = async () => {
   if (!isEditMode.value || !confirm('確定要刪除此景點嗎？')) return;
+
+  if (props.draft) {
+    emit('deleted', {
+      item: cloneItem(currentItem.value),
+      timeChanged: true,
+      action: 'deleted',
+    });
+    return;
+  }
 
   isDeleting.value = true;
   try {
@@ -399,6 +431,7 @@ const handleDelete = async () => {
               <span class="text-[11px] font-black text-slate-400">天數</span>
               <select
                 v-model="currentItem.day"
+                :disabled="lockDay"
                 class="w-full rounded-xl bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700 outline-none"
               >
                 <option

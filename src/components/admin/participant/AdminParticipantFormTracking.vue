@@ -1,5 +1,5 @@
 <script setup>
-import { Check, Copy, Loader2, MapPin, Trash2 } from 'lucide-vue-next';
+import { Check, Copy, Loader2, MapPin, Route, Trash2 } from 'lucide-vue-next';
 
 defineProps({
   activeToken: { type: Object, default: null },
@@ -8,7 +8,7 @@ defineProps({
   isRemoving: { type: Boolean, default: false },
   copied: { type: Boolean, default: false },
 });
-const emit = defineEmits(['copy', 'remove', 'enable']);
+const emit = defineEmits(['copy', 'remove', 'enable', 'view-history']);
 </script>
 
 <template>
@@ -75,6 +75,13 @@ const emit = defineEmits(['copy', 'remove', 'enable']);
     >
       <Loader2 v-if="isCreating" class="animate-spin" :size="14" />
       <MapPin v-else :size="14" /> 啟用位置分享
+    </button>
+    <button
+      type="button"
+      class="flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-indigo-100 bg-white text-xs font-black text-indigo-600"
+      @click="emit('view-history')"
+    >
+      <Route :size="14" /> 查看歷史軌跡
     </button>
   </section>
 </template>

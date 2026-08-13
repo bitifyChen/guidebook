@@ -10,10 +10,20 @@ Render-hosted lightweight backend for Guidebook.
 - `GET|POST /api/tracking/traccar`
 - `POST /notifications/send`
 - `POST /api/notifications/send`
+- `POST /maps/resolve-route`
+- `POST /api/maps/resolve-route`
+- `GET /admin/location-tracks`
+- `POST /admin/location-tracks/delete-preview`
+- `POST /admin/location-tracks/delete`
 
 `/tracking/traccar` accepts query string, form body, or JSON payload.
-`/notifications/send` requires a Firebase ID token in the `Authorization`
-header. The token owner must map to an admin or super admin participant.
+`/notifications/send` and `/maps/resolve-route` require a Firebase ID token in
+the `Authorization` header. The token owner must map to an admin or super admin
+participant. The map resolver only accepts supported Google Maps HTTPS links.
+The admin location-track endpoints use the same Firebase admin authentication.
+They only read or delete `tripLocationTracks/{tripId}/{participantId}` and write
+deletion audit records to Firestore. Clearing history does not disable tracking
+or remove the current location, tracking token, track state, or gathering points.
 
 Required:
 
@@ -85,6 +95,12 @@ Push notification history is written to Firestore:
 
 ```text
 notificationLogs/{logId}
+```
+
+Admin history deletion audits are written to Firestore:
+
+```text
+locationTrackDeletionLogs/{logId}
 ```
 
 The backend sends FCM through the Firebase Admin SDK and records success and

@@ -1,9 +1,7 @@
-from firebase_admin import auth, firestore, messaging
+from firebase_admin import firestore, messaging
 
+from common.auth import verify_admin_request
 from common.firebase import get_firebase_app, get_firestore_client
-
-
-SUPER_ADMIN_UIDS = {"nJ4o0KAJUhdZ9eIYXSapIMfe74z2"}
 
 
 def _json_error(message, status=400):
@@ -12,36 +10,6 @@ def _json_error(message, status=400):
 
 def _request_json(request):
     return request.get_json(silent=True) or {}
-
-
-def _verify_admin(request):
-    header = request.headers.get("Authorization", "")
-    if not header.startswith("Bearer "):
-        return None, "Missing authorization token"
-
-    token = header.replace("Bearer ", "", 1).strip()
-    if not token:
-        return None, "Missing authorization token"
-
-    decoded = auth.verify_id_token(token, app=get_firebase_app())
-    uid = decoded.get("uid")
-    if not uid:
-        return None, "Invalid authorization token"
-
-    if uid in SUPER_ADMIN_UIDS:
-        return {"uid": uid, "name": decoded.get("name") or decoded.get("email") or "Admin"}, None
-
-    snapshots = get_firestore_client().collection("participants").where("uid", "==", uid).stream()
-    for snapshot in snapshots:
-        participant = snapshot.to_dict() or {}
-        if participant.get("isAdmin") or participant.get("isSuperAdmin"):
-            return {
-                "uid": uid,
-                "participantId": snapshot.id,
-                "name": participant.get("name") or decoded.get("name") or "Admin",
-            }, None
-
-    return None, "Admin permission required"
 
 
 def _normalize_participant(snapshot):
@@ -136,7 +104,7 @@ def _send_to_token(token, title, body, image_url="", click_url="", silent=False,
 
 def handle_send_notification(request):
     try:
-        admin, auth_error = _verify_admin(request)
+        admin, auth_error = verify_admin_request(request)
         if auth_error:
             return _json_error(auth_error, 401 if "authorization" in auth_error.lower() else 403)
     except Exception as exc:

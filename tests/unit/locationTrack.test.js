@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   detectTrackStops,
   findNearestTrackPointIndex,
+  getDefaultTrackDateForTrip,
   getTrackPointAtTimestamp,
   runWithConcurrency,
   sanitizeTrackPoints,
+  shiftTrackDate,
   splitTrackSegments,
 } from '@/utils/locationTrack';
 
@@ -16,6 +18,34 @@ const point = (ts, lat = 25, lng = 121, extra = {}) => ({
 });
 
 describe('location track helpers', () => {
+  it('uses today before a trip and the final trip date after it ends', () => {
+    const now = new Date('2026-08-13T04:00:00.000Z');
+    expect(
+      getDefaultTrackDateForTrip(
+        {
+          startDate: '2026-08-20',
+          endDate: '2026-08-27',
+          timezone: 'Asia/Taipei',
+          status: 'draft',
+        },
+        now
+      )
+    ).toBe('2026-08-13');
+    expect(
+      getDefaultTrackDateForTrip(
+        {
+          startDate: '2026-08-01',
+          endDate: '2026-08-07',
+          timezone: 'Asia/Taipei',
+          status: 'completed',
+        },
+        now
+      )
+    ).toBe('2026-08-07');
+    expect(shiftTrackDate('2026-08-01', -1)).toBe('2026-07-31');
+    expect(shiftTrackDate('2026-08-31', 1)).toBe('2026-09-01');
+  });
+
   it('removes inaccurate points and isolated spikes without changing valid order', () => {
     const result = sanitizeTrackPoints([
       point(0),

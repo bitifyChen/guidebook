@@ -16,8 +16,8 @@ import AdminItineraryJsonAssistant from '@/components/admin/itinerary/AdminItine
 import AdminItineraryGeoAssistant from '@/components/admin/itinerary/AdminItineraryGeoAssistant.vue';
 import AdminItineraryToolbar from '@/components/admin/itinerary/AdminItineraryToolbar.vue';
 import AdminItineraryDaySection from '@/components/admin/itinerary/AdminItineraryDaySection.vue';
-import AdminItineraryItemDrawer from '@/components/admin/itinerary/AdminItineraryItemDrawer.vue';
 import AdminItineraryDayStartDrawer from '@/components/admin/itinerary/AdminItineraryDayStartDrawer.vue';
+import AdminItineraryRoutePlannerDrawer from '@/components/admin/itinerary/AdminItineraryRoutePlannerDrawer.vue';
 import { getItineraryCategoryLabel } from '@/constants/itineraryOptions';
 import { sanitizeItineraryJsonItems } from '@/utils/itineraryJsonAssistant';
 import {
@@ -25,6 +25,10 @@ import {
   getMissingRouteCoordinateItems,
   validateCoordinateAssistantPayload,
 } from '@/utils/itineraryRoute';
+import {
+  attachDescendantsToMovedParent,
+  collectItineraryDescendants,
+} from '@/utils/itineraryDrag';
 import { Save } from 'lucide-vue-next';
 
 const travelStore = useTravelStore();
@@ -35,12 +39,7 @@ const hasChanges = ref(false);
 const isCheckingImages = ref(false);
 const jsonAssistantOpen = ref(false);
 const routeCalculatingDay = ref(null);
-const itemDrawerSession = ref(0);
-const itemDrawer = ref({
-  open: false,
-  mode: 'create',
-  item: null,
-});
+const dragContext = ref(null);
 const geoAssistant = ref({
   open: false,
   day: null,
@@ -52,6 +51,15 @@ const dayStartDrawer = ref({
   day: null,
   start: '09:00',
   isSaving: false,
+});
+const routePlanner = ref({
+  open: false,
+  session: 0,
+  day: 1,
+  items: [],
+  startTime: '09:00',
+  saving: false,
+  selectedItemId: '',
 });
 
 const jsonDayOptions = computed(() =>
@@ -70,59 +78,6 @@ const emitItinerarySyncSignal = (item, reason = 'itineraryUpdated') => {
     day: item?.day || travelStore.selectedDay,
     reason,
   });
-};
-
-const openCreateItemDrawer = () => {
-  itemDrawerSession.value += 1;
-  itemDrawer.value = {
-    open: true,
-    mode: 'create',
-    item: null,
-  };
-};
-
-const openEditItemDrawer = (item) => {
-  itemDrawerSession.value += 1;
-  itemDrawer.value = {
-    open: true,
-    mode: 'edit',
-    item,
-  };
-};
-
-const closeItemDrawer = () => {
-  itemDrawer.value = {
-    open: false,
-    mode: 'create',
-    item: null,
-  };
-};
-
-const handleItemDrawerDone = async (payload = {}) => {
-  closeItemDrawer();
-  hasChanges.value = false;
-  initLocalItinerary();
-  if (!payload.item) return;
-  try {
-    await emitItinerarySyncSignal(
-      payload.item,
-      payload.action || 'item-updated'
-    );
-  } catch (syncError) {
-    console.error('Itinerary sync signal failed:', syncError);
-  }
-  ElMessage.success('行程已儲存');
-};
-
-const handleCopyItem = (item, dayGroup) => {
-  const index = dayGroup.items.findIndex((i) => i.id === item.id);
-  const newItem = {
-    ...JSON.parse(JSON.stringify(item)),
-    id: `temp-${Date.now()}`, // 給予暫時 ID 以供 draggable 辨識
-    location: `${item.location} (副本)`,
-  };
-  dayGroup.items.splice(index + 1, 0, newItem);
-  hasChanges.value = true;
 };
 
 const checkImageLink = (url) => {
@@ -217,22 +172,33 @@ watch(
   { deep: true }
 );
 
+const handleDragStart = ({ item }) => {
+  if (!item?.id) {
+    dragContext.value = null;
+    return;
+  }
+  const allItems = localItinerary.value.flatMap((group) => group.items);
+  dragContext.value = {
+    itemId: item.id,
+    descendants: collectItineraryDescendants(allItems, item.id),
+  };
+};
+
 const onDragEnd = () => {
+  if (dragContext.value?.descendants?.length) {
+    attachDescendantsToMovedParent(
+      localItinerary.value,
+      dragContext.value.itemId,
+      dragContext.value.descendants
+    );
+  }
+  dragContext.value = null;
   hasChanges.value = true;
 };
 
 const updateDayItems = (dayGroup, items) => {
   dayGroup.items = items;
   hasChanges.value = true;
-};
-
-const updateItemField = ({ item, field, value }) => {
-  if (field === 'nextDrive.time') {
-    item.nextDrive = { ...(item.nextDrive || {}), time: value };
-  } else {
-    item[field] = value;
-  }
-  updateItem(item);
 };
 
 const handleSaveOrder = async () => {
@@ -268,54 +234,14 @@ const handleSaveOrder = async () => {
     } catch (syncError) {
       console.error('Itinerary sync signal failed:', syncError);
     }
-    alert('排序已更新，現在可以編輯複製的行程詳情了。');
+    alert('行程排序已更新。');
   } catch (err) {
     alert('儲存失敗：' + err.message);
   }
 };
 
-const handleEditItem = (item) => {
-  if (item.id && item.id.toString().startsWith('temp-')) {
-    alert(
-      '請先點擊下方的「儲存更新排序」按鈕，以完成複製行程的建立，之後才能編輯詳細資訊。'
-    );
-    return;
-  }
-  openEditItemDrawer(item);
-};
-
-const updateItem = async (item) => {
-  // 如果是暫時 ID，只需標記 hasChanges，不呼叫 API (因為還沒存入 Firebase)
-  if (item.id && item.id.toString().startsWith('temp-')) {
-    hasChanges.value = true;
-    return;
-  }
-
-  try {
-    await patchItineraryItem(item.id, {
-      duration: item.duration,
-      delay: item.delay,
-      nextDrive: {
-        ...(item.nextDrive || {}),
-        time: Number(item.nextDrive?.time) || 0,
-      },
-    });
-    // 如果沒有在拖拉狀態，同步更新 store 確保資料一致
-    if (!hasChanges.value) {
-      travelStore.updateLocalItem(item.id, {
-        duration: item.duration,
-        delay: item.delay,
-      });
-    }
-    try {
-      await emitItinerarySyncSignal(item, 'time-updated');
-    } catch (syncError) {
-      console.error('Itinerary sync signal failed:', syncError);
-    }
-    ElMessage.success('時間已更新');
-  } catch (err) {
-    alert('更新失敗：' + err.message);
-  }
+const handleEditItem = (item, dayGroup) => {
+  if (dayGroup) openRoutePlanner(dayGroup, item.id);
 };
 
 // 匯出 JSON
@@ -513,6 +439,73 @@ const openDayStartDrawer = (day) => {
   };
 };
 
+const openRoutePlanner = (dayGroup, selectedItemId = '') => {
+  if (hasChanges.value) {
+    ElMessage.warning('請先儲存目前的排序變更，再開啟地圖編排。');
+    return;
+  }
+  const config = travelStore.config.find(
+    (entry) => Number(entry.day) === Number(dayGroup.day)
+  );
+  routePlanner.value = {
+    open: true,
+    session: routePlanner.value.session + 1,
+    day: Number(dayGroup.day),
+    items: dayGroup.items,
+    startTime: config?.start || '09:00',
+    saving: false,
+    selectedItemId: String(selectedItemId || ''),
+  };
+};
+
+const closeRoutePlanner = () => {
+  routePlanner.value.open = false;
+};
+
+const handleSaveRoutePlanner = async ({ day, items }) => {
+  if (routePlanner.value.saving) return;
+  routePlanner.value.saving = true;
+  try {
+    const payload = items.map((item) => {
+      const cleanItem = { ...item };
+      if (
+        cleanItem.id &&
+        (String(cleanItem.id).startsWith('route-temp-') ||
+          String(cleanItem.id).startsWith('temp-'))
+      ) {
+        delete cleanItem.id;
+      }
+      cleanItem.geo = {
+        lat: item.geo?.lat ?? null,
+        lng: item.geo?.lng ?? null,
+        ...(item.geo?.placeId ? { placeId: item.geo.placeId } : {}),
+      };
+      delete cleanItem.geo.mapUrl;
+      delete cleanItem.startTime;
+      delete cleanItem.endTime;
+      delete cleanItem.scheduledStartTime;
+      delete cleanItem.scheduledEndTime;
+      return cleanItem;
+    });
+    const result = await bulkUpdateItineraryDay(day, payload);
+    await travelStore.init();
+    initLocalItinerary();
+    hasChanges.value = false;
+    closeRoutePlanner();
+    await emitItinerarySyncSignal(
+      { day, location: '行程' },
+      'route-planner-updated'
+    ).catch((error) => console.error('Itinerary sync signal failed:', error));
+    ElMessage.success(
+      `Day ${day} 已儲存，更新 ${result.updated} 筆，刪除 ${result.deleted} 筆。`
+    );
+  } catch (error) {
+    ElMessage.error(`地圖編排儲存失敗：${error.message}`);
+  } finally {
+    routePlanner.value.saving = false;
+  }
+};
+
 const saveDayStart = async () => {
   if (!dayStartDrawer.value.start) return;
   dayStartDrawer.value.isSaving = true;
@@ -544,7 +537,6 @@ const saveDayStart = async () => {
     <main class="space-y-6 p-3 sm:p-5">
       <AdminItineraryToolbar
         :is-checking-images="isCheckingImages"
-        @create="openCreateItemDrawer"
         @export="handleExport"
         @import="handleImport"
         @check-images="handleCheckImages"
@@ -574,11 +566,11 @@ const saveDayStart = async () => {
         :image-status="travelStore.imageStatus"
         @update-items="updateDayItems(dayGroup, $event)"
         @reorder="onDragEnd"
-        @edit-item="handleEditItem"
-        @copy-item="handleCopyItem($event, dayGroup)"
-        @update-item="updateItemField"
+        @drag-start="handleDragStart"
+        @edit-item="handleEditItem($event, dayGroup)"
         @edit-start="openDayStartDrawer(dayGroup.day)"
         @calculate-routes="handleCalculateDayRoutes(dayGroup)"
+        @open-route-planner="openRoutePlanner(dayGroup)"
       />
     </main>
 
@@ -605,16 +597,6 @@ const saveDayStart = async () => {
       </div>
     </Transition>
 
-    <AdminItineraryItemDrawer
-      v-model:open="itemDrawer.open"
-      :session="itemDrawerSession"
-      :mode="itemDrawer.mode"
-      :item="itemDrawer.item"
-      @close="closeItemDrawer"
-      @saved="handleItemDrawerDone"
-      @deleted="handleItemDrawerDone"
-    />
-
     <AdminItineraryGeoAssistant
       v-model:open="geoAssistant.open"
       :items="geoAssistant.items"
@@ -628,6 +610,17 @@ const saveDayStart = async () => {
       :day="dayStartDrawer.day"
       :is-saving="dayStartDrawer.isSaving"
       @save="saveDayStart"
+    />
+
+    <AdminItineraryRoutePlannerDrawer
+      v-model:open="routePlanner.open"
+      :session="routePlanner.session"
+      :day="routePlanner.day"
+      :items="routePlanner.items"
+      :start-time="routePlanner.startTime"
+      :saving="routePlanner.saving"
+      :selected-item-id="routePlanner.selectedItemId"
+      @save="handleSaveRoutePlanner"
     />
   </div>
 </template>

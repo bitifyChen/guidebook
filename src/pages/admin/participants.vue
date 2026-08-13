@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
+import { ElMessage } from 'element-plus';
 import { useParticipantsStore } from '@/store/participantsStore';
 import { useTripStore } from '@/store/tripStore';
 import { uploadImage } from '@/api/storage';
@@ -15,7 +16,18 @@ import {
 } from '@/api/tracking';
 import AdminParticipantFormDrawer from '@/components/admin/participant/AdminParticipantFormDrawer.vue';
 import AdminParticipantTable from '@/components/admin/participant/AdminParticipantTable.vue';
+import AdminParticipantTrackDeleteDialog from '@/components/admin/participant/AdminParticipantTrackDeleteDialog.vue';
+import AdminParticipantTrackDrawer from '@/components/admin/participant/AdminParticipantTrackDrawer.vue';
 import { sendGuidebookNotification } from '@/api/notifications';
+import {
+  deleteAdminLocationTracks,
+  getAdminParticipantLocationTracks,
+  previewAdminLocationTrackDeletion,
+} from '@/api/adminLocationTracks';
+import {
+  formatTrackDateInTimezone,
+  getDefaultTrackDateForTrip,
+} from '@/utils/locationTrack';
 
 const participantsStore = useParticipantsStore();
 const tripStore = useTripStore();
@@ -32,6 +44,20 @@ const tripSearch = ref('');
 const trackingTokens = ref([]);
 const isTrackingLoading = ref(false);
 const isTrackingCreating = ref(false);
+const isTrackDrawerOpen = ref(false);
+const isTrackLoading = ref(false);
+const isTrackDeleting = ref(false);
+const isTrackDeleteDialogOpen = ref(false);
+const trackTripId = ref('');
+const trackDate = ref('');
+const trackPoints = ref([]);
+const trackMeta = ref({});
+const trackError = ref('');
+const selectedTrackPointId = ref('');
+const trackDeleteScope = ref('point');
+const trackDeletePointId = ref('');
+const trackDeletePreview = ref({});
+let trackRequestSequence = 0;
 const appliedSearch = ref({
   tripId: '',
   keyword: '',
@@ -109,6 +135,27 @@ const editingParticipant = computed(() =>
   participantsStore.participants.find(
     (participant) => participant.id === editingId.value
   )
+);
+
+const trackTrips = computed(() => {
+  const tripIds = new Set(form.value.tripIds || []);
+  return tripStore.trips.filter((trip) => tripIds.has(trip.id));
+});
+
+const selectedTrackTrip = computed(() =>
+  trackTrips.value.find((trip) => trip.id === trackTripId.value)
+);
+
+const trackDeletionWarning = computed(() => {
+  const trip = selectedTrackTrip.value;
+  return (
+    trip?.status === 'active' ||
+    trackDate.value === formatTrackDateInTimezone(trip?.timezone || 'UTC')
+  );
+});
+
+const trackTimezone = computed(
+  () => trackMeta.value.timezone || selectedTrackTrip.value?.timezone || 'UTC'
 );
 
 const getNotificationTripId = () => appliedSearch.value.tripId || '';
@@ -258,8 +305,153 @@ const openEditDrawer = (participant) => {
 };
 
 const closeDrawer = () => {
+  isTrackDrawerOpen.value = false;
+  isTrackDeleteDialogOpen.value = false;
   isDrawerOpen.value = false;
   resetForm();
+};
+
+const resetTrackState = () => {
+  trackRequestSequence += 1;
+  trackTripId.value = '';
+  trackDate.value = '';
+  trackPoints.value = [];
+  trackMeta.value = {};
+  trackError.value = '';
+  selectedTrackPointId.value = '';
+  trackDeleteScope.value = 'point';
+  trackDeletePointId.value = '';
+  trackDeletePreview.value = {};
+};
+
+const loadTrackPoints = async ({ clear = false } = {}) => {
+  if (!editingId.value || !trackTripId.value || !trackDate.value) return;
+  const requestSequence = ++trackRequestSequence;
+  isTrackLoading.value = true;
+  trackError.value = '';
+  if (clear) {
+    trackPoints.value = [];
+    selectedTrackPointId.value = '';
+  }
+
+  try {
+    const result = await getAdminParticipantLocationTracks({
+      tripId: trackTripId.value,
+      participantId: editingId.value,
+      date: trackDate.value,
+    });
+    if (requestSequence !== trackRequestSequence) return;
+    trackPoints.value = result.points || [];
+    trackMeta.value = result;
+    if (
+      selectedTrackPointId.value &&
+      !trackPoints.value.some(
+        (point) => point.id === selectedTrackPointId.value
+      )
+    ) {
+      selectedTrackPointId.value = '';
+    }
+  } catch (error) {
+    if (requestSequence !== trackRequestSequence) return;
+    trackError.value = error.message || '讀取歷史軌跡失敗。';
+  } finally {
+    if (requestSequence === trackRequestSequence) {
+      isTrackLoading.value = false;
+    }
+  }
+};
+
+const openTrackingHistory = async () => {
+  if (!editingParticipant.value) return;
+  if (!trackTrips.value.length) {
+    ElMessage.warning('此成員尚未加入任何旅程。');
+    return;
+  }
+
+  const preferredTripId = [
+    appliedSearch.value.tripId,
+    tripStore.currentTripId,
+    trackTrips.value[0]?.id,
+  ].find((tripId) => trackTrips.value.some((trip) => trip.id === tripId));
+  trackTripId.value = preferredTripId || trackTrips.value[0].id;
+  trackDate.value = getDefaultTrackDateForTrip(
+    trackTrips.value.find((trip) => trip.id === trackTripId.value)
+  );
+  trackPoints.value = [];
+  trackMeta.value = {};
+  trackError.value = '';
+  selectedTrackPointId.value = '';
+  isTrackDrawerOpen.value = true;
+  await loadTrackPoints({ clear: true });
+};
+
+const closeTrackDrawer = () => {
+  isTrackDrawerOpen.value = false;
+  isTrackDeleteDialogOpen.value = false;
+  resetTrackState();
+};
+
+const updateTrackDrawerOpen = (open) => {
+  if (open) isTrackDrawerOpen.value = true;
+  else closeTrackDrawer();
+};
+
+const changeTrackTrip = async (tripId) => {
+  trackTripId.value = tripId;
+  const trip = trackTrips.value.find((item) => item.id === tripId);
+  trackDate.value = getDefaultTrackDateForTrip(trip);
+  await loadTrackPoints({ clear: true });
+};
+
+const changeTrackDate = async (date) => {
+  trackDate.value = date;
+  await loadTrackPoints({ clear: true });
+};
+
+const requestTrackDeletion = async (scope, pointId = '') => {
+  if (!editingId.value || !trackTripId.value) return;
+  const payload = {
+    tripId: trackTripId.value,
+    participantId: editingId.value,
+    scope,
+  };
+  if (scope === 'point') payload.pointId = pointId;
+  if (scope === 'day') payload.date = trackDate.value;
+
+  try {
+    trackDeletePreview.value = await previewAdminLocationTrackDeletion(payload);
+    trackDeleteScope.value = scope;
+    trackDeletePointId.value = pointId;
+    isTrackDeleteDialogOpen.value = true;
+  } catch (error) {
+    ElMessage.error(error.message || '無法確認刪除範圍。');
+  }
+};
+
+const confirmTrackDeletion = async (confirmation = '') => {
+  if (!editingId.value || !trackTripId.value) return;
+  const payload = {
+    tripId: trackTripId.value,
+    participantId: editingId.value,
+    scope: trackDeleteScope.value,
+  };
+  if (trackDeleteScope.value === 'point') {
+    payload.pointId = trackDeletePointId.value;
+  }
+  if (trackDeleteScope.value === 'day') payload.date = trackDate.value;
+  if (trackDeleteScope.value === 'all') payload.confirmation = confirmation;
+
+  isTrackDeleting.value = true;
+  try {
+    const result = await deleteAdminLocationTracks(payload);
+    isTrackDeleteDialogOpen.value = false;
+    ElMessage.success(`已刪除 ${result.deletedCount || 0} 個定位點。`);
+    await loadTrackPoints({ clear: true });
+  } catch (error) {
+    ElMessage.error(error.message || '刪除歷史軌跡失敗。');
+  } finally {
+    isTrackDeleting.value = false;
+  }
 };
 
 const copyInviteCode = (code, id) => {
@@ -522,6 +714,40 @@ const deleteCurrentParticipant = async () => {
       @copy-tracking="copyTrackingSetupUrl"
       @remove-tracking="removeTrackingForParticipant"
       @enable-tracking="enableTrackingForParticipant"
+      @view-tracking-history="openTrackingHistory"
+    />
+
+    <AdminParticipantTrackDrawer
+      :open="isTrackDrawerOpen"
+      :participant="editingParticipant"
+      :trips="trackTrips"
+      :selected-trip-id="trackTripId"
+      :selected-date="trackDate"
+      :points="trackPoints"
+      :selected-point-id="selectedTrackPointId"
+      :meta="trackMeta"
+      :is-loading="isTrackLoading"
+      :error="trackError"
+      @update:open="updateTrackDrawerOpen"
+      @close="closeTrackDrawer"
+      @change-trip="changeTrackTrip"
+      @change-date="changeTrackDate"
+      @refresh="loadTrackPoints()"
+      @select-point="selectedTrackPointId = $event"
+      @delete-point="requestTrackDeletion('point', $event)"
+      @delete-day="requestTrackDeletion('day')"
+      @delete-all="requestTrackDeletion('all')"
+    />
+
+    <AdminParticipantTrackDeleteDialog
+      v-model:open="isTrackDeleteDialogOpen"
+      :scope="trackDeleteScope"
+      :preview="trackDeletePreview"
+      :participant-name="editingParticipant?.name || ''"
+      :warning="trackDeletionWarning"
+      :is-deleting="isTrackDeleting"
+      :timezone="trackTimezone"
+      @confirm="confirmTrackDeletion"
     />
   </main>
 </template>

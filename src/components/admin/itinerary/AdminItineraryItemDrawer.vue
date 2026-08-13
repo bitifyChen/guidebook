@@ -7,6 +7,10 @@ defineProps({
   session: { type: Number, default: 0 },
   mode: { type: String, default: 'create' },
   item: { type: Object, default: null },
+  draft: { type: Boolean, default: false },
+  availableItems: { type: Array, default: () => [] },
+  defaultDay: { type: Number, default: 1 },
+  lockDay: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['update:open', 'close', 'saved', 'deleted']);
@@ -25,6 +29,10 @@ const emit = defineEmits(['update:open', 'close', 'saved', 'deleted']);
       :key="session"
       :mode="mode"
       :item="item"
+      :draft="draft"
+      :available-items="availableItems"
+      :default-day="defaultDay"
+      :lock-day="lockDay"
       compact
       @cancel="emit('close')"
       @saved="emit('saved', $event)"

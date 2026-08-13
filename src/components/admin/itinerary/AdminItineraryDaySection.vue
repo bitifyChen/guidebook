@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue';
-import { Calendar, Clock3, MapPin } from 'lucide-vue-next';
+import { Calendar, ChevronRight, Clock3, MapPin } from 'lucide-vue-next';
 import draggable from 'vuedraggable';
 import AdminItineraryItemRow from './AdminItineraryItemRow.vue';
 
@@ -15,11 +15,11 @@ const props = defineProps({
 const emit = defineEmits([
   'update-items',
   'reorder',
+  'drag-start',
   'edit-item',
-  'copy-item',
-  'update-item',
   'edit-start',
   'calculate-routes',
+  'open-route-planner',
 ]);
 
 const items = computed({
@@ -34,16 +34,26 @@ const scheduledById = computed(() =>
 
 <template>
   <section class="space-y-4">
-    <div class="flex flex-wrap items-center gap-2 px-2">
+    <div
+      role="button"
+      tabindex="0"
+      class="flex cursor-pointer flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50/40"
+      @click="emit('open-route-planner')"
+      @keydown.enter.prevent="emit('open-route-planner')"
+      @keydown.space.prevent="emit('open-route-planner')"
+    >
       <h3
         class="mr-auto flex items-center gap-2 text-lg font-black text-slate-800"
       >
         <Calendar :size="18" class="text-orange-500" /> Day {{ dayGroup.day }}
+        <span class="text-xs font-bold text-slate-400">
+          {{ dayGroup.items.length }} 個景點
+        </span>
       </h3>
       <button
         type="button"
         class="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-600 shadow-sm"
-        @click="emit('edit-start')"
+        @click.stop="emit('edit-start')"
       >
         <Clock3 :size="14" class="text-orange-500" /> 起始 {{ startTime }}
       </button>
@@ -51,11 +61,16 @@ const scheduledById = computed(() =>
         type="button"
         class="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-600 shadow-sm disabled:opacity-50"
         :disabled="calculating"
-        @click="emit('calculate-routes')"
+        @click.stop="emit('calculate-routes')"
       >
         <MapPin :size="14" class="text-indigo-500" />
         {{ calculating ? '計算中' : '計算本日行車時間' }}
       </button>
+      <span
+        class="inline-flex h-9 items-center gap-1 px-2 text-xs font-black text-indigo-600"
+      >
+        開啟編排 <ChevronRight :size="16" />
+      </span>
     </div>
     <draggable
       v-model="items"
@@ -64,7 +79,13 @@ const scheduledById = computed(() =>
       class="grid min-h-[50px] gap-3"
       handle=".drag-handle"
       ghost-class="opacity-50"
-      @end="emit('reorder')"
+      @start="
+        emit('drag-start', {
+          item: items[$event.oldIndex],
+          oldIndex: $event.oldIndex,
+        })
+      "
+      @end="emit('reorder', $event)"
     >
       <template #item="{ element: item, index }">
         <AdminItineraryItemRow
@@ -73,8 +94,6 @@ const scheduledById = computed(() =>
           :scheduled-item="scheduledById[item.id] || item"
           :image-status="imageStatus[item.id]"
           @edit="emit('edit-item', item)"
-          @copy="emit('copy-item', item)"
-          @update-field="emit('update-item', { item, ...$event })"
         />
       </template>
     </draggable>

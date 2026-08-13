@@ -8,6 +8,39 @@ export const DEFAULT_TRACK_STOP_OPTIONS = Object.freeze({
 
 const toRadians = (value) => (value * Math.PI) / 180;
 
+export const formatTrackDateInTimezone = (timezone, date = new Date()) => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone || 'UTC',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const values = Object.fromEntries(
+    parts.map((part) => [part.type, part.value])
+  );
+  return `${values.year}-${values.month}-${values.day}`;
+};
+
+export const getDefaultTrackDateForTrip = (trip, date = new Date()) => {
+  const today = formatTrackDateInTimezone(trip?.timezone || 'UTC', date);
+  const isClosed = ['completed', 'archived'].includes(trip?.status);
+  if (trip?.endDate && (isClosed || today > trip.endDate)) {
+    return trip.endDate;
+  }
+  return today;
+};
+
+export const shiftTrackDate = (dateValue, days) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateValue || ''));
+  if (!match) return '';
+  const date = new Date(
+    Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+  );
+  if (Number.isNaN(date.getTime())) return '';
+  date.setUTCDate(date.getUTCDate() + Number(days || 0));
+  return date.toISOString().slice(0, 10);
+};
+
 const getDistanceMeters = (from, to) => {
   const latitudeDelta = toRadians(to.lat - from.lat);
   const longitudeDelta = toRadians(to.lng - from.lng);

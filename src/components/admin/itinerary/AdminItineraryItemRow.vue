@@ -2,7 +2,6 @@
 import {
   ChevronRight,
   Clock3,
-  Copy,
   GripVertical,
   Image,
   ImageOff,
@@ -17,17 +16,12 @@ const props = defineProps({
   imageStatus: { type: String, default: '' },
 });
 
-const emit = defineEmits(['edit', 'copy', 'update-field']);
+const emit = defineEmits(['edit']);
 
 const timeChanged = (edge) => {
   const scheduled = props.scheduledItem?.[`scheduled${edge}Time`];
   const effective = props.scheduledItem?.[`${edge.toLowerCase()}Time`];
   return Boolean(scheduled && scheduled !== effective);
-};
-
-const updateNumber = (field, event) => {
-  const value = Number(event.target.value);
-  emit('update-field', { field, value: Number.isFinite(value) ? value : 0 });
 };
 </script>
 
@@ -150,7 +144,7 @@ const updateNumber = (field, event) => {
     <div
       class="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end"
     >
-      <label
+      <div
         v-for="field in [
           {
             key: 'duration',
@@ -183,27 +177,17 @@ const updateNumber = (field, event) => {
           }"
           >{{ field.label }}</span
         >
-        <input
-          :value="field.value ?? 0"
-          type="number"
-          class="w-full bg-transparent text-center font-mono font-black outline-none sm:w-10"
+        <span
+          class="w-full text-center font-mono font-black sm:w-10"
           :class="{
             'text-slate-600': field.tone === 'slate',
             'text-orange-600': field.tone === 'orange',
             'text-blue-600': field.tone === 'blue',
           }"
-          @change="updateNumber(field.key, $event)"
-        />
-      </label>
-      <div class="ml-auto flex items-center gap-1 sm:ml-1">
-        <button
-          type="button"
-          class="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-50 text-slate-400 hover:text-blue-500"
-          title="複製此行程"
-          @click="emit('copy')"
+          >{{ field.value ?? 0 }}</span
         >
-          <Copy :size="16" />
-        </button>
+      </div>
+      <div class="ml-auto flex items-center gap-1 sm:ml-1">
         <button
           type="button"
           class="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-50 text-slate-400 hover:text-orange-500"

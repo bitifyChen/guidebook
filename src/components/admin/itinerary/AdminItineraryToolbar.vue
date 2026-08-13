@@ -1,11 +1,11 @@
 <script setup>
-import { Download, Image, Plus, Upload } from 'lucide-vue-next';
+import { Download, Image, Upload } from 'lucide-vue-next';
 
 defineProps({
   isCheckingImages: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['create', 'export', 'import', 'check-images']);
+const emit = defineEmits(['export', 'import', 'check-images']);
 
 const handleImport = (event) => {
   emit('import', event);
@@ -16,14 +16,6 @@ const handleImport = (event) => {
 <template>
   <div class="flex flex-wrap gap-2 px-2">
     <slot name="json-assistant" />
-    <button
-      type="button"
-      class="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-black text-white shadow-sm transition-transform hover:bg-indigo-700 active:scale-95 sm:w-auto"
-      @click="emit('create')"
-    >
-      <Plus :size="16" />
-      新增景點
-    </button>
     <button
       type="button"
       class="flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-100 bg-white px-4 text-xs font-bold text-slate-500 shadow-sm transition-transform active:scale-95"

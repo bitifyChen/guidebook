@@ -38,6 +38,7 @@ const emit = defineEmits([
   'copy-tracking',
   'remove-tracking',
   'enable-tracking',
+  'view-tracking-history',
 ]);
 
 const fileInput = ref(null);
@@ -251,6 +252,7 @@ const fileInput = ref(null);
           @copy="emit('copy-tracking')"
           @remove="emit('remove-tracking')"
           @enable="emit('enable-tracking')"
+          @view-history="emit('view-tracking-history')"
         />
         <section
           v-if="editingId"

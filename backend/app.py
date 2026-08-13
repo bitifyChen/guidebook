@@ -3,6 +3,12 @@ import os
 from flask import Flask, request
 
 from views.health import health_response
+from views.location_tracks import (
+    handle_delete_admin_location_tracks,
+    handle_get_admin_location_tracks,
+    handle_preview_admin_location_track_deletion,
+)
+from views.maps import handle_resolve_google_maps_route
 from views.notifications import handle_send_notification
 from views.tracking import handle_traccar_location
 
@@ -58,6 +64,38 @@ def create_app():
         if request.method == "OPTIONS":
             return ("", 204)
         return handle_send_notification(request)
+
+    @app.route("/maps/resolve-route", methods=["POST", "OPTIONS"])
+    @app.route("/api/maps/resolve-route", methods=["POST", "OPTIONS"])
+    def resolve_google_maps_route():
+        if request.method == "OPTIONS":
+            return ("", 204)
+        return handle_resolve_google_maps_route(request)
+
+    @app.route("/admin/location-tracks", methods=["GET", "OPTIONS"])
+    @app.route("/api/admin/location-tracks", methods=["GET", "OPTIONS"])
+    def admin_location_tracks():
+        if request.method == "OPTIONS":
+            return ("", 204)
+        return handle_get_admin_location_tracks(request)
+
+    @app.route(
+        "/admin/location-tracks/delete-preview", methods=["POST", "OPTIONS"]
+    )
+    @app.route(
+        "/api/admin/location-tracks/delete-preview", methods=["POST", "OPTIONS"]
+    )
+    def preview_admin_location_track_deletion():
+        if request.method == "OPTIONS":
+            return ("", 204)
+        return handle_preview_admin_location_track_deletion(request)
+
+    @app.route("/admin/location-tracks/delete", methods=["POST", "OPTIONS"])
+    @app.route("/api/admin/location-tracks/delete", methods=["POST", "OPTIONS"])
+    def delete_admin_location_tracks():
+        if request.method == "OPTIONS":
+            return ("", 204)
+        return handle_delete_admin_location_tracks(request)
 
     return app
 
