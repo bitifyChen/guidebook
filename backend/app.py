@@ -8,6 +8,10 @@ from views.location_tracks import (
     handle_get_admin_location_tracks,
     handle_preview_admin_location_track_deletion,
 )
+from views.location_track_archive import (
+    handle_get_location_track_archive,
+    handle_location_track_archive,
+)
 from views.maps import handle_resolve_google_maps_route
 from views.notifications import handle_send_notification
 from views.tracking import handle_traccar_location
@@ -41,7 +45,9 @@ def create_app():
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Vary"] = "Origin"
             response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
+            response.headers["Access-Control-Allow-Headers"] = (
+                "Content-Type,Authorization"
+            )
             response.headers["Access-Control-Max-Age"] = "86400"
 
         return response
@@ -96,6 +102,24 @@ def create_app():
         if request.method == "OPTIONS":
             return ("", 204)
         return handle_delete_admin_location_tracks(request)
+
+    @app.route(
+        "/maintenance/location-track-archive", methods=["POST", "OPTIONS"]
+    )
+    @app.route(
+        "/api/maintenance/location-track-archive", methods=["POST", "OPTIONS"]
+    )
+    def archive_location_tracks():
+        if request.method == "OPTIONS":
+            return ("", 204)
+        return handle_location_track_archive(request)
+
+    @app.route("/location-tracks/archive", methods=["GET", "OPTIONS"])
+    @app.route("/api/location-tracks/archive", methods=["GET", "OPTIONS"])
+    def get_location_track_archive():
+        if request.method == "OPTIONS":
+            return ("", 204)
+        return handle_get_location_track_archive(request)
 
     return app
 

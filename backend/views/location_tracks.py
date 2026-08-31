@@ -5,6 +5,11 @@ from firebase_admin import firestore
 
 from common.auth import verify_admin_request
 from common.firebase import get_firestore_client, get_rtdb_reference
+from views.location_track_archive import (
+    count_archived_track_points,
+    delete_archived_location_tracks,
+    get_archived_track_points,
+)
 
 
 MAX_TRACK_POINTS = 10000
@@ -152,6 +157,16 @@ def _scope_summary(scope, points, date_value="", participant_name=""):
     }
 
 
+def _merge_points(*point_groups):
+    by_id = {}
+    for points in point_groups:
+        for point in points or []:
+            normalized = _normalize_point(str(point.get("id") or ""), point)
+            if normalized:
+                by_id[normalized["id"]] = normalized
+    return sorted(by_id.values(), key=lambda item: item["ts"])
+
+
 def handle_get_admin_location_tracks(request):
     _, auth_response = _authorize(request)
     if auth_response:
@@ -167,6 +182,13 @@ def handle_get_admin_location_tracks(request):
             payload.get("date"),
             context["timezone"],
         )
+        archived_points = get_archived_track_points(
+            get_firestore_client(),
+            trip_id,
+            participant_id,
+            payload.get("date"),
+        )
+        points = _merge_points(archived_points, points)
     except ValueError as exc:
         return _json_error(str(exc), 400)
     except LookupError as exc:
@@ -208,7 +230,40 @@ def _load_delete_request(request):
         date_value=payload.get("date"),
         timezone_name=context["timezone"],
     )
-    return payload, trip_id, participant_id, scope, context, track_ref, points
+    firestore_client = get_firestore_client()
+    if scope in {"point", "day"}:
+        archived_points = get_archived_track_points(
+            firestore_client,
+            trip_id,
+            participant_id,
+            payload.get("date"),
+        )
+        if scope == "point":
+            archived_points = [
+                point
+                for point in archived_points
+                if str(point.get("id")) == str(payload.get("pointId") or "")
+            ]
+        combined_points = _merge_points(points, archived_points)
+        archived_count = len(archived_points)
+    else:
+        combined_points = points
+        archived_count = count_archived_track_points(
+            firestore_client,
+            trip_id,
+            participant_id,
+            scope,
+        )
+    return (
+        payload,
+        trip_id,
+        participant_id,
+        scope,
+        context,
+        track_ref,
+        combined_points,
+        archived_count,
+    )
 
 
 def handle_preview_admin_location_track_deletion(request):
@@ -217,9 +272,16 @@ def handle_preview_admin_location_track_deletion(request):
         return auth_response
 
     try:
-        payload, trip_id, participant_id, scope, context, _, points = _load_delete_request(
-            request
-        )
+        (
+            payload,
+            trip_id,
+            participant_id,
+            scope,
+            context,
+            _,
+            points,
+            archived_count,
+        ) = _load_delete_request(request)
     except ValueError as exc:
         return _json_error(str(exc), 400)
     except LookupError as exc:
@@ -237,6 +299,9 @@ def handle_preview_admin_location_track_deletion(request):
             points,
             date_value=payload.get("date") or "",
             participant_name=context["participant"].get("name") or "",
+        ),
+        "pointCount": (
+            len(points) + archived_count if scope == "all" else len(points)
         ),
     }, 200
 
@@ -257,9 +322,16 @@ def handle_delete_admin_location_tracks(request):
         return auth_response
 
     try:
-        payload, trip_id, participant_id, scope, context, track_ref, points = _load_delete_request(
-            request
-        )
+        (
+            payload,
+            trip_id,
+            participant_id,
+            scope,
+            context,
+            track_ref,
+            points,
+            _,
+        ) = _load_delete_request(request)
     except ValueError as exc:
         return _json_error(str(exc), 400)
     except LookupError as exc:
@@ -271,7 +343,23 @@ def handle_delete_admin_location_tracks(request):
     if scope == "all" and str(payload.get("confirmation") or "").strip() != expected_name:
         return _json_error("Participant name confirmation does not match.", 400)
 
-    deleted_count = _delete_points(track_ref, scope, points)
+    archived_deleted_count = delete_archived_location_tracks(
+        get_firestore_client(),
+        trip_id,
+        participant_id,
+        scope,
+        date_value=payload.get("date") or "",
+        point_id=payload.get("pointId") or "",
+    )
+    rtdb_points = _get_scope_points(
+        track_ref,
+        scope,
+        point_id=payload.get("pointId"),
+        date_value=payload.get("date"),
+        timezone_name=context["timezone"],
+    )
+    rtdb_deleted_count = _delete_points(track_ref, scope, rtdb_points)
+    deleted_count = archived_deleted_count + rtdb_deleted_count
     log_ref = get_firestore_client().collection("locationTrackDeletionLogs").document()
     log_ref.set(
         {
@@ -282,6 +370,8 @@ def handle_delete_admin_location_tracks(request):
             "date": payload.get("date") if scope == "day" else "",
             "pointId": payload.get("pointId") if scope == "point" else "",
             "deletedCount": deleted_count,
+            "archivedDeletedCount": archived_deleted_count,
+            "rtdbDeletedCount": rtdb_deleted_count,
             "firstTimestamp": points[0]["ts"] if points else None,
             "lastTimestamp": points[-1]["ts"] if points else None,
             "createdByUid": admin.get("uid"),

@@ -15,15 +15,18 @@ Render-hosted lightweight backend for Guidebook.
 - `GET /admin/location-tracks`
 - `POST /admin/location-tracks/delete-preview`
 - `POST /admin/location-tracks/delete`
+- `GET /location-tracks/archive`
+- `POST /maintenance/location-track-archive`
 
 `/tracking/traccar` accepts query string, form body, or JSON payload.
 `/notifications/send` and `/maps/resolve-route` require a Firebase ID token in
 the `Authorization` header. The token owner must map to an admin or super admin
 participant. The map resolver only accepts supported Google Maps HTTPS links.
 The admin location-track endpoints use the same Firebase admin authentication.
-They only read or delete `tripLocationTracks/{tripId}/{participantId}` and write
-deletion audit records to Firestore. Clearing history does not disable tracking
-or remove the current location, tracking token, track state, or gathering points.
+They read or delete both the RTDB buffer and matching Firestore archive segments,
+then write deletion audit records to Firestore. Clearing history does not disable
+tracking or remove the current location, tracking token, track state, or gathering
+points.
 
 Required:
 
@@ -85,6 +88,24 @@ History records a point after at least 15 meters of movement, or a five-minute
 heartbeat while stationary. A manual PWA location update always records a
 history point for the current trip.
 
+Realtime Database is the live and recent-history buffer. The scheduled archive
+job keeps at least 48 hours of raw points, then stores completed local dates as
+compressed Firestore documents:
+
+```text
+participantTrackArchives/{participantId}/days/{YYYY-MM-DD}
+```
+
+Each document uses `gzip-json-v1` in a Firestore Bytes field and may contain one
+segment per `tripId`. Before saving, the archive removes invalid coordinates,
+duplicates, isolated GPS spikes, and redundant stationary heartbeats while
+preserving stop arrival/departure anchors. It reads the saved document back and
+verifies its checksum before deleting the exact RTDB point IDs.
+
+The frontend API remains unchanged. Recent dates read RTDB; older dates read the
+archive endpoint and are cached in IndexedDB. If an archive does not exist yet,
+the frontend falls back to RTDB.
+
 Gathering points for a trip are stored in Realtime Database:
 
 ```text
@@ -121,6 +142,12 @@ Environment variables:
 - `FIREBASE_RTDB_URL`
 - `FIREBASE_CREDENTIALS_PATH` (optional when the Render Secret File is named `firebase.json`)
 - `CORS_ALLOWED_ORIGINS`
+- `MAINTENANCE_API_TOKEN`
+
+Optional archive tuning:
+
+- `TRACK_ARCHIVE_BUFFER_HOURS` (default `48`)
+- `TRACK_ARCHIVE_MAX_ARCHIVES` (default `200` per run)
 
 Default allowed browser origins include local Vite development URLs and Firebase
 Hosting:
@@ -148,3 +175,31 @@ If `FIREBASE_CREDENTIALS_PATH` is not set, the backend will still try
 `/etc/secrets/firebase.json` and then `firebase.json` before failing.
 
 Do not commit the service account JSON into this repository.
+
+## Daily Track Archive
+
+Schedule the archive request for `00:00 Asia/Taipei`, which is `16:00 UTC` on
+the previous calendar date:
+
+```text
+0 16 * * *
+```
+
+Send a server-side request to the deployed backend:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $MAINTENANCE_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"maxArchives":200}' \
+  https://guidebook-ckce.onrender.com/maintenance/location-track-archive
+```
+
+Generate a long random token and set the same value in Render and the scheduler.
+Do not place this secret in the frontend. Add `"dryRun": true` to inspect eligible
+data without writing or deleting anything.
+
+Because the job runs once per day and only archives complete dates older than
+the 48-hour cutoff, actual RTDB retention is normally between 48 and 72 hours.
+The schedule is always Taiwan time; each archived segment still records the
+trip timezone used to determine its local calendar date.

@@ -541,7 +541,9 @@ const resetMultiHistoryPlayback = () => {
 };
 
 const getHistoryCacheKey = ({ tripId, participantId, date }) =>
-  `${tripId}:${participantId}:${date}`;
+  `${tripId}:${participantId}:${date}:${
+    participantById.value[participantId]?.trackArchiveVersion || 0
+  }`;
 
 const getHistoryColor = (participantId) => {
   const value = String(participantId || '')
@@ -937,6 +939,10 @@ const loadParticipantHistory = async () => {
     const points = await getParticipantLocationTrack({
       tripId,
       participantId,
+      date: selectedDate,
+      viewerId: myParticipant.value?.id || userStore.user?.uid || 'anonymous',
+      cacheVersion:
+        participantById.value[participantId]?.trackArchiveVersion || 0,
       ...range,
     });
     if (requestId !== historyRequestSequence) return;
@@ -1027,6 +1033,11 @@ const loadMultiParticipantHistory = async () => {
           const points = await getParticipantLocationTrack({
             tripId,
             participantId,
+            date: selectedDate,
+            viewerId:
+              myParticipant.value?.id || userStore.user?.uid || 'anonymous',
+            cacheVersion:
+              participantById.value[participantId]?.trackArchiveVersion || 0,
             ...range,
           });
           sanitizedTrack = sanitizeTrackPoints(points);

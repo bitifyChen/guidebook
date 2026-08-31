@@ -1,5 +1,9 @@
 import { rtdb } from '@/firebase/index.js';
 import {
+  getArchivedParticipantLocationTrack,
+  isLocationTrackArchiveEligible,
+} from '@/api/locationTrackArchive';
+import {
   endAt,
   get,
   limitToLast,
@@ -98,7 +102,7 @@ export const updateParticipantLocation = async ({
   return payload;
 };
 
-export const getParticipantLocationTrack = async ({
+const getParticipantLocationTrackFromRtdb = async ({
   tripId,
   participantId,
   startTime,
@@ -141,6 +145,56 @@ export const getParticipantLocationTrack = async ({
       ts: Number(item.ts),
     }))
     .sort((first, second) => first.ts - second.ts);
+};
+
+const getDateFromRange = (startTime) => {
+  const date = new Date(Number(startTime));
+  if (Number.isNaN(date.getTime())) return '';
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+export const getParticipantLocationTrack = async ({
+  tripId,
+  participantId,
+  startTime,
+  endTime,
+  date = '',
+  viewerId = '',
+  cacheVersion = 0,
+  maxPoints = 5000,
+  force = false,
+  now = Date.now(),
+}) => {
+  const selectedDate = date || getDateFromRange(startTime);
+  let archiveError = null;
+  if (selectedDate && isLocationTrackArchiveEligible({ endTime, now })) {
+    try {
+      const archive = await getArchivedParticipantLocationTrack({
+        tripId,
+        participantId,
+        date: selectedDate,
+        viewerId: viewerId || participantId,
+        cacheVersion,
+        force,
+      });
+      if (archive) return archive.points.slice(-maxPoints);
+    } catch (error) {
+      archiveError = error;
+    }
+  }
+
+  const points = await getParticipantLocationTrackFromRtdb({
+    tripId,
+    participantId,
+    startTime,
+    endTime,
+    maxPoints,
+  });
+  if (!points.length && archiveError) throw archiveError;
+  return points;
 };
 
 export const subscribeTripGatheringPoints = (tripId, callback) => {

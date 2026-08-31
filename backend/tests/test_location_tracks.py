@@ -45,8 +45,14 @@ class FakeDocument:
     def get(self):
         return FakeSnapshot(self.snapshot)
 
-    def set(self, payload):
+    def set(self, payload, merge=False):
         self.writes.append(payload)
+
+    def collection(self, name):
+        return FakeCollection(name, {}, self.writes)
+
+    def delete(self):
+        self.snapshot = None
 
 
 class FakeCollection:
@@ -59,6 +65,9 @@ class FakeCollection:
         if self.name == "locationTrackDeletionLogs":
             return FakeDocument(document_id="audit-log", writes=self.writes)
         return FakeDocument(self.fixtures.get((self.name, document_id)))
+
+    def stream(self):
+        return []
 
 
 class FakeFirestore:

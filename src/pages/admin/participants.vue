@@ -415,7 +415,10 @@ const requestTrackDeletion = async (scope, pointId = '') => {
     participantId: editingId.value,
     scope,
   };
-  if (scope === 'point') payload.pointId = pointId;
+  if (scope === 'point') {
+    payload.pointId = pointId;
+    payload.date = trackDate.value;
+  }
   if (scope === 'day') payload.date = trackDate.value;
 
   try {
@@ -437,6 +440,7 @@ const confirmTrackDeletion = async (confirmation = '') => {
   };
   if (trackDeleteScope.value === 'point') {
     payload.pointId = trackDeletePointId.value;
+    payload.date = trackDate.value;
   }
   if (trackDeleteScope.value === 'day') payload.date = trackDate.value;
   if (trackDeleteScope.value === 'all') payload.confirmation = confirmation;
