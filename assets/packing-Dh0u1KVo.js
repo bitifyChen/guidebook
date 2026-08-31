@@ -1,1 +1,0 @@
-import{a5 as r,a6 as t,a7 as o,a8 as n,a9 as i,Z as c,aa as g,ab as l}from"./index-CmVVPnFn.js";const p=i(c),e=()=>o(p,"settings","packingCatalog"),d=async a=>{const s=t(a);return await n(e(),{list:s,updatedAt:g()},{merge:!0}),s},A=async()=>{const a=await r(e());return a.exists()&&Array.isArray(a.data().list)?t(a.data().list):d(l)};export{A as e,d as s};
