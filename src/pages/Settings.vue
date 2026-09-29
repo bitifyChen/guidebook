@@ -49,6 +49,7 @@ import {
 } from 'lucide-vue-next';
 import { getFCMToken } from '@/firebase/index';
 import { hasPackingItems } from '@/utils/packingList';
+import { forceReloadApp, pwaUpdateState } from '@/services/pwaUpdate';
 
 const router = useRouter();
 const userStore = useUserStore();
@@ -514,23 +515,14 @@ watch(
   }
 );
 
-const handleForceRefresh = () => {
+const handleForceRefresh = async () => {
   isRefreshing.value = true;
-  // 清除所有快取
-  const caches = [
-    'guidebook_participants_cache',
-    'guidebook_weather_cache',
-    'guidebook_travel_cache',
-  ];
-  caches.forEach((key) => localStorage.removeItem(key));
-  Object.keys(localStorage)
-    .filter((key) => key.startsWith('guidebook_') && key.endsWith('_cache'))
-    .forEach((key) => localStorage.removeItem(key));
-
-  // 延遲一下讓使用者看到轉圈動畫，然後重新整理
-  setTimeout(() => {
-    window.location.reload();
-  }, 800);
+  try {
+    await forceReloadApp();
+  } catch (error) {
+    isRefreshing.value = false;
+    alert(error.message || '目前無法重新載入應用程式，請稍後再試。');
+  }
 };
 
 const handleGoogleLogin = async () => {
@@ -1132,7 +1124,7 @@ const disableNotificationForCurrentTrip = async () => {
           <ChevronRight :size="20" class="text-slate-200" />
         </button>
 
-        <!-- Force Refresh Button -->
+        <!-- App Update Button -->
         <button
           @click="handleForceRefresh"
           :disabled="isRefreshing"
@@ -1144,10 +1136,11 @@ const disableNotificationForCurrentTrip = async () => {
             <RefreshCw :size="20" :class="{ 'animate-spin': isRefreshing }" />
           </div>
           <div class="flex-1 text-left">
-            <span class="block font-bold text-slate-700">強制刷新資料</span>
+            <span class="block font-bold text-slate-700">重新載入應用程式</span>
             <span
               class="block text-[10px] font-bold text-slate-400 uppercase tracking-tighter mt-0.5"
-              >清除快取並重新載入</span
+              >目前版本 v{{ pwaUpdateState.currentVersion }} ·
+              檢查更新後重新載入</span
             >
           </div>
           <ChevronRight :size="20" class="text-slate-200" />

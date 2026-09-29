@@ -10,8 +10,11 @@ import { getMessaging, onBackgroundMessage } from 'firebase/messaging/sw';
 
 declare let self: ServiceWorkerGlobalScope;
 
-self.skipWaiting();
 clientsClaim();
+
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
+});
 
 // 1. 讓 VitePWA 自動注入並快取本地靜態資源 (Index.html, JS, CSS 等)
 precacheAndRoute(self.__WB_MANIFEST);

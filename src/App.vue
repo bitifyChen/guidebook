@@ -13,6 +13,8 @@ import DefaultLayout from './layouts/default.vue';
 import EmptyLayout from './layouts/empty.vue';
 import AdminLayout from './layouts/admin.vue';
 import { setupItinerarySyncSignals } from '@/utils/itinerarySyncSignal';
+import PwaUpdatePrompt from '@/components/PwaUpdatePrompt.vue';
+import { startPwaUpdateChecks } from '@/services/pwaUpdate';
 
 const route = useRoute();
 
@@ -38,6 +40,7 @@ const tripStore = useTripStore();
 let hasInitializedFrontendStores = false;
 let manifestObjectUrl = '';
 let cleanupItinerarySyncSignals = () => {};
+let cleanupPwaUpdateChecks = () => {};
 
 let timer = null;
 const isAppBooting = ref(true);
@@ -105,6 +108,7 @@ onMounted(async () => {
   } finally {
     isAppBooting.value = false;
   }
+  cleanupPwaUpdateChecks = startPwaUpdateChecks();
 
   // 每 30 秒更新一次全域時間
   timer = setInterval(() => {
@@ -125,6 +129,7 @@ watch(
 onUnmounted(() => {
   clearInterval(timer);
   cleanupItinerarySyncSignals();
+  cleanupPwaUpdateChecks();
   if (manifestObjectUrl) URL.revokeObjectURL(manifestObjectUrl);
 });
 </script>
@@ -134,6 +139,7 @@ onUnmounted(() => {
     <router-view />
   </component>
   <IOSInstallPrompt v-if="!isAdminLayout" />
+  <PwaUpdatePrompt />
   <Transition name="boot-fade">
     <div v-if="shouldShowAppBoot" class="app-loading-screen">
       <div class="app-loading-card">
