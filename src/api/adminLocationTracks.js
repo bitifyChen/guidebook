@@ -43,6 +43,47 @@ const requestAdminLocationTracks = async (path, options = {}) => {
   }
 };
 
+const requestAdminLocationTrackDownload = async (path, payload) => {
+  const token = await getAdminIdToken();
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 60000);
+
+  try {
+    const response = await fetch(`${getBackendBaseUrl()}${path}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const errorPayload = await response.json().catch(() => ({}));
+      throw new Error(errorPayload.message || '軌跡匯出失敗。');
+    }
+
+    const contentDisposition =
+      response.headers.get('Content-Disposition') || '';
+    const encodedFilename = contentDisposition.match(
+      /filename\*=UTF-8''([^;]+)/i
+    );
+    const quotedFilename = contentDisposition.match(/filename="([^"]+)"/i);
+    const filename = encodedFilename
+      ? decodeURIComponent(encodedFilename[1])
+      : quotedFilename?.[1] || 'guidebook-location-tracks.zip';
+
+    return { blob: await response.blob(), filename };
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error('軌跡匯出服務回應逾時，請縮小日期範圍後再試。');
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+};
+
 export const getAdminParticipantLocationTracks = ({
   tripId,
   participantId,
@@ -62,4 +103,19 @@ export const deleteAdminLocationTracks = (payload) =>
   requestAdminLocationTracks('/admin/location-tracks/delete', {
     method: 'POST',
     body: JSON.stringify(payload),
+  });
+
+export const exportAdminLocationTracks = (payload) =>
+  requestAdminLocationTrackDownload('/admin/location-tracks/export', payload);
+
+export const previewAdminLocationTrackRetention = () =>
+  requestAdminLocationTracks('/admin/location-tracks/retention-preview', {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+
+export const runAdminLocationTrackRetention = () =>
+  requestAdminLocationTracks('/admin/location-tracks/retention', {
+    method: 'POST',
+    body: JSON.stringify({ confirmation: '清理' }),
   });

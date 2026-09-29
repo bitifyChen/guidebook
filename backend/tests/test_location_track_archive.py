@@ -337,6 +337,33 @@ class LocationTrackArchiveTests(unittest.TestCase):
             dry_run=True,
         )
 
+    def test_retention_failure_returns_partial_without_undoing_archive_result(self):
+        archive_result = {
+            "status": "ok",
+            "dryRun": False,
+            "archivedCount": 3,
+            "deletedPointCount": 18,
+        }
+        with patch.dict(os.environ, {"MAINTENANCE_API_TOKEN": "correct"}), patch(
+            "views.location_track_archive.run_location_track_archive",
+            return_value=archive_result.copy(),
+        ) as archive_job, patch(
+            "views.location_track_export.run_location_track_retention",
+            side_effect=RuntimeError("retention unavailable"),
+        ) as retention_job:
+            payload, status = handle_location_track_archive(
+                FakeRequest(secret="correct")
+            )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["status"], "partial")
+        self.assertEqual(payload["archivedCount"], 3)
+        self.assertEqual(payload["deletedPointCount"], 18)
+        self.assertEqual(payload["retention"]["status"], "error")
+        self.assertIn("retention unavailable", payload["retention"]["message"])
+        archive_job.assert_called_once()
+        retention_job.assert_called_once_with(dry_run=False)
+
     def test_archive_read_returns_only_the_requested_trip_segment(self):
         segment_a = build_archive_segment(
             "trip-a", "Asia/Taipei", {"a": point(1_000)}

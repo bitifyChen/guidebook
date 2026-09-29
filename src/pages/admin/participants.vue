@@ -18,11 +18,16 @@ import AdminParticipantFormDrawer from '@/components/admin/participant/AdminPart
 import AdminParticipantTable from '@/components/admin/participant/AdminParticipantTable.vue';
 import AdminParticipantTrackDeleteDialog from '@/components/admin/participant/AdminParticipantTrackDeleteDialog.vue';
 import AdminParticipantTrackDrawer from '@/components/admin/participant/AdminParticipantTrackDrawer.vue';
+import AdminParticipantTrackExportDrawer from '@/components/admin/participant/AdminParticipantTrackExportDrawer.vue';
+import AdminParticipantTrackRetentionDrawer from '@/components/admin/participant/AdminParticipantTrackRetentionDrawer.vue';
 import { sendGuidebookNotification } from '@/api/notifications';
 import {
   deleteAdminLocationTracks,
+  exportAdminLocationTracks,
   getAdminParticipantLocationTracks,
   previewAdminLocationTrackDeletion,
+  previewAdminLocationTrackRetention,
+  runAdminLocationTrackRetention,
 } from '@/api/adminLocationTracks';
 import {
   formatTrackDateInTimezone,
@@ -48,6 +53,14 @@ const isTrackDrawerOpen = ref(false);
 const isTrackLoading = ref(false);
 const isTrackDeleting = ref(false);
 const isTrackDeleteDialogOpen = ref(false);
+const isTrackExportDrawerOpen = ref(false);
+const isTrackExporting = ref(false);
+const trackExportTripId = ref('');
+const trackExportParticipantId = ref('');
+const isTrackRetentionDrawerOpen = ref(false);
+const isTrackRetentionLoading = ref(false);
+const isTrackRetentionRunning = ref(false);
+const trackRetentionPreview = ref({});
 const trackTripId = ref('');
 const trackDate = ref('');
 const trackPoints = ref([]);
@@ -307,6 +320,8 @@ const openEditDrawer = (participant) => {
 const closeDrawer = () => {
   isTrackDrawerOpen.value = false;
   isTrackDeleteDialogOpen.value = false;
+  isTrackExportDrawerOpen.value = false;
+  isTrackRetentionDrawerOpen.value = false;
   isDrawerOpen.value = false;
   resetForm();
 };
@@ -455,6 +470,83 @@ const confirmTrackDeletion = async (confirmation = '') => {
     ElMessage.error(error.message || '刪除歷史軌跡失敗。');
   } finally {
     isTrackDeleting.value = false;
+  }
+};
+
+const openTrackExportDrawer = () => {
+  trackExportTripId.value =
+    appliedSearch.value.tripId ||
+    trackTripId.value ||
+    tripStore.currentTripId ||
+    trackTrips.value[0]?.id ||
+    tripStore.trips[0]?.id ||
+    '';
+  trackExportParticipantId.value = editingId.value || '';
+  isTrackExportDrawerOpen.value = true;
+};
+
+const closeTrackExportDrawer = () => {
+  isTrackExportDrawerOpen.value = false;
+  trackExportTripId.value = '';
+  trackExportParticipantId.value = '';
+};
+
+const downloadTrackExport = async (payload) => {
+  isTrackExporting.value = true;
+  try {
+    const result = await exportAdminLocationTracks(payload);
+    const url = URL.createObjectURL(result.blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = result.filename || 'guidebook-location-tracks.zip';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    ElMessage.success('軌跡匯出已開始下載。');
+    closeTrackExportDrawer();
+  } catch (error) {
+    ElMessage.error(error.message || '軌跡匯出失敗。');
+  } finally {
+    isTrackExporting.value = false;
+  }
+};
+
+const loadTrackRetentionPreview = async () => {
+  isTrackRetentionLoading.value = true;
+  trackRetentionPreview.value = {};
+  try {
+    trackRetentionPreview.value = await previewAdminLocationTrackRetention();
+  } catch (error) {
+    isTrackRetentionDrawerOpen.value = false;
+    ElMessage.error(error.message || '無法讀取軌跡保留期限預覽。');
+  } finally {
+    isTrackRetentionLoading.value = false;
+  }
+};
+
+const openTrackRetentionDrawer = async () => {
+  isTrackRetentionDrawerOpen.value = true;
+  await loadTrackRetentionPreview();
+};
+
+const closeTrackRetentionDrawer = () => {
+  isTrackRetentionDrawerOpen.value = false;
+  trackRetentionPreview.value = {};
+};
+
+const runTrackRetention = async () => {
+  isTrackRetentionRunning.value = true;
+  try {
+    const result = await runAdminLocationTrackRetention();
+    ElMessage.success(
+      `已清理 ${Number(result.pointCount || 0).toLocaleString('zh-TW')} 個超過 90 天的定位點。`
+    );
+    closeTrackRetentionDrawer();
+  } catch (error) {
+    ElMessage.error(error.message || '軌跡保留期限清理失敗。');
+  } finally {
+    isTrackRetentionRunning.value = false;
   }
 };
 
@@ -683,6 +775,8 @@ const deleteCurrentParticipant = async () => {
       :get-notification-class="getNotificationClass"
       :get-notification-label="getNotificationLabel"
       @create="openCreateDrawer"
+      @export-tracks="openTrackExportDrawer"
+      @open-track-retention="openTrackRetentionDrawer"
       @search="applySearch"
       @reset="resetSearch"
       @refresh="refreshParticipants"
@@ -752,6 +846,29 @@ const deleteCurrentParticipant = async () => {
       :is-deleting="isTrackDeleting"
       :timezone="trackTimezone"
       @confirm="confirmTrackDeletion"
+    />
+
+    <AdminParticipantTrackExportDrawer
+      :open="isTrackExportDrawerOpen"
+      :participants="participantsStore.participants"
+      :trips="tripStore.trips"
+      :initial-trip-id="trackExportTripId"
+      :initial-participant-id="trackExportParticipantId"
+      :is-exporting="isTrackExporting"
+      @update:open="isTrackExportDrawerOpen = $event"
+      @close="closeTrackExportDrawer"
+      @export="downloadTrackExport"
+    />
+
+    <AdminParticipantTrackRetentionDrawer
+      :open="isTrackRetentionDrawerOpen"
+      :preview="trackRetentionPreview"
+      :is-loading="isTrackRetentionLoading"
+      :is-running="isTrackRetentionRunning"
+      @update:open="isTrackRetentionDrawerOpen = $event"
+      @close="closeTrackRetentionDrawer"
+      @refresh="loadTrackRetentionPreview"
+      @run="runTrackRetention"
     />
   </main>
 </template>

@@ -1,5 +1,13 @@
 <script setup>
-import { Check, Copy, Pencil, Plus, User } from 'lucide-vue-next';
+import {
+  Check,
+  Copy,
+  Download,
+  Pencil,
+  Plus,
+  ShieldAlert,
+  User,
+} from 'lucide-vue-next';
 import AdminDataTable from '@/components/admin/shared/AdminDataTable.vue';
 
 defineProps({
@@ -19,6 +27,8 @@ const emit = defineEmits([
   'search',
   'reset',
   'refresh',
+  'export-tracks',
+  'open-track-retention',
   'copy-code',
   'edit',
 ]);
@@ -37,13 +47,29 @@ const emit = defineEmits([
     @refresh="emit('refresh')"
   >
     <template #toolbar>
-      <button
-        type="button"
-        class="flex h-10 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-black text-white hover:bg-indigo-700"
-        @click="emit('create')"
-      >
-        <Plus :size="16" /> 新增
-      </button>
+      <div class="flex flex-wrap justify-end gap-2">
+        <button
+          type="button"
+          class="flex h-10 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-black text-white hover:bg-slate-800"
+          @click="emit('export-tracks')"
+        >
+          <Download :size="16" /> 匯出軌跡
+        </button>
+        <button
+          type="button"
+          class="flex h-10 items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 text-sm font-black text-red-700 hover:bg-red-100"
+          @click="emit('open-track-retention')"
+        >
+          <ShieldAlert :size="16" /> 清理 90 天前
+        </button>
+        <button
+          type="button"
+          class="flex h-10 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-black text-white hover:bg-indigo-700"
+          @click="emit('create')"
+        >
+          <Plus :size="16" /> 新增
+        </button>
+      </div>
     </template>
     <template #member="{ row }">
       <div class="flex min-w-0 items-center gap-3">

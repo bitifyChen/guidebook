@@ -15,6 +15,9 @@ Render-hosted lightweight backend for Guidebook.
 - `GET /admin/location-tracks`
 - `POST /admin/location-tracks/delete-preview`
 - `POST /admin/location-tracks/delete`
+- `POST /admin/location-tracks/export`
+- `POST /admin/location-tracks/retention-preview`
+- `POST /admin/location-tracks/retention`
 - `GET /location-tracks/archive`
 - `POST /maintenance/location-track-archive`
 
@@ -26,7 +29,8 @@ The admin location-track endpoints use the same Firebase admin authentication.
 They read or delete both the RTDB buffer and matching Firestore archive segments,
 then write deletion audit records to Firestore. Clearing history does not disable
 tracking or remove the current location, tracking token, track state, or gathering
-points.
+points. Export and retention endpoints are restricted to global admin and super
+admin accounts.
 
 Required:
 
@@ -105,6 +109,18 @@ verifies its checksum before deleting the exact RTDB point IDs.
 The frontend API remains unchanged. Recent dates read RTDB; older dates read the
 archive endpoint and are cached in IndexedDB. If an archive does not exist yet,
 the frontend falls back to RTDB.
+
+Historical track exports combine the Firestore daily archive with any matching
+RTDB buffer points. A single member/day is returned directly as GPX or GeoJSON;
+multiple members, trips, or dates are returned as a ZIP. Exported data includes
+timestamps, coordinates, and available accuracy, speed, altitude, heading, and
+source values, but never battery, tokens, invite codes, or Firebase IDs.
+
+Track retention is fixed at 90 days per member/day. The daily maintenance job
+only considers segments belonging to completed or archived trips and uses the
+local date stored in each archive segment. The retention preview reports the
+affected trip, member, date, Firestore document count, RTDB point count, and
+total point count before a global admin explicitly runs cleanup.
 
 Gathering points for a trip are stored in Realtime Database:
 

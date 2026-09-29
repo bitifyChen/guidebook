@@ -411,6 +411,22 @@ def handle_location_track_archive(request):
             max_archives=max_archives,
             dry_run=bool(payload.get("dryRun", False)),
         )
+        try:
+            # Keep the daily maintenance call as the single scheduler entrypoint.
+            # Retention is deliberately fixed at 90 days and runs after archive
+            # verification, so a failed cleanup never removes the source points.
+            from views.location_track_export import run_location_track_retention
+
+            result["retention"] = run_location_track_retention(
+                dry_run=bool(payload.get("dryRun", False))
+            )
+        except Exception as exc:
+            result["retention"] = {
+                "status": "error",
+                "retentionDays": 90,
+                "message": str(exc),
+            }
+            result["status"] = "partial"
     except Exception as exc:
         return _json_error(f"Archive job failed: {exc}", 500)
     return result, 200

@@ -12,6 +12,11 @@ from views.location_track_archive import (
     handle_get_location_track_archive,
     handle_location_track_archive,
 )
+from views.location_track_export import (
+    handle_admin_location_track_retention,
+    handle_export_admin_location_tracks,
+    handle_preview_admin_location_track_retention,
+)
 from views.maps import handle_resolve_google_maps_route
 from views.notifications import handle_send_notification
 from views.tracking import handle_traccar_location
@@ -47,6 +52,9 @@ def create_app():
             response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
             response.headers["Access-Control-Allow-Headers"] = (
                 "Content-Type,Authorization"
+            )
+            response.headers["Access-Control-Expose-Headers"] = (
+                "Content-Disposition,X-Guidebook-Export-Count"
             )
             response.headers["Access-Control-Max-Age"] = "86400"
 
@@ -102,6 +110,31 @@ def create_app():
         if request.method == "OPTIONS":
             return ("", 204)
         return handle_delete_admin_location_tracks(request)
+
+    @app.route("/admin/location-tracks/export", methods=["POST", "OPTIONS"])
+    @app.route("/api/admin/location-tracks/export", methods=["POST", "OPTIONS"])
+    def export_admin_location_tracks():
+        if request.method == "OPTIONS":
+            return ("", 204)
+        return handle_export_admin_location_tracks(request)
+
+    @app.route(
+        "/admin/location-tracks/retention-preview", methods=["POST", "OPTIONS"]
+    )
+    @app.route(
+        "/api/admin/location-tracks/retention-preview", methods=["POST", "OPTIONS"]
+    )
+    def preview_admin_location_track_retention():
+        if request.method == "OPTIONS":
+            return ("", 204)
+        return handle_preview_admin_location_track_retention(request)
+
+    @app.route("/admin/location-tracks/retention", methods=["POST", "OPTIONS"])
+    @app.route("/api/admin/location-tracks/retention", methods=["POST", "OPTIONS"])
+    def admin_location_track_retention():
+        if request.method == "OPTIONS":
+            return ("", 204)
+        return handle_admin_location_track_retention(request)
 
     @app.route(
         "/maintenance/location-track-archive", methods=["POST", "OPTIONS"]
