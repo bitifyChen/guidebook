@@ -1,1 +1,0 @@
-import{dn as e,dp as n,Z as a,$ as c}from"./index-zykjzD-Y.js";const i=a(c),l=new n,p=()=>new Promise(async(r,t)=>{try{const s=(await e(i,l)).user;console.log("✅ 登入成功:",s.displayName),r({status:200,user:s})}catch(o){console.error("❌ 登入失敗:",o),t(o)}});export{p as l};
