@@ -1,4 +1,5 @@
 <script setup>
+import { canLeaveWorkspace } from '@/services/unsavedChanges';
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
@@ -84,6 +85,7 @@ const adminViewKey = computed(() => {
 });
 
 const handleLogout = async () => {
+  if (!(await canLeaveWorkspace())) return;
   await userStore.logout();
   router.push('/admin/login');
 };

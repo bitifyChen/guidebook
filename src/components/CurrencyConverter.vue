@@ -1,4 +1,5 @@
 <script setup>
+import { appAlert } from '@/services/dialog';
 import { ref, reactive, watch, onMounted } from 'vue';
 import { getExchangeRates, COMMON_CURRENCIES } from '@/api/currency';
 import { useTripStore } from '@/store/tripStore';
@@ -86,7 +87,7 @@ const startCamera = async () => {
     }
   } catch (err) {
     console.error('Camera Error:', err);
-    alert('無法開啟相機，請確認權限設定。');
+    await appAlert('無法開啟相機，請確認權限設定。');
     cameraActive.value = false;
   }
 };
@@ -137,11 +138,11 @@ const captureAndOCR = async () => {
       updateBaseAmount();
       stopCamera();
     } else {
-      alert('未能辨識到數字，請再試一次。');
+      await appAlert('未能辨識到數字，請再試一次。');
     }
   } catch (err) {
     console.error('OCR Error:', err);
-    alert('辨識失敗：' + err.message);
+    await appAlert('辨識失敗：' + err.message);
   } finally {
     ocrLoading.value = false;
   }

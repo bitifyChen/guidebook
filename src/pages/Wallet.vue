@@ -1,5 +1,12 @@
 <script setup>
-import { ref, reactive, watch, computed } from 'vue';
+import DataStatusNotice from '@/components/DataStatusNotice.vue';
+import { appAlert, appConfirm } from '@/services/dialog';
+import { ref, reactive, watch, computed, onUnmounted } from 'vue';
+import {
+  confirmDiscard,
+  registerUnsavedGuard,
+} from '@/services/unsavedChanges';
+import { ElMessage } from 'element-plus';
 import { v4 as uuid } from 'uuid';
 import dayjs from 'dayjs';
 import { useExpensesStore } from '@/store/expensesStore';
@@ -63,6 +70,27 @@ const vFocus = {
 const drawerVisible = ref(false);
 const analysisVisible = ref(false);
 const settlementVisible = ref(false);
+const isSaving = ref(false);
+const formError = ref('');
+const baseline = ref('');
+const isDirty = () =>
+  drawerVisible.value && JSON.stringify(form) !== baseline.value;
+const unregisterGuard = registerUnsavedGuard({
+  dirty: isDirty,
+  busy: () => isSaving.value,
+});
+onUnmounted(unregisterGuard);
+let closePending = false;
+const requestClose = async () => {
+  if (isSaving.value || closePending) return;
+  closePending = true;
+  try {
+    if (isDirty() && !(await confirmDiscard())) return;
+    drawerVisible.value = false;
+  } finally {
+    closePending = false;
+  }
+};
 
 watch([drawerVisible, analysisVisible, settlementVisible], ([d, a, s]) => {
   if (d || a || s) {
@@ -80,8 +108,8 @@ const form = reactive({
   date: '',
 });
 
-const openAddDrawer = () => {
-  if (!userStore.myParticipant) return alert('請先登入後再新增開支！');
+const openAddDrawer = async () => {
+  if (!userStore.myParticipant) return await appAlert('請先登入後再新增開支！');
 
   // 重置表單並設定預設付款人
   Object.assign(form, {
@@ -93,59 +121,68 @@ const openAddDrawer = () => {
     date: dayjs().format('YYYY-MM-DD'), // 預設今天
   });
   drawerVisible.value = true;
+  baseline.value = JSON.stringify(form);
+  formError.value = '';
 };
 
 const editMethod = (data) => {
   if (!userStore.myParticipant) return; // 不允許編輯
   Object.assign(form, {
     ...data,
+    splitWithIds: [...(data.splitWithIds || [])],
     date: data.date || dayjs().format('YYYY-MM-DD'), // 相容舊資料
   });
   drawerVisible.value = true;
+  baseline.value = JSON.stringify(form);
+  formError.value = '';
 };
 
-const submitExpense = () => {
-  if (!form.amount || !form.description || !form.payerId)
-    return alert('請填寫完整的開支資訊！');
+const submitExpense = async () => {
+  if (isSaving.value) return;
+  formError.value = '';
+  if (!Number.isFinite(Number(form.amount)) || Number(form.amount) <= 0) {
+    formError.value = '請輸入大於 0 的支出金額。';
+    return;
+  }
+  if (!form.description.trim() || !form.payerId || !form.splitWithIds.length) {
+    formError.value = '請填寫支出內容、付款人，並至少選擇一位分攤成員。';
+    return;
+  }
 
   const payload = {
     amount: parseFloat(form.amount),
-    description: form.description,
+    description: form.description.trim(),
     payerId: form.payerId,
     splitWithIds: [...form.splitWithIds],
     date: form.date || dayjs().format('YYYY-MM-DD'),
   };
 
-  if (form.id) {
-    patchWalletItem(form.id, payload)
-      .then((res) => {
-        console.log('更新成功', res);
-      })
-      .finally(() => {
-        expensesStore.init(); // 重新抓取最新的開支列表
-      });
-  } else {
-    postWalletItem(payload)
-      .then((res) => {
-        console.log('新增成功', res);
-      })
-      .finally(() => {
-        expensesStore.init(); // 重新抓取最新的開支列表
-      });
-  }
-  drawerVisible.value = false;
-};
-const deleteExpense = () => {
-  if (!form.id) return;
-  if (confirm('確定要刪除這筆開支嗎？')) {
-    deleteWalletItem(form.id)
-      .then((res) => {
-        console.log('刪除成功', res);
-      })
-      .finally(() => {
-        expensesStore.init(); // 重新抓取最新的開支列表
-      });
+  isSaving.value = true;
+  try {
+    if (form.id) await patchWalletItem(form.id, payload);
+    else await postWalletItem(payload);
     drawerVisible.value = false;
+    ElMessage.success('開支已儲存');
+    await expensesStore.init({ force: true });
+  } catch (error) {
+    formError.value = '儲存失敗，輸入內容已保留，請確認連線後再試。';
+  } finally {
+    isSaving.value = false;
+  }
+};
+const deleteExpense = async () => {
+  if (!form.id || isSaving.value) return;
+  isSaving.value = true;
+  try {
+    if (!(await appConfirm('刪除後無法復原，確定要刪除這筆開支嗎？'))) return;
+    await deleteWalletItem(form.id);
+    drawerVisible.value = false;
+    ElMessage.success('開支已刪除');
+    await expensesStore.init({ force: true });
+  } catch (error) {
+    formError.value = '刪除失敗，請確認連線後再試。';
+  } finally {
+    isSaving.value = false;
   }
 };
 
@@ -163,6 +200,12 @@ const onClose = () => {
 
 <template>
   <div class="space-y-4">
+    <DataStatusNotice
+      :loading="expensesStore.isLoading"
+      :stale="expensesStore.isStale"
+      :error="expensesStore.loadError"
+      @retry="expensesStore.init({ force: true })"
+    />
     <div
       class="bg-gradient-to-br from-slate-800 to-slate-900 rounded-[32px] p-[24px] text-white shadow-2xl relative overflow-hidden group"
     >
@@ -174,7 +217,9 @@ const onClose = () => {
           </p>
         </div>
         <div class="flex items-baseline gap-2">
-          <span class="text-xl font-bold text-orange-400">{{ tripStore.currencySymbol }}</span>
+          <span class="text-xl font-bold text-orange-400">{{
+            tripStore.currencySymbol
+          }}</span>
           <h2 class="text-4xl font-black tracking-tight">
             {{ expensesStore.totalSpent.toLocaleString() }}
           </h2>
@@ -247,7 +292,11 @@ const onClose = () => {
       </div>
 
       <div
-        v-if="expensesStore.expenses.length === 0"
+        v-if="
+          expensesStore.expenses.length === 0 &&
+          !expensesStore.isLoading &&
+          !expensesStore.loadError
+        "
         class="flex flex-col items-center py-20 text-slate-300"
       >
         <ReceiptText :size="48" class="opacity-20 mb-2" />
@@ -284,6 +333,8 @@ const onClose = () => {
       :with-header="false"
       :append-to-body="true"
       :lock-scroll="false"
+      :before-close="requestClose"
+      :close-on-press-escape="!isSaving"
       class="custom-drawer frontend-contained-drawer"
       @close="onClose"
     >
@@ -293,17 +344,21 @@ const onClose = () => {
             {{ form.id ? '編輯' : '新增' }}這筆開支
           </h2>
           <button
-            @click="drawerVisible = false"
+            @click="requestClose"
+            :disabled="isSaving"
+            aria-label="關閉開支表單"
             class="p-2 bg-slate-100 rounded-full text-slate-400"
           >
             <X :size="20" />
           </button>
         </div>
 
-        <el-form label-position="top" class="custom-form">
+        <el-form label-position="top" class="custom-form" :disabled="isSaving">
           <el-form-item>
             <template #label
-              ><span class="label-custom">支出金額 ({{ tripStore.currencySymbol }})</span></template
+              ><span class="label-custom"
+                >支出金額 ({{ tripStore.currencySymbol }})</span
+              ></template
             >
             <el-input
               v-model="form.amount"
@@ -390,17 +445,29 @@ const onClose = () => {
           </el-form-item>
         </el-form>
 
-        <div class="mt-8 flex gap-4">
+        <p
+          v-if="formError"
+          role="alert"
+          class="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700"
+        >
+          {{ formError }}
+        </p>
+        <div
+          class="sticky bottom-0 mt-6 flex gap-3 bg-white py-3 pb-[max(12px,env(safe-area-inset-bottom))]"
+        >
           <el-button
             v-if="form.id"
             type="primary"
             @click="deleteExpense"
+            :disabled="isSaving"
             class="w-full !h-16 !rounded-[24px] !bg-red-500 !border-none !text-xl !font-black shadow-xl shadow-red-100 !ml-0"
             >刪除這筆開支</el-button
           >
           <el-button
             type="primary"
             @click="submitExpense"
+            :loading="isSaving"
+            :disabled="isSaving"
             class="w-full !h-16 !rounded-[24px] !bg-orange-500 !border-none !text-xl !font-black shadow-xl shadow-orange-100"
             >{{ form.id ? '更新' : '儲存' }}這筆開支</el-button
           >

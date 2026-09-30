@@ -1,4 +1,5 @@
 <script setup>
+import { ref as drawerRef } from 'vue';
 import { Users } from 'lucide-vue-next';
 import AdminDrawer from '@/components/admin/shared/AdminDrawer.vue';
 
@@ -12,10 +13,14 @@ defineProps({
 });
 
 const emit = defineEmits(['update:open', 'update:keyword', 'toggle', 'save']);
+const guardedDrawer = drawerRef(null);
 </script>
 
 <template>
   <AdminDrawer
+    ref="guardedDrawer"
+    :draft="selectedIds"
+    :busy="isSaving"
     :model-value="open"
     title="旅程管理員"
     :subtitle="tripTitle"

@@ -1,4 +1,5 @@
 <script setup>
+import { ref as drawerRef } from 'vue';
 import { computed } from 'vue';
 import { Plus, Save, Trash2 } from 'lucide-vue-next';
 import AdminDrawer from '@/components/admin/shared/AdminDrawer.vue';
@@ -24,10 +25,15 @@ const categoryName = computed({
   get: () => props.newCategoryName,
   set: (value) => emit('update:newCategoryName', value),
 });
+const guardedDrawer = drawerRef(null);
+defineExpose({ markSaved: () => guardedDrawer.value?.markSaved() });
 </script>
 
 <template>
   <AdminDrawer
+    ref="guardedDrawer"
+    :draft="{ catalog, newCategoryName }"
+    :busy="isSaving"
     v-model="drawerOpen"
     title="行李分類"
     subtitle="新增、重新命名或移除分類"

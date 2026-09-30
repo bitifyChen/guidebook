@@ -1,4 +1,5 @@
 <script setup>
+import { ref as drawerRef } from 'vue';
 import { Loader2, Save } from 'lucide-vue-next';
 import AdminDrawer from '@/components/admin/shared/AdminDrawer.vue';
 
@@ -14,10 +15,14 @@ defineProps({
 });
 
 const emit = defineEmits(['update:open', 'close', 'save']);
+const guardedDrawer = drawerRef(null);
 </script>
 
 <template>
   <AdminDrawer
+    ref="guardedDrawer"
+    :draft="form"
+    :busy="isSaving"
     :model-value="open"
     :title="isEditing ? '編輯旅程' : '新增旅程'"
     size="md"
@@ -147,7 +152,7 @@ const emit = defineEmits(['update:open', 'close', 'save']);
         <button
           type="button"
           class="h-11 rounded-xl bg-slate-50 px-5 text-sm font-black text-slate-600"
-          @click="emit('close')"
+          @click="guardedDrawer?.requestClose()"
         >
           取消
         </button>

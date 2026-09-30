@@ -4,6 +4,7 @@ import App from './App.vue';
 import router from './router/router.js';
 import './style.css';
 import 'element-plus/dist/index.css';
+import './styles/dialog.css';
 import ElementPlus from 'element-plus';
 import { registerPwaUpdateService } from '@/services/pwaUpdate';
 

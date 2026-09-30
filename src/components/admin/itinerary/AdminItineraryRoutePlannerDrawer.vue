@@ -1,6 +1,8 @@
 <script setup>
+import { confirmAction } from '@/services/dialog';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { ElMessage } from 'element-plus';
+import { useWorkspaceGuard } from '@/composables/useWorkspaceGuard';
 import {
   ChevronDown,
   ChevronUp,
@@ -46,6 +48,10 @@ const moveItemId = ref('');
 const routeResults = ref([]);
 const routeLoading = ref(false);
 const dirty = ref(false);
+useWorkspaceGuard({
+  dirty: () => props.open && dirty.value,
+  busy: () => props.open && props.saving,
+});
 const mobilePanelExpanded = ref(false);
 const closeCommitted = ref(false);
 const closePromptPending = ref(false);
@@ -412,7 +418,7 @@ const removeSelectedItem = async () => {
     (candidate) => candidate.parentId === item.id
   ).length;
   try {
-    await ElMessageBox.confirm(
+    await confirmAction(
       childrenCount
         ? `此景點包含 ${childrenCount} 個子景點，將一併從本日草稿移除。`
         : '確定要從本日草稿移除這個景點嗎？',
@@ -439,15 +445,11 @@ const requestClose = async () => {
   if (dirty.value && !props.saving) {
     closePromptPending.value = true;
     try {
-      await ElMessageBox.confirm(
-        '尚未儲存的地圖編排內容將會消失。',
-        '離開地圖編排',
-        {
-          confirmButtonText: '放棄修改',
-          cancelButtonText: '繼續編輯',
-          type: 'warning',
-        }
-      );
+      await confirmAction('尚未儲存的地圖編排內容將會消失。', '離開地圖編排', {
+        confirmButtonText: '放棄修改',
+        cancelButtonText: '繼續編輯',
+        type: 'warning',
+      });
     } catch (error) {
       return;
     } finally {

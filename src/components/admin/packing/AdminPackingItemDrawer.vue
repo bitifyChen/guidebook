@@ -1,4 +1,5 @@
 <script setup>
+import { ref as drawerRef } from 'vue';
 import { computed } from 'vue';
 import { Save, Trash2 } from 'lucide-vue-next';
 import AdminDrawer from '@/components/admin/shared/AdminDrawer.vue';
@@ -14,10 +15,14 @@ const drawerOpen = computed({
   get: () => props.open,
   set: (value) => emit('update:open', value),
 });
+const guardedDrawer = drawerRef(null);
 </script>
 
 <template>
   <AdminDrawer
+    ref="guardedDrawer"
+    :draft="model"
+    :busy="isSaving"
     v-model="drawerOpen"
     :title="model.mode === 'edit' ? '編輯物品' : '新增物品'"
     subtitle="行李範本"

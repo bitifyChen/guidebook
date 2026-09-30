@@ -1,4 +1,5 @@
 <script setup>
+import DataStatusNotice from '@/components/DataStatusNotice.vue';
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useExpensesStore } from '@/store/expensesStore';
 import { useParticipantsStore } from '@/store/participantsStore';
@@ -156,6 +157,12 @@ onMounted(() => {
 
 <template>
   <div class="space-y-4">
+    <DataStatusNotice
+      :loading="travelStore.isLoading"
+      :stale="travelStore.isStale"
+      :error="travelStore.loadError"
+      @retry="travelStore.init({ force: true })"
+    />
     <WeatherCard :weather="weather" :city="tripStore.context.weatherCity" />
     <section v-if="!tripStore.isPublicTrip">
       <div class="grid grid-cols-2 gap-4">

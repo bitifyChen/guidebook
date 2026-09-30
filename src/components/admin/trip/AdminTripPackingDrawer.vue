@@ -1,4 +1,5 @@
 <script setup>
+import { ref as drawerRef } from 'vue';
 import { computed, ref, watch } from 'vue';
 import {
   Check,
@@ -141,10 +142,14 @@ const selectAll = () => {
 const removeAll = () => {
   selected.value = [];
 };
+const guardedDrawer = drawerRef(null);
 </script>
 
 <template>
   <AdminDrawer
+    ref="guardedDrawer"
+    :draft="{ selected, customName }"
+    :busy="isSaving"
     v-model="drawerOpen"
     title="旅程行李"
     :subtitle="trip?.title || ''"

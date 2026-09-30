@@ -1,4 +1,5 @@
 <script setup>
+import { appAlert } from '@/services/dialog';
 import { computed, onMounted, ref, watch } from 'vue';
 import AdminNotificationFormDrawer from '@/components/admin/notification/AdminNotificationFormDrawer.vue';
 import AdminNotificationTable from '@/components/admin/notification/AdminNotificationTable.vue';
@@ -172,7 +173,7 @@ const loadLogs = async () => {
   try {
     logs.value = await getNotificationLogs({ limitCount: 100 });
   } catch (error) {
-    alert('推播紀錄讀取失敗：' + error.message);
+    await appAlert('推播紀錄讀取失敗：' + error.message);
   } finally {
     isLoading.value = false;
   }
@@ -222,18 +223,18 @@ const handleImagePaste = async (event) => {
     const { urls } = await uploadClipboardImages(event, { multiple: false });
     if (urls[0]) form.value.imageUrl = urls[0];
   } catch (error) {
-    alert('圖片上傳失敗：' + error.message);
+    await appAlert('圖片上傳失敗：' + error.message);
   } finally {
     isImageUploading.value = false;
   }
 };
 
 const sendNotification = async () => {
-  if (!form.value.title.trim()) return alert('請輸入推播標題。');
-  if (!form.value.body.trim()) return alert('請輸入推播內容。');
-  if (!form.value.tripId) return alert('請先選擇旅程。');
+  if (!form.value.title.trim()) return await appAlert('請輸入推播標題。');
+  if (!form.value.body.trim()) return await appAlert('請輸入推播內容。');
+  if (!form.value.tripId) return await appAlert('請先選擇旅程。');
   if (selectedParticipantIds.value.length === 0)
-    return alert('請至少選擇一位成員。');
+    return await appAlert('請至少選擇一位成員。');
 
   isSending.value = true;
   try {
@@ -247,11 +248,11 @@ const sendNotification = async () => {
     });
     await loadLogs();
     closeDrawer();
-    alert(
+    await appAlert(
       `推播已送出：成功 ${result.successCount}，失敗 ${result.failureCount}`
     );
   } catch (error) {
-    alert('推播發送失敗：' + error.message);
+    await appAlert('推播發送失敗：' + error.message);
   } finally {
     isSending.value = false;
   }

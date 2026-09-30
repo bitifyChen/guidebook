@@ -1,4 +1,5 @@
 <script setup>
+import { ref as drawerRef } from 'vue';
 import { ref } from 'vue';
 import { Loader2, Route, Save, Trash2, Upload, User } from 'lucide-vue-next';
 import AdminDrawer from '@/components/admin/shared/AdminDrawer.vue';
@@ -42,10 +43,20 @@ const emit = defineEmits([
 ]);
 
 const fileInput = ref(null);
+const guardedDrawer = drawerRef(null);
 </script>
 
 <template>
   <AdminDrawer
+    ref="guardedDrawer"
+    :draft="form"
+    :busy="
+      isSaving ||
+      isUploading ||
+      isTrackingCreating ||
+      isTrackingRemoving ||
+      isTestPushSending
+    "
     :model-value="open"
     :title="editingId ? '編輯成員' : '新增成員'"
     size="sm"
@@ -277,7 +288,7 @@ const fileInput = ref(null);
         <button
           type="button"
           class="h-11 rounded-xl bg-slate-50 px-5 text-sm font-black text-slate-600"
-          @click="emit('close')"
+          @click="guardedDrawer?.requestClose()"
         >
           取消
         </button>

@@ -1,4 +1,6 @@
 <script setup>
+import FrontendGlassSurface from '@/components/FrontendGlassSurface.vue';
+import DataStatusNotice from '@/components/DataStatusNotice.vue';
 import { ref, watch, computed, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import ItineraryCard from '@/components/ItineraryCard.vue';
@@ -242,10 +244,11 @@ const saveTimingAdjustment = async ({ actualTime, arrivalPolicy = '' }) => {
     class="min-h-screen"
   >
     <div
-      class="itinerary-day-glass fixed top-[8px] left-1/2 z-30 w-[calc(100%_-_32px)] max-w-md -translate-x-1/2 px-4 rounded-[28px]"
+      class="itinerary-day-glass fixed top-[calc(8px_+_env(safe-area-inset-top))] left-1/2 z-30 w-[calc(100%_-_32px)] max-w-[416px] -translate-x-1/2 px-4 rounded-[28px]"
       @touchstart.stop
       @touchend.stop
     >
+      <FrontendGlassSurface />
       <el-tabs
         ref="dayTabsRef"
         v-model="activeDay"
@@ -261,6 +264,12 @@ const saveTimingAdjustment = async ({ actualTime, arrivalPolicy = '' }) => {
       </el-tabs>
     </div>
     <div class="mt-16 space-y-6">
+      <DataStatusNotice
+        :loading="travelStore.isLoading"
+        :stale="travelStore.isStale"
+        :error="travelStore.loadError"
+        @retry="travelStore.init({ force: true })"
+      />
       <ItineraryCard
         v-for="(item, idx) in itinerary"
         :key="item.id"
@@ -272,7 +281,11 @@ const saveTimingAdjustment = async ({ actualTime, arrivalPolicy = '' }) => {
         @adjust-timing="openTimingAdjustment"
       />
       <div
-        v-if="itinerary.length === 0"
+        v-if="
+          itinerary.length === 0 &&
+          !travelStore.isLoading &&
+          !travelStore.loadError
+        "
         class="text-center py-20 text-slate-400 italic"
       >
         本日無行程，享受悠閒時光吧！
@@ -292,47 +305,6 @@ const saveTimingAdjustment = async ({ actualTime, arrivalPolicy = '' }) => {
 <style>
 .itinerary-day-glass {
   position: fixed;
-  isolation: isolate;
-  overflow: hidden;
-  background:
-    linear-gradient(135deg, rgb(30 41 59 / 52%), rgb(15 23 42 / 38%)),
-    rgb(15 23 42 / 62%);
-  -webkit-backdrop-filter: blur(3px) saturate(145%) contrast(1.04)
-    url('#guidebook-liquid-glass');
-  backdrop-filter: blur(3px) saturate(145%) contrast(1.04)
-    url('#guidebook-liquid-glass');
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 24%),
-    inset 0 -1px 0 rgb(255 255 255 / 10%),
-    inset 7px 7px 18px rgb(255 255 255 / 8%),
-    0 18px 38px rgb(15 23 42 / 32%);
-}
-
-.itinerary-day-glass::before {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  content: '';
-  background:
-    radial-gradient(circle at 16% 0%, rgb(255 255 255 / 18%), transparent 34%),
-    linear-gradient(
-      105deg,
-      rgb(255 255 255 / 10%),
-      transparent 42%,
-      rgb(255 255 255 / 5%)
-    );
-  border-radius: inherit;
-  pointer-events: none;
-}
-
-.itinerary-day-glass::after {
-  position: absolute;
-  inset: 1px;
-  z-index: 1;
-  content: '';
-  border: 1px solid rgb(255 255 255 / 18%);
-  border-radius: inherit;
-  pointer-events: none;
 }
 
 .itinerary-day-glass .custom-tabs {
@@ -342,6 +314,7 @@ const saveTimingAdjustment = async ({ actualTime, arrivalPolicy = '' }) => {
 
 /* 1. 基礎樣式 (保留你原本的邏輯並優化) */
 .custom-tabs .el-tabs__item {
+  min-height: 48px;
   font-weight: bold;
   flex: 0 0 20%;
   min-width: 20%;
@@ -409,7 +382,7 @@ const saveTimingAdjustment = async ({ actualTime, arrivalPolicy = '' }) => {
 
 /* 4. 增加點擊觸感：手指按下去時有縮小回饋 */
 .custom-tabs .el-tabs__item:active {
-  transform: scale(0.9); /* 按下去微縮，讓使用者知道「有按到」 */
+  transform: scale(0.97); /* 按下去微縮，讓使用者知道「有按到」 */
   opacity: 0.8;
   transition: transform 0.05s ease;
 }
@@ -422,11 +395,10 @@ const saveTimingAdjustment = async ({ actualTime, arrivalPolicy = '' }) => {
   margin-bottom: 0px;
 }
 
-@supports not (
-  (backdrop-filter: blur(2px)) or (-webkit-backdrop-filter: blur(2px))
-) {
-  .itinerary-day-glass {
-    background: rgb(15 23 42 / 92%);
+@media (prefers-reduced-motion: reduce) {
+  .custom-tabs .el-tabs__item,
+  .custom-tabs .el-tabs__active-bar {
+    transition: none !important;
   }
 }
 </style>

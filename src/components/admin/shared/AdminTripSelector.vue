@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useTripStore } from '@/store/tripStore';
+import { canLeaveWorkspace } from '@/services/unsavedChanges';
 import {
   CheckCircle2,
   ChevronDown,
@@ -69,13 +70,15 @@ const clearGuidebookCaches = () => {
 };
 
 const switchTrip = async (tripId) => {
+  if (isSwitching.value) return;
   if (!tripId || tripId === tripStore.currentTripId) {
     isOpen.value = false;
     return;
   }
-  selectedTripId.value = tripId;
   isSwitching.value = true;
   try {
+    if (!(await canLeaveWorkspace())) return;
+    selectedTripId.value = tripId;
     await tripStore.switchTrip(tripId);
     clearGuidebookCaches();
   } finally {

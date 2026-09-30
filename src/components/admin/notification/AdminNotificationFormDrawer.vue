@@ -1,4 +1,5 @@
 <script setup>
+import { ref as drawerRef } from 'vue';
 import { computed } from 'vue';
 import { Check, Image, Loader2, Send, Users, X } from 'lucide-vue-next';
 import AdminDrawer from '@/components/admin/shared/AdminDrawer.vue';
@@ -46,10 +47,14 @@ const selectAll = () =>
   ]);
 const hasPushEnabled = (participant) =>
   props.pushEnabledIds.includes(participant.id);
+const guardedDrawer = drawerRef(null);
 </script>
 
 <template>
   <AdminDrawer
+    ref="guardedDrawer"
+    :draft="{ form, selectedIds }"
+    :busy="isSending || isImageUploading"
     v-model="drawerOpen"
     title="新增推播"
     size="md"
@@ -227,7 +232,7 @@ const hasPushEnabled = (participant) =>
         <button
           type="button"
           class="flex h-11 items-center gap-2 rounded-xl bg-slate-50 px-5 text-sm font-black text-slate-600"
-          @click="emit('close')"
+          @click="guardedDrawer?.requestClose()"
         >
           <X :size="16" /> 取消
         </button>

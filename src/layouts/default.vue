@@ -1,4 +1,5 @@
 <script setup>
+import FrontendGlassSurface from '@/components/FrontendGlassSurface.vue';
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
@@ -107,41 +108,6 @@ watch(pullRefreshEnabled, (enabled) => {
   isRefreshing.value = false;
 });
 
-const handleScroll = () => {
-  const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-
-  // 1. 清除之前的定時器
-  if (scrollTimer) clearTimeout(scrollTimer);
-
-  // 2. 判斷上下滑動隱藏/顯示
-  // 為了靈敏度，我們縮小判斷距離到 5px
-  const delta = scrollTop - lastScrollTop;
-
-  if (Math.abs(delta) > 5) {
-    if (delta > 0 && scrollTop > 100) {
-      // 向下滑動且超過一定距離 -> 隱藏
-      isNavVisible.value = false;
-    } else {
-      // 向上滑動 -> 顯示
-      isNavVisible.value = true;
-    }
-    lastScrollTop = scrollTop;
-  }
-
-  // 3. 核心功能：停留超過 2 秒自動顯示
-  scrollTimer = setTimeout(() => {
-    isNavVisible.value = true;
-  }, 1500); // 1500 毫秒 = 1.5 秒
-};
-
-onMounted(() => {
-  window.addEventListener('scroll', handleScroll, { passive: true });
-});
-
-onUnmounted(() => {
-  window.removeEventListener('scroll', handleScroll);
-});
-
 const menuItems = [
   { name: 'home', path: '/', icon: LayoutDashboard, label: '概覽' },
   { name: 'itinerary', path: '/itinerary', icon: CalendarDays, label: '行程' },
@@ -175,6 +141,34 @@ const navigate = (path) => {
   router.push(path);
 };
 
+const handleScroll = () => {
+  const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+  if (scrollTimer) clearTimeout(scrollTimer);
+  const delta = scrollTop - lastScrollTop;
+
+  if (Math.abs(delta) > 5) {
+    if (delta > 0 && scrollTop > 100) {
+      isNavVisible.value = false;
+    } else {
+      isNavVisible.value = true;
+    }
+    lastScrollTop = scrollTop;
+  }
+
+  scrollTimer = setTimeout(() => {
+    isNavVisible.value = true;
+  }, 1500);
+};
+
+onMounted(() => {
+  window.addEventListener('scroll', handleScroll, { passive: true });
+});
+
+onUnmounted(() => {
+  window.removeEventListener('scroll', handleScroll);
+  clearTimeout(scrollTimer);
+});
+
 const activeIndex = computed(() => {
   const index = visibleMenuItems.value.findIndex((item) => isPageActive(item));
   return index === -1 ? 0 : index;
@@ -197,41 +191,6 @@ const indicatorStyle = computed(() => {
     @touchmove="handleTouchMove"
     @touchend="handleTouchEnd"
   >
-    <svg
-      aria-hidden="true"
-      focusable="false"
-      class="liquid-glass-filter-svg"
-      width="0"
-      height="0"
-    >
-      <defs>
-        <filter
-          id="guidebook-liquid-glass"
-          x="0%"
-          y="0%"
-          width="100%"
-          height="100%"
-          filterUnits="objectBoundingBox"
-        >
-          <feTurbulence
-            type="fractalNoise"
-            baseFrequency="0.004"
-            numOctaves="2"
-            seed="7"
-            result="noise"
-          />
-          <feGaussianBlur in="noise" stdDeviation="1.4" result="map" />
-          <feDisplacementMap
-            in="SourceGraphic"
-            in2="map"
-            scale="88"
-            xChannelSelector="R"
-            yChannelSelector="B"
-          />
-        </filter>
-      </defs>
-    </svg>
-
     <!-- 下拉刷新指示器 -->
     <div
       class="absolute top-0 left-0 right-0 flex justify-center pointer-events-none z-[100] transition-all duration-75"
@@ -285,24 +244,24 @@ const indicatorStyle = computed(() => {
       class="fixed bottom-6 pb-[env(safe-area-inset-bottom)] left-0 right-0 px-6 z-50 transition-all duration-500 ease-in-out pointer-events-none max-w-md mx-auto"
       :class="{ 'translate-y-[120px] opacity-0': !isNavVisible }"
     >
-      <nav class="relative flex justify-around py-2 px-4 pointer-events-auto">
-        <div
-          class="liquid-glass-nav absolute inset-0 rounded-[28px] overflow-hidden pointer-events-none"
-        >
-          <div
-            class="absolute bottom-1 z-10 h-[3px] bg-orange-400 rounded-full transition-all duration-300 ease-out shadow-[0_0_16px_rgba(251,146,60,0.55)]"
-            :style="indicatorStyle"
-          ></div>
+      <nav
+        aria-label="主要導覽"
+        class="relative flex justify-around rounded-[28px] py-2 px-2 pointer-events-auto"
+      >
+        <FrontendGlassSurface />
+        <div class="nav-selection-track" aria-hidden="true">
+          <div class="nav-selection" :style="indicatorStyle" />
         </div>
 
         <button
           v-for="item in visibleMenuItems"
           :key="item.name"
           @click="navigate(item.path)"
+          :aria-current="isPageActive(item) ? 'page' : undefined"
           :class="[
-            'nav-tab flex flex-col items-center gap-1 transition-all duration-500 relative z-10 py-[4px] w-full',
+            'nav-tab flex flex-col items-center gap-1 transition-all duration-500 relative z-10 min-h-11 py-[4px] w-full',
             isPageActive(item)
-              ? 'nav-tab--active text-orange-300 scale-110'
+              ? 'nav-tab--active text-orange-200'
               : 'nav-tab--idle',
           ]"
         >
@@ -322,69 +281,44 @@ const indicatorStyle = computed(() => {
 </template>
 
 <style scoped>
-.frontend-shell {
-  --liquid-highlight: rgb(255 255 255 / 46%);
-  --liquid-edge: rgb(255 255 255 / 18%);
-  --liquid-shadow: rgb(15 23 42 / 26%);
-}
-
-.liquid-glass-filter-svg {
-  position: fixed;
-  top: -9999px;
-  left: -9999px;
-  width: 0;
-  height: 0;
+.nav-selection-track {
+  position: absolute;
+  inset: 6px 8px;
   pointer-events: none;
 }
-
-.liquid-glass-nav {
+.nav-selection {
   position: absolute;
-  isolation: isolate;
-  background:
-    linear-gradient(135deg, rgb(30 41 59 / 52%), rgb(15 23 42 / 38%)),
-    rgb(15 23 42 / 62%);
-  -webkit-backdrop-filter: blur(3px) saturate(145%) contrast(1.04)
-    url('#guidebook-liquid-glass');
-  backdrop-filter: blur(3px) saturate(145%) contrast(1.04)
-    url('#guidebook-liquid-glass');
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 24%),
-    inset 0 -1px 0 rgb(255 255 255 / 10%),
-    inset 7px 7px 18px rgb(255 255 255 / 8%),
-    0 18px 38px rgb(15 23 42 / 32%);
+  top: 0;
+  bottom: 0;
+  border-radius: 20px;
+  background: linear-gradient(160deg, #ffffff20, #ffffff0a);
+  border: 1px solid #ffffff1f;
+  box-shadow: inset 0 1px 0 #ffffff26;
+  transition:
+    left 280ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    width 280ms ease;
 }
-
-.liquid-glass-nav {
-  color: rgb(248 250 252 / 92%);
-}
-
-.liquid-glass-nav::before {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
+.nav-selection::after {
   content: '';
-  background:
-    radial-gradient(circle at 16% 0%, rgb(255 255 255 / 18%), transparent 34%),
-    linear-gradient(
-      105deg,
-      rgb(255 255 255 / 10%),
-      transparent 42%,
-      rgb(255 255 255 / 5%)
-    );
-  border-radius: inherit;
-  pointer-events: none;
-}
-
-.liquid-glass-nav::after {
   position: absolute;
-  inset: 1px;
-  z-index: 1;
-  content: '';
-  border: 1px solid rgb(255 255 255 / 18%);
-  border-radius: inherit;
-  pointer-events: none;
+  bottom: 2px;
+  left: 32%;
+  right: 32%;
+  height: 2px;
+  border-radius: 2px;
+  background: #fdba74;
 }
-
+.nav-tab:focus-visible {
+  outline: 2px solid #fdba74;
+  outline-offset: 1px;
+  border-radius: 18px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-selection,
+  .nav-tab {
+    transition: none !important;
+  }
+}
 .nav-tab {
   text-shadow: 0 1px 10px rgb(15 23 42 / 45%);
 }
@@ -401,14 +335,6 @@ const indicatorStyle = computed(() => {
     0 0 18px rgb(251 146 60 / 42%);
 }
 
-@supports not (
-  (backdrop-filter: blur(2px)) or (-webkit-backdrop-filter: blur(2px))
-) {
-  .liquid-glass-nav {
-    background: rgb(15 23 42 / 92%);
-  }
-}
-
 /* 滾動條優化 */
 :deep(.el-scrollbar__bar.is-vertical) {
   width: 4px !important;
@@ -420,7 +346,7 @@ const indicatorStyle = computed(() => {
 
 /* 點擊果凍感 */
 button:active {
-  transform: scale(0.9);
+  transform: scale(0.97);
 }
 
 /* 禁止選擇 */

@@ -1,4 +1,5 @@
 <script setup>
+import { appAlert, appConfirm } from '@/services/dialog';
 import { computed, onMounted, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useParticipantsStore } from '@/store/participantsStore';
@@ -597,7 +598,7 @@ const handleFileUpload = async (event) => {
     });
     form.value.avatar = url;
   } catch (error) {
-    alert('圖片上傳失敗：' + error.message);
+    await appAlert('圖片上傳失敗：' + error.message);
   } finally {
     isUploading.value = false;
     event.target.value = '';
@@ -612,7 +613,7 @@ const handleAvatarPaste = async (event) => {
     const { urls } = await uploadClipboardImages(event, { multiple: false });
     if (urls[0]) form.value.avatar = urls[0];
   } catch (error) {
-    alert('圖片上傳失敗：' + error.message);
+    await appAlert('圖片上傳失敗：' + error.message);
   } finally {
     isUploading.value = false;
   }
@@ -651,7 +652,7 @@ const loadTrackingTokens = async (participantId = editingId.value) => {
   try {
     trackingTokens.value = await getTrackingTokensByParticipant(participantId);
   } catch (error) {
-    alert('定位資料讀取失敗：' + error.message);
+    await appAlert('定位資料讀取失敗：' + error.message);
   } finally {
     isTrackingLoading.value = false;
   }
@@ -674,7 +675,7 @@ const enableTrackingForParticipant = async () => {
     });
     await loadTrackingTokens(editingId.value);
   } catch (error) {
-    alert('定位設定建立失敗：' + error.message);
+    await appAlert('定位設定建立失敗：' + error.message);
   } finally {
     isTrackingCreating.value = false;
   }
@@ -682,7 +683,11 @@ const enableTrackingForParticipant = async () => {
 
 const removeTrackingForParticipant = async () => {
   if (!editingId.value) return;
-  if (!confirm('確定要移除此成員目前的位置分享設定？成員需要重新綁定手機。'))
+  if (
+    !(await appConfirm(
+      '確定要移除此成員目前的位置分享設定？成員需要重新綁定手機。'
+    ))
+  )
     return;
 
   isTrackingRemoving.value = true;
@@ -691,7 +696,7 @@ const removeTrackingForParticipant = async () => {
     trackingTokens.value = [];
     copiedTrackingUrl.value = '';
   } catch (error) {
-    alert('移除位置分享失敗：' + error.message);
+    await appAlert('移除位置分享失敗：' + error.message);
   } finally {
     isTrackingRemoving.value = false;
   }
@@ -711,18 +716,18 @@ const sendTestPush = async () => {
         '',
       participantIds: [editingId.value],
     });
-    alert(
+    await appAlert(
       `測試推播已送出：成功 ${result.successCount}，失敗 ${result.failureCount}`
     );
   } catch (error) {
-    alert('測試推播失敗：' + error.message);
+    await appAlert('測試推播失敗：' + error.message);
   } finally {
     isTestPushSending.value = false;
   }
 };
 
 const saveParticipant = async () => {
-  if (!form.value.name.trim()) return alert('請輸入成員名稱');
+  if (!form.value.name.trim()) return await appAlert('請輸入成員名稱');
 
   isSaving.value = true;
   try {
@@ -743,7 +748,7 @@ const saveParticipant = async () => {
     await refreshParticipants();
     closeDrawer();
   } catch (error) {
-    alert('儲存失敗：' + error.message);
+    await appAlert('儲存失敗：' + error.message);
   } finally {
     isSaving.value = false;
   }
@@ -751,13 +756,14 @@ const saveParticipant = async () => {
 
 const deleteCurrentParticipant = async () => {
   if (!editingId.value) return;
-  if (!confirm('確定要刪除這位成員？這個動作不會刪除既有錢包資料。')) return;
+  if (!(await appConfirm('確定要刪除這位成員？這個動作不會刪除既有錢包資料。')))
+    return;
   try {
     await participantsStore.removeParticipant(editingId.value);
     await refreshParticipants();
     closeDrawer();
   } catch (error) {
-    alert('刪除失敗：' + error.message);
+    await appAlert('刪除失敗：' + error.message);
   }
 };
 </script>

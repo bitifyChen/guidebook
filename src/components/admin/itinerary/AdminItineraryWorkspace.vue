@@ -1,4 +1,6 @@
 <script setup>
+import { appAlert, appConfirm } from '@/services/dialog';
+import { useWorkspaceGuard } from '@/composables/useWorkspaceGuard';
 import { computed, onMounted, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useTravelStore } from '@/store/travelStore';
@@ -36,6 +38,13 @@ const tripStore = useTripStore();
 
 const localItinerary = ref([]);
 const hasChanges = ref(false);
+useWorkspaceGuard({
+  dirty: () => hasChanges.value,
+  busy: () =>
+    routePlanner.value.saving ||
+    geoAssistant.value.isSaving ||
+    dayStartDrawer.value.isSaving,
+});
 const isCheckingImages = ref(false);
 const jsonAssistantOpen = ref(false);
 const routeCalculatingDay = ref(null);
@@ -123,11 +132,11 @@ const handleCheckImages = async () => {
 
   isCheckingImages.value = false;
   if (errorCount > 0) {
-    alert(
+    await appAlert(
       `檢查完成！發現 ${errorCount} 個行程的圖片連結異常，請點擊異常項目進行修復。`
     );
   } else {
-    alert('檢查完成！所有圖片連結皆正常。');
+    await appAlert('檢查完成！所有圖片連結皆正常。');
   }
 };
 
@@ -202,7 +211,7 @@ const updateDayItems = (dayGroup, items) => {
 };
 
 const handleSaveOrder = async () => {
-  if (!confirm('確定要更新行程排序嗎？')) return;
+  if (!(await appConfirm('確定要更新行程排序嗎？'))) return;
 
   const flattened = [];
   localItinerary.value.forEach((dayGroup) => {
@@ -234,9 +243,9 @@ const handleSaveOrder = async () => {
     } catch (syncError) {
       console.error('Itinerary sync signal failed:', syncError);
     }
-    alert('行程排序已更新。');
+    await appAlert('行程排序已更新。');
   } catch (err) {
-    alert('儲存失敗：' + err.message);
+    await appAlert('儲存失敗：' + err.message);
   }
 };
 
@@ -276,14 +285,14 @@ const handleImport = async (event) => {
       if (!Array.isArray(json)) throw new Error('格式錯誤：必須是陣列');
 
       if (
-        !confirm(
+        !(await appConfirm(
           `即將同步 ${json.length} 個行程。這將會根據 ID 更新現有項目，並刪除不在列表中的項目。確定嗎？`
-        )
+        ))
       )
         return;
 
       const res = await bulkUpdateItinerary(json);
-      alert(
+      await appAlert(
         `同步成功！更新/新增了 ${res.updated} 個項目，刪除了 ${res.deleted} 個項目。`
       );
       await travelStore.init(); // 重新整理資料
@@ -296,7 +305,7 @@ const handleImport = async (event) => {
         console.error('Itinerary sync signal failed:', syncError);
       }
     } catch (err) {
-      alert('匯入失敗：' + err.message);
+      await appAlert('匯入失敗：' + err.message);
     }
   };
   reader.readAsText(file);
@@ -315,10 +324,10 @@ const handleApplyJson = async ({ mode, day, payload }) => {
 
     const confirmed =
       mode === 'full'
-        ? confirm(
+        ? await appConfirm(
             `這會同步整份行程，JSON 內不存在的項目會被刪除。確定要套用 ${items.length} 筆資料嗎？`
           )
-        : confirm(
+        : await appConfirm(
             `這只會同步 Day ${day}，該日 JSON 內不存在的項目會被刪除。確定要套用 ${items.length} 筆資料嗎？`
           );
     if (!confirmed) return;

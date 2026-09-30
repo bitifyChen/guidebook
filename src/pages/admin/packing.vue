@@ -1,6 +1,7 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { confirmAction } from '@/services/dialog';
+import { computed, onMounted, reactive, ref, nextTick, watch } from 'vue';
+import { ElMessage } from 'element-plus';
 import { Luggage } from 'lucide-vue-next';
 import AdminPackingItemDrawer from '@/components/admin/packing/AdminPackingItemDrawer.vue';
 import AdminPackingCategoryDrawer from '@/components/admin/packing/AdminPackingCategoryDrawer.vue';
@@ -14,7 +15,15 @@ const isLoading = ref(false);
 const isSaving = ref(false);
 const filters = ref({ keyword: '', categoryId: '' });
 const categoryDrawerOpen = ref(false);
+const categoryDrawerRef = ref(null);
 const newCategoryName = ref('');
+let savedCatalog = '[]';
+watch(categoryDrawerOpen, (open) => {
+  if (!open) {
+    catalog.value = JSON.parse(savedCatalog);
+    newCategoryName.value = '';
+  }
+});
 const itemDrawer = reactive({
   open: false,
   mode: 'create',
@@ -80,6 +89,9 @@ const persistCatalog = async (message = '行李範本已更新') => {
   isSaving.value = true;
   try {
     catalog.value = await savePackingCatalog(catalog.value);
+    savedCatalog = JSON.stringify(catalog.value);
+    await nextTick();
+    categoryDrawerRef.value?.markSaved();
     ElMessage.success(message);
   } catch (error) {
     ElMessage.error(`行李範本儲存失敗：${error.message}`);
@@ -93,6 +105,7 @@ const loadCatalog = async () => {
   isLoading.value = true;
   try {
     catalog.value = await ensurePackingCatalog();
+    savedCatalog = JSON.stringify(catalog.value);
   } catch (error) {
     ElMessage.error(`行李範本載入失敗：${error.message}`);
   } finally {
@@ -140,7 +153,7 @@ const saveItem = async () => {
 
 const deleteItem = async () => {
   try {
-    await ElMessageBox.confirm('確定要從行李範本刪除這個物品？', '刪除物品', {
+    await confirmAction('確定要從行李範本刪除這個物品？', '刪除物品', {
       confirmButtonText: '刪除',
       cancelButtonText: '取消',
       type: 'warning',
@@ -171,7 +184,7 @@ const addCategory = async () => {
 
 const deleteCategory = async (category) => {
   try {
-    await ElMessageBox.confirm(
+    await confirmAction(
       `刪除「${category.category}」會一併刪除其中物品。`,
       '刪除分類',
       {
@@ -225,6 +238,7 @@ onMounted(loadCatalog);
     />
 
     <AdminPackingCategoryDrawer
+      ref="categoryDrawerRef"
       v-model:open="categoryDrawerOpen"
       v-model:new-category-name="newCategoryName"
       :catalog="catalog"

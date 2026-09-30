@@ -1,4 +1,5 @@
 <script setup>
+import { appConfirm } from '@/services/dialog';
 import { ref, watch, computed } from 'vue';
 import {
   X,
@@ -138,10 +139,10 @@ const addCategory = () => {
   newCategoryName.value = '';
 };
 
-const removeCategory = (catIdx) => {
+const removeCategory = async (catIdx) => {
   const category = list.value[catIdx];
   if (category?.source !== 'custom') return;
-  if (confirm(`確定要刪除「${category.category}」分類嗎？`)) {
+  if (await appConfirm(`確定要刪除「${category.category}」分類嗎？`)) {
     list.value.splice(catIdx, 1);
   }
 };
@@ -163,8 +164,8 @@ const removeItem = (catIdx, itemIdx) => {
   list.value[catIdx].items.splice(itemIdx, 1);
 };
 
-const clearAllChecked = () => {
-  if (confirm('確定要清空所有勾選狀態嗎？這會保留您新增的項目。')) {
+const clearAllChecked = async () => {
+  if (await appConfirm('確定要清空所有勾選狀態嗎？這會保留您新增的項目。')) {
     list.value.forEach((cat) => {
       cat.items.forEach((item) => {
         item.checked = false;
@@ -173,8 +174,10 @@ const clearAllChecked = () => {
   }
 };
 
-const resetList = () => {
-  if (confirm('確定要還原為預設清單嗎？這將覆蓋您目前的先前新增的項目。')) {
+const resetList = async () => {
+  if (
+    await appConfirm('確定要還原為預設清單嗎？這將覆蓋您目前的先前新增的項目。')
+  ) {
     const state = createPackingStateFromTemplate(effectiveTemplate.value);
     templateSignature.value = state.templateSignature;
     list.value = state.list;

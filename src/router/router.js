@@ -1,5 +1,9 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import generatedRoutes from 'virtual:generated-pages';
+import {
+  canLeaveWorkspace,
+  shouldGuardWorkspaceNavigation,
+} from '@/services/unsavedChanges';
 
 const routes = generatedRoutes;
 const router = createRouter({
@@ -63,6 +67,8 @@ const resolveGoogleAdminAccess = async (userStore) => {
 };
 
 router.beforeEach(async (to, from, next) => {
+  if (shouldGuardWorkspaceNavigation(to, from) && !(await canLeaveWorkspace()))
+    return next(false);
   const userStore = useUserStore();
   const participantsStore = useParticipantsStore();
   const tripStore = useTripStore();

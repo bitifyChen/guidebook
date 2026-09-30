@@ -1,5 +1,7 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, ref, watch, nextTick, provide } from 'vue';
+import { useWorkspaceGuard } from '@/composables/useWorkspaceGuard';
+import { confirmDiscard, drawerGuardKey } from '@/services/unsavedChanges';
 import { X } from 'lucide-vue-next';
 
 const props = defineProps({
@@ -10,14 +12,56 @@ const props = defineProps({
   zIndex: { type: Number, default: 80 },
   bare: { type: Boolean, default: false },
   closeOnClickModal: { type: Boolean, default: true },
+  draft: { default: undefined },
+  dirty: { type: Boolean, default: false },
+  busy: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['update:modelValue', 'close']);
 
 const drawerVisible = computed({
   get: () => props.modelValue,
-  set: (value) => emit('update:modelValue', value),
+  set: (value) => {
+    if (value) emit('update:modelValue', true);
+    else closeDrawer();
+  },
 });
+
+const baseline = ref('');
+const ready = ref(false);
+const snapshot = () => JSON.stringify(props.draft);
+watch(
+  () => props.modelValue,
+  async (open) => {
+    ready.value = false;
+    if (open) {
+      await nextTick();
+      baseline.value = snapshot();
+      ready.value = true;
+    }
+  },
+  { immediate: true }
+);
+const children = new Set();
+const hasChanges = () =>
+  props.modelValue &&
+  (props.dirty ||
+    (ready.value &&
+      props.draft !== undefined &&
+      snapshot() !== baseline.value) ||
+    [...children].some((guard) => guard.dirty()));
+const isBusy = () =>
+  props.modelValue &&
+  (props.busy || [...children].some((guard) => guard.busy()));
+useWorkspaceGuard({
+  dirty: hasChanges,
+  busy: isBusy,
+});
+provide(drawerGuardKey, (guard) => {
+  children.add(guard);
+  return () => children.delete(guard);
+});
+let closing = false;
 
 const sizeClass = computed(() => {
   if (props.size === 'sm') return 'admin-drawer-sm';
@@ -26,10 +70,23 @@ const sizeClass = computed(() => {
   return 'admin-drawer-md';
 });
 
-const closeDrawer = () => {
-  drawerVisible.value = false;
-  emit('close');
+const closeDrawer = async () => {
+  if (isBusy() || closing) return;
+  closing = true;
+  try {
+    if (hasChanges() && !(await confirmDiscard())) return;
+    emit('update:modelValue', false);
+    emit('close');
+  } finally {
+    closing = false;
+  }
 };
+defineExpose({
+  requestClose: closeDrawer,
+  markSaved: () => {
+    baseline.value = snapshot();
+  },
+});
 </script>
 
 <template>
@@ -42,7 +99,8 @@ const closeDrawer = () => {
     :close-on-click-modal="closeOnClickModal"
     :z-index="zIndex"
     :class="['admin-drawer', sizeClass]"
-    @closed="emit('close')"
+    :before-close="closeDrawer"
+    :close-on-press-escape="!busy"
   >
     <div class="flex h-full min-h-0 flex-col bg-slate-50">
       <header
@@ -67,6 +125,7 @@ const closeDrawer = () => {
           aria-label="關閉側邊欄"
           class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-50 text-slate-400 hover:text-slate-700"
           @click="closeDrawer"
+          :disabled="busy"
         >
           <X :size="20" />
         </button>
@@ -79,11 +138,16 @@ const closeDrawer = () => {
         aria-label="關閉側邊欄"
         class="absolute right-4 top-4 z-20 flex h-10 w-10 items-center justify-center rounded-xl bg-white text-slate-400 shadow-sm ring-1 ring-slate-200 hover:text-slate-700"
         @click="closeDrawer"
+        :disabled="busy"
       >
         <X :size="20" />
       </button>
 
-      <div class="min-h-0 flex-1 overflow-hidden">
+      <div
+        class="min-h-0 flex-1 overflow-hidden"
+        :inert="busy || undefined"
+        :aria-busy="busy"
+      >
         <slot></slot>
       </div>
     </div>

@@ -51,9 +51,12 @@ export const getGlobalVersion = async () => {
     if (!snap.exists() && tripId) {
       snap = await getDoc(doc(db, 'metadata', `travel_${tripId}`));
     }
-    return snap.exists() ? snap.data() : { lastUpdate: 0 };
+    return {
+      ...(snap.exists() ? snap.data() : { lastUpdate: 0 }),
+      fromCache: snap.metadata.fromCache,
+    };
   } catch (e) {
-    return { lastUpdate: 0 };
+    return { lastUpdate: 0, unavailable: true };
   }
 };
 

@@ -1,4 +1,7 @@
 <script setup>
+import { ref } from 'vue';
+const formRef = ref(null);
+const drawerRef = ref(null);
 import AdminDrawer from '@/components/admin/shared/AdminDrawer.vue';
 import AdminItineraryItemForm from './AdminItineraryItemForm.vue';
 
@@ -18,6 +21,9 @@ const emit = defineEmits(['update:open', 'close', 'saved', 'deleted']);
 
 <template>
   <AdminDrawer
+    ref="drawerRef"
+    :dirty="Boolean(formRef?.dirty)"
+    :busy="Boolean(formRef?.busy)"
     :model-value="open"
     bare
     size="md"
@@ -26,6 +32,7 @@ const emit = defineEmits(['update:open', 'close', 'saved', 'deleted']);
     @close="emit('close')"
   >
     <AdminItineraryItemForm
+      ref="formRef"
       :key="session"
       :mode="mode"
       :item="item"
@@ -34,7 +41,7 @@ const emit = defineEmits(['update:open', 'close', 'saved', 'deleted']);
       :default-day="defaultDay"
       :lock-day="lockDay"
       compact
-      @cancel="emit('close')"
+      @cancel="drawerRef?.requestClose()"
       @saved="emit('saved', $event)"
       @deleted="emit('deleted', $event)"
     />

@@ -9,6 +9,10 @@ export const useTravelStore = defineStore('travel', {
     itinerary: [],
     selectedDay: 1,
     isLoading: false,
+    loadError: '',
+    isStale: false,
+    requestId: 0,
+    loadedTripId: '',
     now: dayjs(),
     imageStatus: {}, // { [itemId]: 'ok' | 'error' | 'loading' }
   }),
@@ -109,92 +113,105 @@ export const useTravelStore = defineStore('travel', {
     },
     // --- 核心：從 Firebase 初始化資料 ---
     async init(options = {}) {
-      const { force = false } = options;
+      const requestId = ++this.requestId;
       const tripStore = useTripStore();
-      if (!tripStore.currentTripId) await tripStore.init();
-      if (!tripStore.currentTripId) {
-        this.itinerary = [];
-        this.config = [];
-        this.selectedDay = 1;
-        return;
-      }
-      const cacheScope = tripStore.currentTripId || 'legacy';
-      const CACHE_KEY = `guidebook_${cacheScope}_travel_cache`;
-      const SELECTED_DAY_KEY = `guidebook_${cacheScope}_selected_day`;
-
-      // 1. 先抓取本地快取並立即呈現 (Stale-while-revalidate)
+      this.isLoading = true;
+      this.loadError = '';
       let localCache = null;
+      let tripId = '';
       try {
-        const raw = localStorage.getItem(CACHE_KEY);
-        if (raw) {
-          localCache = JSON.parse(raw);
-          this.itinerary = localCache.itinerary;
-          this.config = localCache.config;
-          const savedDay = Number(localStorage.getItem(SELECTED_DAY_KEY));
-          this.selectedDay =
-            savedDay ||
-            (tripStore.isTimeLocked ? this.selectedDay : this.currentDay) ||
-            1;
-        }
-      } catch (e) {
-        console.warn('Cache load failed', e);
-      }
-
-      try {
-        // 2. 抓取遠端版本號 (極小請求)
-        const remoteMeta = await getGlobalVersion();
-
-        // 3. 如果版本一致且已有資料，就不再抓取大宗資料
-        if (
-          !force &&
-          localCache &&
-          localCache.timestamp === remoteMeta.lastUpdate
-        ) {
-          console.log('Using travel cache (version match)');
+        if (!tripStore.currentTripId) await tripStore.init();
+        if (requestId !== this.requestId) return;
+        tripId = tripStore.currentTripId;
+        if (!tripId) {
+          this.clear();
           return;
         }
-
-        // 4. 版本不一致或無快取，才抓取大宗資料
-        this.isLoading = true;
-        const [itineraryRes, configRes] = await Promise.all([
-          getItinerary(),
-          getDayConfigs(),
-        ]);
-
-        if (itineraryRes.status === 200) {
-          this.itinerary = itineraryRes.data;
+        if (this.loadedTripId !== tripId) {
+          this.itinerary = [];
+          this.config = [];
+          this.selectedDay = 1;
+          this.loadedTripId = tripId;
+          this.isStale = false;
         }
-
-        if (configRes.status === 200) {
-          const target = configRes.data.find((doc) => doc.id === 'dayConfigs');
-          if (target && target.list) {
-            this.config = target.list;
-            const savedDay = Number(localStorage.getItem(SELECTED_DAY_KEY));
-            this.selectedDay =
-              savedDay ||
-              (tripStore.isTimeLocked ? this.selectedDay : this.currentDay) ||
-              this.config[0]?.day ||
-              1;
+        const key = 'guidebook_' + tripId + '_travel_cache';
+        try {
+          const parsed = JSON.parse(localStorage.getItem(key) || 'null');
+          if (
+            Array.isArray(parsed?.itinerary) &&
+            Array.isArray(parsed?.config)
+          ) {
+            localCache = parsed;
+            this.itinerary = parsed.itinerary;
+            this.config = parsed.config;
+            this.isStale = true;
+          }
+        } catch {
+          /* A damaged cache must not prevent a network retry. */
+        }
+        const meta = await getGlobalVersion();
+        if (requestId !== this.requestId || tripId !== tripStore.currentTripId)
+          return;
+        if (meta.unavailable) throw new Error('version unavailable');
+        if (
+          options.force ||
+          !localCache ||
+          localCache.timestamp !== meta.lastUpdate
+        ) {
+          const [items, configs] = await Promise.all([
+            getItinerary(),
+            getDayConfigs(),
+          ]);
+          if (
+            requestId !== this.requestId ||
+            tripId !== tripStore.currentTripId
+          )
+            return;
+          if (items.status !== 200 || configs.status !== 200)
+            throw new Error('invalid response');
+          this.itinerary = items.data;
+          this.config =
+            configs.data.find((doc) => doc.id === 'dayConfigs')?.list || [];
+          try {
+            localStorage.setItem(
+              key,
+              JSON.stringify({
+                itinerary: this.itinerary,
+                config: this.config,
+                timestamp: meta.lastUpdate,
+              })
+            );
+          } catch {
+            /* Fresh data remains usable when device storage is full. */
           }
         }
-
-        // 5. 更新快取
-        localStorage.setItem(
-          CACHE_KEY,
-          JSON.stringify({
-            itinerary: this.itinerary,
-            config: this.config,
-            timestamp: remoteMeta.lastUpdate,
-          })
-        );
-        console.log('Travel data updated to version:', remoteMeta.lastUpdate);
+        this.isStale = Boolean(meta.fromCache);
+        try {
+          const saved = Number(
+            localStorage.getItem('guidebook_' + tripId + '_selected_day')
+          );
+          this.selectedDay =
+            saved ||
+            (tripStore.isTimeLocked ? this.selectedDay : this.currentDay) ||
+            this.config[0]?.day ||
+            1;
+        } catch {
+          /* Keep the selected day when storage is unavailable. */
+        }
       } catch (error) {
-        console.error('初始化失敗:', error);
+        if (
+          requestId !== this.requestId ||
+          (tripId && tripId !== tripStore.currentTripId)
+        )
+          return;
+        this.isStale = Boolean(localCache || this.itinerary.length);
+        this.loadError = this.isStale
+          ? '行程更新失敗，目前顯示上次資料。請確認連線後重試。'
+          : '行程載入失敗，請確認連線後重試。';
       } finally {
-        this.isLoading = false;
+        if (requestId === this.requestId) this.isLoading = false;
       }
     },
-
     setSelectedDay(day) {
       this.selectedDay = day;
       const tripStore = useTripStore();
@@ -202,6 +219,11 @@ export const useTravelStore = defineStore('travel', {
       localStorage.setItem(`guidebook_${cacheScope}_selected_day`, String(day));
     },
     clear() {
+      this.requestId++;
+      this.loadedTripId = '';
+      this.isLoading = false;
+      this.loadError = '';
+      this.isStale = false;
       this.config = [];
       this.itinerary = [];
       this.selectedDay = 1;

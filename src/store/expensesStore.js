@@ -6,6 +6,10 @@ export const useExpensesStore = defineStore('expenses', {
   state: () => ({
     expenses: [],
     isLoading: false,
+    loadError: '',
+    isStale: false,
+    requestId: 0,
+    loadedTripId: '',
   }),
 
   getters: {
@@ -16,65 +20,91 @@ export const useExpensesStore = defineStore('expenses', {
   actions: {
     // --- 核心：從 Firebase 初始化資料 ---
     async init(options = {}) {
-      const { force = false } = options;
+      const requestId = ++this.requestId;
       const tripStore = useTripStore();
-      if (!tripStore.currentTripId) await tripStore.init();
-      if (!tripStore.currentTripId || tripStore.isPublicTrip) {
-        this.expenses = [];
-        return;
-      }
-      const cacheScope = tripStore.currentTripId || 'legacy';
-      const CACHE_KEY = `guidebook_${cacheScope}_wallet_cache`;
-
-      // 1. 先抓取本地快取並立即呈現 (Stale-while-revalidate)
+      this.isLoading = true;
+      this.loadError = '';
       let localCache = null;
+      let tripId = '';
       try {
-        const raw = localStorage.getItem(CACHE_KEY);
-        if (raw) {
-          localCache = JSON.parse(raw);
-          this.expenses = localCache.expenses;
-        }
-      } catch (e) {
-        console.warn('Wallet cache load failed', e);
-      }
-
-      try {
-        // 2. 抓取遠端版本號 (極小請求)
-        const remoteMeta = await getWalletVersion();
-
-        // 3. 如果版本一致且已有資料，就不再抓取大宗資料
-        if (!force && localCache && localCache.timestamp === remoteMeta.lastUpdate) {
-          console.log('Using wallet cache (version match)');
+        if (!tripStore.currentTripId) await tripStore.init();
+        if (requestId !== this.requestId) return;
+        tripId = tripStore.currentTripId;
+        if (!tripId || tripStore.isPublicTrip) {
+          this.clear();
           return;
         }
+        if (this.loadedTripId !== tripId) {
+          this.expenses = [];
 
-        // 4. 版本不一致或無快取，才抓取大宗資料
-        this.isLoading = true;
-        const res = await getWallet();
-
-        if (res.status === 200) {
-          // 根據日期排序，最新的在前面
-          this.expenses = res.data.sort((a, b) => {
-            return new Date(b.date || 0) - new Date(a.date || 0);
-          });
+          this.loadedTripId = tripId;
+          this.isStale = false;
         }
+        const key = 'guidebook_' + tripId + '_wallet_cache';
+        try {
+          const parsed = JSON.parse(localStorage.getItem(key) || 'null');
+          if (Array.isArray(parsed?.expenses)) {
+            localCache = parsed;
+            this.expenses = parsed.expenses;
 
-        // 5. 更新快取
-        localStorage.setItem(
-          CACHE_KEY,
-          JSON.stringify({
-            expenses: this.expenses,
-            timestamp: remoteMeta.lastUpdate,
-          })
-        );
-        console.log('Wallet data updated to version:', remoteMeta.lastUpdate);
+            this.isStale = true;
+          }
+        } catch {
+          /* A damaged cache must not prevent a network retry. */
+        }
+        const meta = await getWalletVersion();
+        if (requestId !== this.requestId || tripId !== tripStore.currentTripId)
+          return;
+        if (meta.unavailable) throw new Error('version unavailable');
+        if (
+          options.force ||
+          !localCache ||
+          localCache.timestamp !== meta.lastUpdate
+        ) {
+          const res = await getWallet();
+          if (
+            requestId !== this.requestId ||
+            tripId !== tripStore.currentTripId
+          )
+            return;
+          if (res.status !== 200 || !Array.isArray(res.data))
+            throw new Error('invalid response');
+          this.expenses = res.data.sort(
+            (a, b) => new Date(b.date || 0) - new Date(a.date || 0)
+          );
+          try {
+            localStorage.setItem(
+              key,
+              JSON.stringify({
+                expenses: this.expenses,
+                timestamp: meta.lastUpdate,
+              })
+            );
+          } catch {
+            /* Fresh data remains usable when device storage is full. */
+          }
+        }
+        this.isStale = Boolean(meta.fromCache);
       } catch (error) {
-        console.error('Wallet 初始化失敗:', error);
+        if (
+          requestId !== this.requestId ||
+          (tripId && tripId !== tripStore.currentTripId)
+        )
+          return;
+        this.isStale = Boolean(localCache || this.expenses.length);
+        this.loadError = this.isStale
+          ? '開支更新失敗，目前顯示上次資料。請確認連線後重試。'
+          : '開支載入失敗，請確認連線後重試。';
       } finally {
-        this.isLoading = false;
+        if (requestId === this.requestId) this.isLoading = false;
       }
     },
     clear() {
+      this.requestId++;
+      this.loadedTripId = '';
+      this.isLoading = false;
+      this.loadError = '';
+      this.isStale = false;
       this.expenses = [];
     },
   },

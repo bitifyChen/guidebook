@@ -1,4 +1,5 @@
 <script setup>
+import { appAlert, appConfirm } from '@/services/dialog';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useTravelStore } from '@/store/travelStore';
 import {
@@ -46,6 +47,20 @@ const emit = defineEmits(['cancel', 'deleted', 'saved']);
 const travelStore = useTravelStore();
 const currentItem = ref(null);
 const isSaving = ref(false);
+const baseline = ref('');
+const dirty = computed(
+  () =>
+    Boolean(currentItem.value) &&
+    JSON.stringify(currentItem.value) !== baseline.value
+);
+const busy = computed(
+  () =>
+    isSaving.value ||
+    isDeleting.value ||
+    isUploadingCover.value ||
+    isUploadingImages.value
+);
+defineExpose({ dirty, busy });
 const isDeleting = ref(false);
 const isUploadingCover = ref(false);
 const isUploadingImages = ref(false);
@@ -121,10 +136,12 @@ const resetForm = () => {
       category:
         item.category || getItineraryTypeOption(item.type).defaultCategory,
     };
+    baseline.value = JSON.stringify(currentItem.value);
     return;
   }
 
   currentItem.value = createDefaultItem();
+  baseline.value = JSON.stringify(currentItem.value);
 };
 
 onMounted(async () => {
@@ -211,7 +228,7 @@ const handleCoverUpload = async (event) => {
   try {
     currentItem.value.cover = await uploadImage(file);
   } catch (error) {
-    alert(`封面上傳失敗：${error.message}`);
+    await appAlert(`封面上傳失敗：${error.message}`);
   } finally {
     isUploadingCover.value = false;
     event.target.value = '';
@@ -227,7 +244,7 @@ const handleImagesUpload = async (event) => {
     const urls = await Promise.all(files.map((file) => uploadImage(file)));
     currentItem.value.images.push(...urls);
   } catch (error) {
-    alert(`圖片上傳失敗：${error.message}`);
+    await appAlert(`圖片上傳失敗：${error.message}`);
   } finally {
     isUploadingImages.value = false;
     event.target.value = '';
@@ -242,7 +259,7 @@ const handleCoverPaste = async (event) => {
     const { urls } = await uploadClipboardImages(event, { multiple: false });
     if (urls[0]) currentItem.value.cover = urls[0];
   } catch (error) {
-    alert(`封面上傳失敗：${error.message}`);
+    await appAlert(`封面上傳失敗：${error.message}`);
   } finally {
     isUploadingCover.value = false;
   }
@@ -256,7 +273,7 @@ const handleGalleryPaste = async (event) => {
     const { urls } = await uploadClipboardImages(event);
     if (urls.length) currentItem.value.images.push(...urls);
   } catch (error) {
-    alert(`圖片上傳失敗：${error.message}`);
+    await appAlert(`圖片上傳失敗：${error.message}`);
   } finally {
     isUploadingImages.value = false;
   }
@@ -315,7 +332,7 @@ const normalizeItem = () => {
 
 const handleSave = async () => {
   if (!currentItem.value?.location?.trim()) {
-    alert('請填寫地點名稱');
+    await appAlert('請填寫地點名稱');
     return;
   }
 
@@ -350,14 +367,14 @@ const handleSave = async () => {
       action: isEditMode.value ? 'updated' : 'created',
     });
   } catch (error) {
-    alert(`儲存失敗：${error.message}`);
+    await appAlert(`儲存失敗：${error.message}`);
   } finally {
     isSaving.value = false;
   }
 };
 
 const handleDelete = async () => {
-  if (!isEditMode.value || !confirm('確定要刪除此景點嗎？')) return;
+  if (!isEditMode.value || !(await appConfirm('確定要刪除此景點嗎？'))) return;
 
   if (props.draft) {
     emit('deleted', {
@@ -379,7 +396,7 @@ const handleDelete = async () => {
       action: 'deleted',
     });
   } catch (error) {
-    alert(`刪除失敗：${error.message}`);
+    await appAlert(`刪除失敗：${error.message}`);
   } finally {
     isDeleting.value = false;
   }

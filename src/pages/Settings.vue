@@ -1,4 +1,5 @@
 <script setup>
+import { appAlert, appConfirm } from '@/services/dialog';
 import { computed, ref, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useUserStore } from '@/store/userStore';
@@ -279,7 +280,7 @@ const ensureCurrentTrackingSetup = async () => {
 const openTraccarSetup = async () => {
   await ensureCurrentTrackingSetup();
   if (!traccarConfigUrl.value)
-    return alert('目前無法建立定位設定，請稍後再試。');
+    return await appAlert('目前無法建立定位設定，請稍後再試。');
   rememberTrackingSetupHash();
   window.location.href = traccarConfigUrl.value;
 };
@@ -296,7 +297,8 @@ const copyTrackingSetup = async (value, label = '設定') => {
 
 const removeCurrentTrackingSetup = async () => {
   if (!userStore.myParticipant?.id) return;
-  if (!confirm('確定要移除目前的手機定位設定？之後可重新建立。')) return;
+  if (!(await appConfirm('確定要移除目前的手機定位設定？之後可重新建立。')))
+    return;
 
   isTrackingSetupLoading.value = true;
   try {
@@ -308,9 +310,9 @@ const removeCurrentTrackingSetup = async () => {
     if (trackingSetupStorageKey.value) {
       localStorage.removeItem(trackingSetupStorageKey.value);
     }
-    alert('已移除手機定位設定。');
+    await appAlert('已移除手機定位設定。');
   } catch (error) {
-    alert('移除定位設定失敗：' + error.message);
+    await appAlert('移除定位設定失敗：' + error.message);
   } finally {
     isTrackingSetupLoading.value = false;
   }
@@ -421,7 +423,7 @@ const loadUserTrips = async () => {
     if (!selectedTrip && userTrips.value.length === 1) {
       const message = `只有一個旅程，已自動切換至「${userTrips.value[0].trip.title}」。`;
       await switchUserTrip(userTrips.value[0], { redirect: false });
-      alert(message);
+      await appAlert(message);
       tripPickerHint.value = '';
       return;
     }
@@ -521,7 +523,7 @@ const handleForceRefresh = async () => {
     await forceReloadApp();
   } catch (error) {
     isRefreshing.value = false;
-    alert(error.message || '目前無法重新載入應用程式，請稍後再試。');
+    await appAlert(error.message || '目前無法重新載入應用程式，請稍後再試。');
   }
 };
 
@@ -548,7 +550,7 @@ const handleGoogleLogin = async () => {
       await handleClaim();
     }
   } catch (error) {
-    alert(error.message);
+    await appAlert(error.message);
   } finally {
     isGoogleLoggingIn.value = false;
   }
@@ -625,7 +627,7 @@ const handleFileUpload = async (event) => {
 
     editForm.value.avatar = url;
   } catch (error) {
-    alert('圖片處理失敗：' + error.message);
+    await appAlert('圖片處理失敗：' + error.message);
   } finally {
     isUploading.value = false;
     // 重置 input 讓同一個檔案可以再次觸發 change
@@ -634,7 +636,7 @@ const handleFileUpload = async (event) => {
 };
 
 const handleUpdateProfile = async () => {
-  if (!editForm.value.name.trim()) return alert('請輸入姓名');
+  if (!editForm.value.name.trim()) return await appAlert('請輸入姓名');
   isSaving.value = true;
   try {
     await participantsStore.updateParticipant(
@@ -642,16 +644,16 @@ const handleUpdateProfile = async () => {
       editForm.value
     );
     isEditModalOpen.value = false;
-    alert('更新成功！');
+    await appAlert('更新成功！');
   } catch (error) {
-    alert('更新失敗：' + error.message);
+    await appAlert('更新失敗：' + error.message);
   } finally {
     isSaving.value = false;
   }
 };
 
 const handleClaim = async () => {
-  if (!inviteCode.value.trim()) return alert('請輸入邀請碼');
+  if (!inviteCode.value.trim()) return await appAlert('請輸入邀請碼');
 
   isClaiming.value = true;
   try {
@@ -681,7 +683,7 @@ const handleClaim = async () => {
 
     if (res.status === 200) {
       if (res.mode === 'publicTrip') {
-        alert('已進入行程瀏覽。');
+        await appAlert('已進入行程瀏覽。');
       } else if (res.participant?.id) {
         userStore.setLocalParticipant(res.participant.id);
         const message =
@@ -692,7 +694,7 @@ const handleClaim = async () => {
               : res.mode === 'guestParticipant'
                 ? '已加入旅程。'
                 : '已綁定身份。';
-        alert(message);
+        await appAlert(message);
       }
 
       inviteCode.value = '';
@@ -715,7 +717,7 @@ const handleClaim = async () => {
       isTripPickerOpen.value = true;
     }
   } catch (error) {
-    alert(error.message);
+    await appAlert(error.message);
   } finally {
     isClaiming.value = false;
   }
@@ -731,7 +733,10 @@ const handleLogout = async () => {
 };
 
 const leaveCurrentTrip = async () => {
-  if (!confirm('確定要離開目前旅程？之後需要重新輸入 6 碼才能瀏覽。')) return;
+  if (
+    !(await appConfirm('確定要離開目前旅程？之後需要重新輸入 6 碼才能瀏覽。'))
+  )
+    return;
   userStore.clearLocalParticipant();
   tripStore.clearCurrentTrip();
   clearTripCaches();
@@ -780,7 +785,7 @@ const bindPushTokenToCurrentParticipant = async (
   await participantsStore.init();
 
   if (previousToken && previousToken !== token) {
-    alert('偵測到此裝置的推播設定已更新，已重新綁定目前成員。');
+    await appAlert('偵測到此裝置的推播設定已更新，已重新綁定目前成員。');
   }
 
   return true;
@@ -788,13 +793,15 @@ const bindPushTokenToCurrentParticipant = async (
 
 const requestNotificationPermission = async ({ silent = false } = {}) => {
   if (!('Notification' in window)) {
-    if (!silent) alert('此瀏覽器不支援通知功能。');
+    if (!silent) await appAlert('此瀏覽器不支援通知功能。');
     return;
   }
 
   if (isIOS.value && !isStandalone.value) {
     if (!silent) {
-      alert('iOS 需要先加入主畫面，並從桌面圖示開啟 App 後才能啟用推播。');
+      await appAlert(
+        'iOS 需要先加入主畫面，並從桌面圖示開啟 App 後才能啟用推播。'
+      );
     }
     return;
   }
@@ -812,13 +819,11 @@ const requestNotificationPermission = async ({ silent = false } = {}) => {
           silent,
         });
         if (wasBound && !silent) {
-          alert('推播通知已啟用，並綁定到目前成員。');
+          await appAlert('推播通知已啟用，並綁定到目前成員。');
         }
       } else {
         if (!silent) {
-          alert(
-            '取得通知設定失敗，請確認 Firebase 設定（特別是 VAPID 金鑰）是否正確。'
-          );
+          await appAlert('目前無法啟用通知，請稍後再試或聯絡旅程管理員。');
         }
       }
     } else if (permission === 'denied') {
@@ -833,14 +838,14 @@ const requestNotificationPermission = async ({ silent = false } = {}) => {
         await participantsStore.init();
       }
       if (!silent) {
-        alert(
+        await appAlert(
           '已拒絕通知權限。若要接收推播，請到系統或瀏覽器設定重新開啟通知。'
         );
       }
     }
   } catch (error) {
     console.error('設定通知失敗:', error);
-    if (!silent) alert('設定通知失敗: ' + error.message);
+    if (!silent) await appAlert('設定通知失敗: ' + error.message);
   } finally {
     isGettingToken.value = false;
   }
@@ -863,7 +868,7 @@ const promptNotificationAfterNewParticipant = async () => {
   if (!promptKey || localStorage.getItem(promptKey)) return;
 
   localStorage.setItem(promptKey, '1');
-  if (confirm('是否允許接收此旅程的推播通知？')) {
+  if (await appConfirm('是否允許接收此旅程的推播通知？')) {
     await requestNotificationPermission();
   } else {
     await updateParticipantNotificationPreference(userStore.myParticipant.id, {
@@ -876,7 +881,7 @@ const promptNotificationAfterNewParticipant = async () => {
 
 const disableNotificationForCurrentTrip = async () => {
   if (!userStore.myParticipant?.id) return;
-  if (!confirm('確定要關閉此旅程在目前裝置的推播通知？')) return;
+  if (!(await appConfirm('確定要關閉此旅程在目前裝置的推播通知？'))) return;
 
   isGettingToken.value = true;
   try {
@@ -891,9 +896,9 @@ const disableNotificationForCurrentTrip = async () => {
     }
     fcmToken.value = '';
     await participantsStore.init();
-    alert('已關閉此旅程的推播通知。');
+    await appAlert('已關閉此旅程的推播通知。');
   } catch (error) {
-    alert('關閉通知失敗: ' + error.message);
+    await appAlert('關閉通知失敗: ' + error.message);
   } finally {
     isGettingToken.value = false;
   }

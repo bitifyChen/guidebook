@@ -1,4 +1,5 @@
 <script setup>
+import { appAlert, appConfirm } from '@/services/dialog';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import AdminItinerary from '@/components/admin/itinerary/AdminItineraryWorkspace.vue';
 import AdminConfig from '@/components/admin/config/AdminConfigWorkspace.vue';
@@ -235,7 +236,7 @@ const saveTripPackingList = async (packingList) => {
     }
     packingDrawer.value.open = false;
   } catch (error) {
-    alert(error.message);
+    await appAlert(error.message);
   } finally {
     packingDrawer.value.isSaving = false;
   }
@@ -283,7 +284,7 @@ const saveTripManagers = async () => {
     }
     managerDrawer.value.open = false;
   } catch (error) {
-    alert(error.message);
+    await appAlert(error.message);
   } finally {
     managerDrawer.value.isSaving = false;
   }
@@ -389,7 +390,7 @@ const maybeSyncDayConfigs = async (tripId, payload) => {
   if (preview.removeCount > 0)
     details.push(`將刪除超出：${preview.removeCount} 天`);
 
-  const shouldSync = confirm(
+  const shouldSync = await appConfirm(
     `旅程起訖日期已變更，是否同步調整每日設定？\n\n${details.join('\n')}`
   );
   if (!shouldSync) return;
@@ -421,20 +422,21 @@ const resetSearch = () => {
 };
 
 const saveTrip = async () => {
-  if (!form.title.trim()) return alert('請輸入旅程名稱');
-  if (!form.weatherCity) return alert('請選擇天氣城市');
+  if (!form.title.trim()) return await appAlert('請輸入旅程名稱');
+  if (!form.weatherCity) return await appAlert('請選擇天氣城市');
 
   isSaving.value = true;
   try {
     const payload = buildTripPayload();
     const publicCode = form.publicCode.trim().toUpperCase();
     if (publicCode) {
-      if (publicCode.length !== 6) return alert('公開瀏覽碼必須為 6 碼');
+      if (publicCode.length !== 6)
+        return await appAlert('公開瀏覽碼必須為 6 碼');
       payload.publicCode = publicCode;
     }
     const inviteCode = form.inviteCode.trim().toUpperCase();
     if (inviteCode) {
-      if (inviteCode.length !== 6) return alert('邀請碼必須為 6 碼');
+      if (inviteCode.length !== 6) return await appAlert('邀請碼必須為 6 碼');
       payload.inviteCode = inviteCode;
     }
 
@@ -461,7 +463,7 @@ const saveTrip = async () => {
     }
     closeDrawer();
   } catch (error) {
-    alert(error.message);
+    await appAlert(error.message);
   } finally {
     isSaving.value = false;
   }
@@ -469,7 +471,7 @@ const saveTrip = async () => {
 
 const copyCode = async (code) => {
   await navigator.clipboard.writeText(code);
-  alert('已複製邀請碼');
+  await appAlert('已複製邀請碼');
 };
 
 const openTripToolDrawer = async (trip, type) => {
