@@ -11,7 +11,7 @@
     <link rel="apple-touch-icon" href="/192.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Guidebook" />
-    <meta name="theme-color" content="#FF8C00" />
+    <meta name="theme-color" content="#136A70" />
     <link
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap"
       rel="stylesheet"
@@ -21,7 +21,7 @@
         font-family: 'Noto Sans TC', sans-serif;
         margin: 0;
         padding: 0;
-        background: #fff4e6;
+        background: #136a70;
       }
       :root {
         --el-color-primary: #ff8c00;
@@ -33,60 +33,56 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        background: #fff4e6;
-        color: #1e293b;
+        background: #136a70;
+        color: #fff;
       }
       .app-boot-card {
         width: min(280px, calc(100vw - 48px));
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 16px;
+        gap: 24px;
         text-align: center;
-      }
-      .app-boot-icon {
-        width: 64px;
-        height: 64px;
-        border-radius: 20px;
-        box-shadow: 0 16px 40px rgba(255, 140, 0, 0.25);
-      }
-      .app-boot-title {
-        font-size: 18px;
-        font-weight: 900;
-        line-height: 1.2;
       }
       .app-boot-text {
         font-size: 12px;
         font-weight: 700;
-        color: #94a3b8;
+        letter-spacing: 0.18em;
+        color: rgba(255, 255, 255, 0.84);
       }
       .app-boot-spinner {
-        width: 28px;
-        height: 28px;
-        border: 3px solid rgba(255, 140, 0, 0.2);
-        border-top-color: #ff8c00;
+        width: 48px;
+        height: 48px;
+        border: 2px solid rgba(255, 255, 255, 0.24);
+        border-top-color: #fff;
         border-radius: 999px;
-        animation: app-boot-spin 0.8s linear infinite;
+        animation: app-boot-spin 1s linear infinite;
       }
       @keyframes app-boot-spin {
         to {
           transform: rotate(360deg);
         }
       }
+      @media (prefers-reduced-motion: reduce) {
+        .app-boot-spinner {
+          animation: none;
+        }
+      }
     </style>
-    <script type="module" crossorigin src="/assets/index-DT4qCoaQ.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-DIJ7z2d6.css">
+    <script type="module" crossorigin src="/assets/index-BJ0J9-LP.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DTcaa112.css">
   <link rel="manifest" href="/manifest.webmanifest"></head>
   <body>
     <div id="app">
-      <div class="app-boot-screen" data-front-boot-screen>
+      <div
+        class="app-boot-screen"
+        data-front-boot-screen
+        role="status"
+        aria-label="正在載入旅程"
+      >
         <div class="app-boot-card">
-          <img class="app-boot-icon" src="/192.png" alt="Guidebook" />
-          <div>
-            <div class="app-boot-title">Guidebook</div>
-            <div class="app-boot-text">正在載入旅程資料</div>
-          </div>
-          <div class="app-boot-spinner"></div>
+          <div class="app-boot-spinner" aria-hidden="true"></div>
+          <div class="app-boot-text">正在準備旅程</div>
         </div>
       </div>
     </div>
