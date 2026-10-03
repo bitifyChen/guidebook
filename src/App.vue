@@ -73,8 +73,8 @@ const updateAppIdentity = () => {
     start_url: startUrl,
     scope: '/',
     display: 'standalone',
-    theme_color: '#FF8C00',
-    background_color: '#FF8C00',
+    theme_color: '#136A70',
+    background_color: '#136A70',
     icons: [
       { src: '/192.png', sizes: '192x192', type: 'image/png' },
       { src: '/512.png', sizes: '512x512', type: 'image/png' },
@@ -141,16 +141,15 @@ onUnmounted(() => {
   <IOSInstallPrompt v-if="!isAdminLayout" />
   <PwaUpdatePrompt />
   <Transition name="boot-fade">
-    <div v-if="shouldShowAppBoot" class="app-loading-screen">
+    <div
+      v-if="shouldShowAppBoot"
+      class="app-loading-screen"
+      role="status"
+      aria-label="正在載入旅程"
+    >
       <div class="app-loading-card">
-        <img src="/192.png" alt="Guidebook" class="app-loading-icon" />
-        <div>
-          <div class="app-loading-title">
-            {{ tripStore.currentTrip?.title || 'Guidebook' }}
-          </div>
-          <div class="app-loading-text">正在載入旅程資料</div>
-        </div>
-        <div class="app-loading-spinner"></div>
+        <div class="app-loading-spinner" aria-hidden="true"></div>
+        <div class="app-loading-text">正在準備旅程</div>
       </div>
     </div>
   </Transition>
@@ -171,8 +170,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #fff4e6;
-  color: #1e293b;
+  background: #136a70;
+  color: #fff;
 }
 
 .app-loading-card {
@@ -180,36 +179,24 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: 24px;
   text-align: center;
-}
-
-.app-loading-icon {
-  width: 64px;
-  height: 64px;
-  border-radius: 20px;
-  box-shadow: 0 16px 40px rgba(255, 140, 0, 0.25);
-}
-
-.app-loading-title {
-  font-size: 18px;
-  font-weight: 900;
-  line-height: 1.2;
 }
 
 .app-loading-text {
   font-size: 12px;
   font-weight: 700;
-  color: #94a3b8;
+  letter-spacing: 0.18em;
+  color: rgba(255, 255, 255, 0.84);
 }
 
 .app-loading-spinner {
-  width: 28px;
-  height: 28px;
-  border: 3px solid rgba(255, 140, 0, 0.2);
-  border-top-color: #ff8c00;
+  width: 48px;
+  height: 48px;
+  border: 2px solid rgba(255, 255, 255, 0.24);
+  border-top-color: #fff;
   border-radius: 999px;
-  animation: app-loading-spin 0.8s linear infinite;
+  animation: app-loading-spin 1s linear infinite;
 }
 
 .boot-fade-leave-active {
@@ -223,6 +210,11 @@ body {
 @keyframes app-loading-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-loading-spinner {
+    animation: none;
   }
 }
 </style>

@@ -207,7 +207,7 @@ const onClose = () => {
       @retry="expensesStore.init({ force: true })"
     />
     <div
-      class="bg-gradient-to-br from-slate-800 to-slate-900 rounded-[32px] p-[24px] text-white shadow-2xl relative overflow-hidden group"
+      class="relative overflow-hidden rounded-[32px] bg-[var(--travel-ink)] p-6 text-white shadow-xl group"
     >
       <div class="relative z-10">
         <div class="flex items-center gap-2 mb-2 opacity-60">
@@ -217,7 +217,7 @@ const onClose = () => {
           </p>
         </div>
         <div class="flex items-baseline gap-2">
-          <span class="text-xl font-bold text-orange-400">{{
+          <span class="text-xl font-bold text-[var(--travel-coral)]">{{
             tripStore.currencySymbol
           }}</span>
           <h2 class="text-4xl font-black tracking-tight">
@@ -226,7 +226,7 @@ const onClose = () => {
         </div>
 
         <el-button
-          class="w-full !rounded-[20px] !h-14 mt-8 !text-lg !font-black !bg-orange-500 !border-none !text-white shadow-xl shadow-orange-900/20 active:scale-95 transition-transform disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed"
+          class="mt-8 w-full !h-14 !rounded-[20px] !border-none !bg-[var(--travel-teal)] !text-lg !font-black !text-white shadow-lg shadow-[#0b4d52]/20 transition-transform active:scale-95 disabled:cursor-not-allowed disabled:grayscale disabled:opacity-50"
           @click="openAddDrawer"
         >
           <component
@@ -250,7 +250,7 @@ const onClose = () => {
         class="bg-white p-4 rounded-2xl border border-slate-100 flex justify-center items-center gap-2 shadow-sm active:scale-95 transition-all group"
       >
         <div
-          class="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-500 group-hover:scale-110 transition-transform"
+          class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--travel-mist)] text-[var(--travel-teal)] transition-transform group-hover:scale-110"
         >
           <PieChart :size="24" />
         </div>
@@ -261,7 +261,7 @@ const onClose = () => {
         class="bg-white p-4 rounded-2xl border border-slate-100 flex justify-center items-center gap-2 shadow-sm active:scale-95 transition-all group"
       >
         <div
-          class="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-500 group-hover:scale-110 transition-transform"
+          class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#fff1ed] text-[var(--travel-coral)] transition-transform group-hover:scale-110"
         >
           <ArrowRightLeft :size="24" />
         </div>
@@ -335,19 +335,25 @@ const onClose = () => {
       :lock-scroll="false"
       :before-close="requestClose"
       :close-on-press-escape="!isSaving"
-      class="custom-drawer frontend-contained-drawer"
+      class="custom-drawer frontend-bottom-drawer frontend-contained-drawer"
       @close="onClose"
     >
       <div class="p-4">
-        <div class="flex justify-between items-center mb-8">
-          <h2 class="text-2xl font-black text-slate-800">
+        <div
+          class="mx-auto mb-5 h-1 w-10 rounded-full bg-slate-200"
+          aria-hidden="true"
+        ></div>
+        <div
+          class="frontend-bottom-drawer__header mb-6 flex items-start justify-between gap-4"
+        >
+          <h2 class="text-xl font-black text-[var(--travel-ink)]">
             {{ form.id ? '編輯' : '新增' }}這筆開支
           </h2>
           <button
             @click="requestClose"
             :disabled="isSaving"
             aria-label="關閉開支表單"
-            class="p-2 bg-slate-100 rounded-full text-slate-400"
+            class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[var(--travel-mist)] text-[var(--travel-teal)]"
           >
             <X :size="20" />
           </button>
@@ -397,6 +403,7 @@ const onClose = () => {
             <el-select
               v-model="form.payerId"
               class="w-full custom-select"
+              popper-class="wallet-select-popper"
               placeholder="選擇付款人"
             >
               <el-option
@@ -468,7 +475,7 @@ const onClose = () => {
             @click="submitExpense"
             :loading="isSaving"
             :disabled="isSaving"
-            class="w-full !h-16 !rounded-[24px] !bg-orange-500 !border-none !text-xl !font-black shadow-xl shadow-orange-100"
+            class="w-full !h-16 !rounded-[24px] !bg-[var(--travel-teal)] !border-none !text-xl !font-black text-white shadow-lg shadow-[#0b4d52]/15"
             >{{ form.id ? '更新' : '儲存' }}這筆開支</el-button
           >
         </div>
@@ -497,7 +504,7 @@ const onClose = () => {
   height: 56px;
 }
 :deep(.custom-input .el-input__wrapper.is-focus) {
-  border-color: #ff8c00 !important; /* orange-500 */
+  border-color: var(--travel-teal) !important;
   background-color: #ffffff !important;
 }
 
@@ -507,6 +514,10 @@ const onClose = () => {
   background-color: #f8fafc !important;
   box-shadow: none !important;
   height: 48px;
+}
+
+.custom-drawer {
+  --el-color-primary: var(--travel-teal);
 }
 
 /* 複選框按鈕化 */
@@ -519,7 +530,24 @@ const onClose = () => {
   transition: all 0.3s;
 }
 .custom-checkbox.is-checked {
-  background-color: #fff4e6 !important;
-  border-color: #ff8c00 !important;
+  background-color: var(--travel-mist) !important;
+  border-color: var(--travel-teal) !important;
+}
+
+.custom-checkbox.is-checked :deep(.el-checkbox__label) {
+  color: var(--travel-ink) !important;
+}
+
+:deep(.custom-checkbox.is-checked .el-checkbox__inner) {
+  background-color: var(--travel-teal) !important;
+  border-color: var(--travel-teal) !important;
+}
+
+:global(.wallet-select-popper) {
+  --el-color-primary: var(--travel-teal);
+}
+
+:global(.wallet-select-popper .el-select-dropdown__item.selected) {
+  color: var(--travel-teal);
 }
 </style>

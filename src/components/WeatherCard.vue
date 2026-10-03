@@ -93,42 +93,38 @@ const current = computed(() => {
 
 <template>
   <div
-    :class="[
-      'bg-gradient-to-br rounded-3xl p-6 text-white shadow-lg relative overflow-hidden transition-all duration-500',
-      current?.bg,
-    ]"
+    class="rounded-[22px] border border-[#dfe8e4] bg-white px-5 py-4 text-[var(--travel-ink)] relative overflow-hidden"
   >
     <div class="flex justify-between items-start relative z-10">
       <div>
-        <p class="text-blue-100 text-sm font-medium">{{ city }}</p>
-        <h2 class="text-4xl font-bold mt-1">
+        <p class="text-[var(--travel-teal)] text-xs font-bold tracking-widest">
+          今日天氣 · {{ city }}
+        </p>
+        <h2 class="text-3xl font-black mt-1">
           {{ temp }}
         </h2>
-        <span class="text-[12px]">體感 {{ apparentTemp }}</span>
-        <p class="text-blue-50 mt-3 font-light">{{ current?.text }}</p>
+        <span class="text-[12px] text-[#60787a]">體感 {{ apparentTemp }}</span>
+        <p class="text-sm text-[#4f696b] mt-2">{{ current?.text }}</p>
 
         <div class="flex gap-4 mt-2">
           <div
-            class="flex items-center gap-1 bg-white/20 px-2 py-1 rounded-lg text-xs"
+            class="flex items-center gap-1 bg-[var(--travel-mist)] px-2 py-1 rounded-lg text-xs"
           >
             <Wind :size="14" /> <span>{{ wind }}</span>
           </div>
           <div
-            class="flex items-center gap-1 bg-white/20 px-2 py-1 rounded-lg text-xs"
+            class="flex items-center gap-1 bg-[var(--travel-mist)] px-2 py-1 rounded-lg text-xs"
           >
             <component :is="current?.icon" :size="14" />
             <span>UV {{ uv }}</span>
           </div>
         </div>
       </div>
-      <component :is="current?.icon" :size="64" class="opacity-30 -mr-2" />
+      <component
+        :is="current?.icon"
+        :size="48"
+        class="text-[var(--travel-teal)] opacity-60 -mr-2"
+      />
     </div>
-
-    <div
-      :class="[
-        'absolute -bottom-10 -right-10 w-40 h-40 rounded-full blur-2xl transition-colors',
-        current?.shadow,
-      ]"
-    ></div>
   </div>
 </template>

@@ -32,7 +32,7 @@ const openDetail = () => emit('edit', props.item);
       <!-- 左側：頭像與付款人標籤 -->
       <div class="flex flex-col items-center gap-1.5 shrink-0">
         <div
-          class="w-12 h-12 rounded-2xl overflow-hidden bg-orange-50 flex flex-col items-center justify-center font-black text-orange-500 text-xs border border-orange-100 shadow-sm"
+          class="flex h-12 w-12 flex-col items-center justify-center overflow-hidden rounded-2xl border border-[#d7e8e2] bg-[var(--travel-mist)] text-xs font-black text-[var(--travel-teal)] shadow-sm"
         >
           <img
             v-if="payer?.avatar"
@@ -86,7 +86,8 @@ const openDetail = () => emit('edit', props.item);
       </span>
       <div class="text-right">
         <span class="font-black text-slate-800 text-lg tracking-tighter"
-          >{{ tripStore.currencySymbol }}{{ item.amount.toLocaleString() }}</span
+          >{{ tripStore.currencySymbol
+          }}{{ item.amount.toLocaleString() }}</span
         >
       </div>
     </div>

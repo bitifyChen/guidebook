@@ -75,6 +75,37 @@ describe('PWA update sequence', () => {
     expect(reload).toHaveBeenCalledOnce();
   });
 
+  it('subscribes to activation before asking the waiting worker to activate', async () => {
+    const calls = [];
+    await runUpdateSequence({
+      registration: { waiting: {}, update: vi.fn().mockResolvedValue() },
+      activateWaitingWorker: async () => calls.push('activate'),
+      waitForWaitingWorker: vi.fn(),
+      waitForActivation: () => {
+        calls.push('listen');
+        return Promise.resolve();
+      },
+      reload: () => calls.push('reload'),
+    });
+
+    expect(calls).toEqual(['listen', 'activate', 'reload']);
+  });
+
+  it('still reloads once when a waiting worker rejects activation', async () => {
+    const reload = vi.fn();
+    await runUpdateSequence({
+      registration: { waiting: {}, update: vi.fn().mockResolvedValue() },
+      activateWaitingWorker: vi
+        .fn()
+        .mockRejectedValue(new Error('activation failed')),
+      waitForWaitingWorker: vi.fn(),
+      waitForActivation: vi.fn().mockResolvedValue(),
+      reload,
+    });
+
+    expect(reload).toHaveBeenCalledOnce();
+  });
+
   it('falls back to one reload without a service worker registration', async () => {
     const reload = vi.fn();
     const activateWaitingWorker = vi.fn();

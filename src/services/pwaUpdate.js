@@ -138,13 +138,18 @@ export const registerPwaUpdateService = () => {
 };
 
 export const checkForAppUpdate = ({ ignoreDismissal = false } = {}) => {
-  if (
-    checkPromise ||
-    state.status === 'updating' ||
-    ['optional', 'required'].includes(state.promptType) ||
-    !navigator.onLine
-  ) {
-    return checkPromise || Promise.resolve(null);
+  if (checkPromise) return checkPromise;
+  if (['optional', 'required'].includes(state.promptType)) {
+    return Promise.resolve({
+      type: state.promptType,
+      manifest: {
+        version: state.targetVersion,
+        minimumVersion: state.minimumVersion,
+      },
+    });
+  }
+  if (state.status === 'updating' || !navigator.onLine) {
+    return Promise.resolve(null);
   }
 
   checkPromise = (async () => {
@@ -158,9 +163,15 @@ export const checkForAppUpdate = ({ ignoreDismissal = false } = {}) => {
         }),
         CHECK_TIMEOUT_MS
       );
-      if (!response?.ok) return null;
+      if (!response?.ok) {
+        state.error = '目前無法取得版本資訊，請稍後再試。';
+        return null;
+      }
       const manifest = normalizeReleaseManifest(await response.json());
-      if (!manifest) return null;
+      if (!manifest) {
+        state.error = '版本資訊無法讀取，請稍後再試。';
+        return null;
+      }
 
       const decision = resolveUpdatePrompt({
         currentVersion,
@@ -232,7 +243,7 @@ export const applyAppUpdate = () => {
   return updatePromise;
 };
 
-export const forceReloadApp = () => applyAppUpdate();
+export const reloadApp = () => reloadOnce();
 
 export const startPwaUpdateChecks = () => {
   if (stopLifecycleChecks) return stopLifecycleChecks;

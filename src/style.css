@@ -4,6 +4,11 @@
 
 :root {
   --frontend-shell-max-width: 28rem;
+  --travel-ink: #183c40;
+  --travel-teal: #136a70;
+  --travel-mist: #e5f2ee;
+  --travel-paper: #f6f8f5;
+  --travel-coral: #f17860;
 
   /* 旅程主色 */
   --primary-orange: #ff8c00;
@@ -20,7 +25,7 @@
 
 html,
 body {
-  background-color: var(--primary-orange-light);
+  background-color: var(--travel-paper);
   overflow-x: hidden;
   width: 100%;
   min-height: 100%;
@@ -49,7 +54,10 @@ body.el-popup-parent--hidden {
 @media (min-width: 448px) {
   .el-drawer.frontend-contained-drawer {
     right: auto !important;
-    left: max(0px, calc((100vw - var(--frontend-shell-max-width)) / 2)) !important;
+    left: max(
+      0px,
+      calc((100vw - var(--frontend-shell-max-width)) / 2)
+    ) !important;
     width: min(100vw, var(--frontend-shell-max-width)) !important;
     max-width: var(--frontend-shell-max-width);
   }
@@ -57,7 +65,10 @@ body.el-popup-parent--hidden {
   .el-drawer.frontend-contained-drawer.btt,
   .el-drawer.frontend-contained-drawer.ttb {
     right: auto !important;
-    left: max(0px, calc((100vw - var(--frontend-shell-max-width)) / 2)) !important;
+    left: max(
+      0px,
+      calc((100vw - var(--frontend-shell-max-width)) / 2)
+    ) !important;
   }
 }
 

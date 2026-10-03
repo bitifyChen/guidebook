@@ -1,5 +1,4 @@
 <script setup>
-import FrontendGlassSurface from '@/components/FrontendGlassSurface.vue';
 import DataStatusNotice from '@/components/DataStatusNotice.vue';
 import { ref, watch, computed, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
@@ -72,6 +71,23 @@ const itinerary = computed(() => {
     };
   });
 });
+const itineraryById = computed(
+  () => new Map(itinerary.value.map((item) => [item.id, item]))
+);
+const dayHero = computed(
+  () =>
+    itinerary.value.find((item) => item.cover && item.category === '景點') ||
+    itinerary.value.find((item) => item.cover && item.category === '美食') ||
+    itinerary.value.find((item) => item.cover) ||
+    null
+);
+const heroImageFailed = ref(false);
+watch(
+  () => dayHero.value?.cover,
+  () => {
+    heroImageFailed.value = false;
+  }
+);
 watch(
   () => [route.query.day, days.value],
   ([queryDay, totalDays]) => {
@@ -102,13 +118,15 @@ watch(
   (val) => {
     travelStore.setSelectedDay(parseInt(val));
     // 切換天數時回到最上方
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: 'auto' });
     nextTick(() => {
       const activeTab = dayTabsRef.value?.$el?.querySelector(
         '.el-tabs__item.is-active'
       );
       activeTab?.scrollIntoView({
-        behavior: 'smooth',
+        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+          ? 'auto'
+          : 'smooth',
         block: 'nearest',
         inline: 'center',
       });
@@ -244,11 +262,10 @@ const saveTimingAdjustment = async ({ actualTime, arrivalPolicy = '' }) => {
     class="min-h-screen"
   >
     <div
-      class="itinerary-day-glass fixed top-[calc(8px_+_env(safe-area-inset-top))] left-1/2 z-30 w-[calc(100%_-_32px)] max-w-[416px] -translate-x-1/2 px-4 rounded-[28px]"
+      class="itinerary-day-glass fixed top-[calc(8px_+_env(safe-area-inset-top))] left-1/2 z-30 w-[calc(100%_-_32px)] max-w-[416px] -translate-x-1/2 px-4 rounded-[20px] bg-white border border-[#dfeae5] shadow-[0_10px_30px_rgba(20,70,70,.12)]"
       @touchstart.stop
       @touchend.stop
     >
-      <FrontendGlassSurface />
       <el-tabs
         ref="dayTabsRef"
         v-model="activeDay"
@@ -263,34 +280,78 @@ const saveTimingAdjustment = async ({ actualTime, arrivalPolicy = '' }) => {
         />
       </el-tabs>
     </div>
-    <div class="mt-16 space-y-6">
-      <DataStatusNotice
-        :loading="travelStore.isLoading"
-        :stale="travelStore.isStale"
-        :error="travelStore.loadError"
-        @retry="travelStore.init({ force: true })"
-      />
-      <ItineraryCard
-        v-for="(item, idx) in itinerary"
-        :key="item.id"
-        :item="item"
-        :isNow="item.id === travelStore.currentActivity?.id"
-        :isNext="item.id === travelStore.nextActivity?.id"
-        :isLast="idx === itinerary.length - 1"
-        :can-manage-timing="userStore.canManageCurrentTripTiming"
-        @adjust-timing="openTimingAdjustment"
-      />
-      <div
-        v-if="
-          itinerary.length === 0 &&
-          !travelStore.isLoading &&
-          !travelStore.loadError
-        "
-        class="text-center py-20 text-slate-400 italic"
-      >
-        本日無行程，享受悠閒時光吧！
+    <Transition name="travel-day" mode="out-in">
+      <div :key="activeDay">
+        <section
+          class="day-cover relative isolate overflow-hidden bg-[#136a70]"
+          :class="{ 'day-cover--empty': !dayHero }"
+        >
+          <h1 class="sr-only">
+            {{
+              tripStore.currentTrip?.title ||
+              tripStore.currentTrip?.name ||
+              '旅程行事曆'
+            }}
+            · 第 {{ activeDay }} 天行程
+          </h1>
+          <img
+            v-if="dayHero && !heroImageFailed"
+            :src="dayHero.cover"
+            :alt="dayHero.location || '當日旅程照片'"
+            class="absolute inset-0 h-full w-full object-cover object-[center_58%]"
+            @error="heroImageFailed = true"
+          />
+          <div
+            class="absolute inset-0 bg-gradient-to-b from-[#102e35]/35 via-transparent to-[#102e35]/85"
+            aria-hidden="true"
+          ></div>
+          <div
+            v-if="dayHero"
+            class="absolute bottom-12 left-6 right-6 text-white"
+          >
+            <p
+              class="truncate text-[24px] font-black leading-tight tracking-tight"
+            >
+              {{ dayHero.location }}
+            </p>
+          </div>
+        </section>
+        <div
+          class="day-list relative z-10 -mx-4 -mt-6 space-y-5 rounded-t-[28px] bg-[var(--travel-paper)] px-4 pt-7"
+        >
+          <DataStatusNotice
+            :loading="travelStore.isLoading"
+            :stale="travelStore.isStale"
+            :error="travelStore.loadError"
+            @retry="travelStore.init({ force: true })"
+          />
+          <ItineraryCard
+            v-for="(item, idx) in itinerary"
+            :key="item.id"
+            :item="item"
+            :parent-item="
+              item.parentId ? itineraryById.get(item.parentId) : null
+            "
+            :isNow="item.id === travelStore.currentActivity?.id"
+            :isNext="item.id === travelStore.nextActivity?.id"
+            :isLast="idx === itinerary.length - 1"
+            :featured="false"
+            :can-manage-timing="userStore.canManageCurrentTripTiming"
+            @adjust-timing="openTimingAdjustment"
+          />
+          <div
+            v-if="
+              itinerary.length === 0 &&
+              !travelStore.isLoading &&
+              !travelStore.loadError
+            "
+            class="text-center py-20 text-slate-400 italic"
+          >
+            本日無行程，享受悠閒時光吧！
+          </div>
+        </div>
       </div>
-    </div>
+    </Transition>
 
     <ItineraryTimingDrawer
       v-model:open="timingDrawer.open"
@@ -322,8 +383,8 @@ const saveTimingAdjustment = async ({ actualTime, arrivalPolicy = '' }) => {
   text-align: center;
   transition: transform 0.1s ease; /* 加入輕微的縮放動畫 */
   -webkit-tap-highlight-color: transparent; /* 移除手機預設點擊藍框 */
-  color: rgb(226 232 240 / 76%);
-  text-shadow: 0 1px 10px rgb(15 23 42 / 45%);
+  color: #6f8585;
+  text-shadow: none;
 }
 
 .custom-tabs .el-tabs__nav {
@@ -358,17 +419,15 @@ const saveTimingAdjustment = async ({ actualTime, arrivalPolicy = '' }) => {
 
 /* 2. 選中狀態樣式 */
 .custom-tabs .el-tabs__active-bar {
-  background-color: #fb923c;
+  background-color: var(--travel-coral);
   height: 3px;
   border-radius: 3px;
-  box-shadow: 0 0 16px rgb(251 146 60 / 55%);
+  box-shadow: none;
 }
 
 .custom-tabs .el-tabs__item.is-active {
-  color: #fdba74 !important;
-  text-shadow:
-    0 1px 10px rgb(15 23 42 / 34%),
-    0 0 18px rgb(251 146 60 / 42%);
+  color: var(--travel-teal) !important;
+  text-shadow: none;
 }
 
 /* --- 核心優化：解決手機點擊問題 --- */
@@ -376,7 +435,7 @@ const saveTimingAdjustment = async ({ actualTime, arrivalPolicy = '' }) => {
 /* 3. 解決手機 Hover 殘留：僅在支援懸停的裝置上觸發 hover */
 @media (hover: hover) {
   .custom-tabs .el-tabs__item:hover {
-    color: #fdba74;
+    color: var(--travel-teal);
   }
 }
 
@@ -394,10 +453,31 @@ const saveTimingAdjustment = async ({ actualTime, arrivalPolicy = '' }) => {
 .custom-tabs .el-tabs__header {
   margin-bottom: 0px;
 }
+.day-cover {
+  height: clamp(360px, 46dvh, 430px);
+  margin: calc(-8px - env(safe-area-inset-top)) -16px 0;
+}
+.day-cover--empty {
+  height: clamp(160px, 25dvh, 240px);
+}
+.travel-day-enter-active,
+.travel-day-leave-active {
+  transition: opacity 220ms ease;
+}
+.travel-day-enter-from {
+  opacity: 0;
+}
+.travel-day-leave-to {
+  opacity: 0;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .custom-tabs .el-tabs__item,
   .custom-tabs .el-tabs__active-bar {
+    transition: none !important;
+  }
+  .travel-day-enter-active,
+  .travel-day-leave-active {
     transition: none !important;
   }
 }

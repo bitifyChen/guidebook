@@ -1,5 +1,4 @@
 <script setup>
-import FrontendGlassSurface from '@/components/FrontendGlassSurface.vue';
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
@@ -21,7 +20,7 @@ const scrollbarRef = ref(null); // 用於操作捲動條
 watch(
   () => route.path,
   () => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: 'auto' });
     isNavVisible.value = true; // 換頁時確保導航列是顯示的
   }
 );
@@ -186,7 +185,7 @@ const indicatorStyle = computed(() => {
 
 <template>
   <div
-    class="frontend-shell mx-auto min-h-screen max-w-md flex flex-col bg-[var(--primary-orange-light)] relative font-sans touch-pan-y pt-[env(safe-area-inset-top)]"
+    class="frontend-shell mx-auto min-h-screen max-w-md flex flex-col bg-[var(--travel-paper)] relative font-sans touch-pan-y pt-[env(safe-area-inset-top)]"
     @touchstart="handleTouchStart"
     @touchmove="handleTouchMove"
     @touchend="handleTouchEnd"
@@ -200,7 +199,7 @@ const indicatorStyle = computed(() => {
       }"
     >
       <div
-        class="flex items-center justify-center gap-2 text-orange-600 bg-white/90 backdrop-blur-sm rounded-full px-4 py-2 mt-2 shadow-lg"
+        class="flex items-center justify-center gap-2 text-[var(--travel-teal)] bg-white rounded-full px-4 py-2 mt-2 shadow-lg"
         :style="{
           transform: `scale(${Math.min(pullDistance / pullThreshold, 1)}) translateY(${Math.min(pullDistance - 40, 0)}px)`,
         }"
@@ -236,19 +235,26 @@ const indicatorStyle = computed(() => {
             : undefined
         "
       >
-        <slot />
+        <Transition name="travel-page" mode="out-in">
+          <div
+            :key="route.path"
+            class="travel-page"
+            :class="{ 'h-full': route.meta?.fullBleed }"
+          >
+            <slot />
+          </div>
+        </Transition>
       </div>
     </main>
 
     <div
-      class="fixed bottom-6 pb-[env(safe-area-inset-bottom)] left-0 right-0 px-6 z-50 transition-all duration-500 ease-in-out pointer-events-none max-w-md mx-auto"
+      class="fixed bottom-3 pb-[env(safe-area-inset-bottom)] left-0 right-0 px-4 z-50 transition-all duration-300 ease-out pointer-events-none max-w-md mx-auto"
       :class="{ 'translate-y-[120px] opacity-0': !isNavVisible }"
     >
       <nav
         aria-label="主要導覽"
-        class="relative flex justify-around rounded-[28px] py-2 px-2 pointer-events-auto"
+        class="relative flex justify-around rounded-[22px] py-2 px-2 pointer-events-auto bg-white border border-[#e1e9e4] shadow-[0_14px_36px_rgba(25,65,66,.13)]"
       >
-        <FrontendGlassSurface />
         <div class="nav-selection-track" aria-hidden="true">
           <div class="nav-selection" :style="indicatorStyle" />
         </div>
@@ -259,9 +265,9 @@ const indicatorStyle = computed(() => {
           @click="navigate(item.path)"
           :aria-current="isPageActive(item) ? 'page' : undefined"
           :class="[
-            'nav-tab flex flex-col items-center gap-1 transition-all duration-500 relative z-10 min-h-11 py-[4px] w-full',
+            'nav-tab flex flex-col items-center gap-1 transition-all duration-300 relative z-10 min-h-11 py-[4px] w-full',
             isPageActive(item)
-              ? 'nav-tab--active text-orange-200'
+              ? 'nav-tab--active text-[var(--travel-teal)]'
               : 'nav-tab--idle',
           ]"
         >
@@ -291,9 +297,7 @@ const indicatorStyle = computed(() => {
   top: 0;
   bottom: 0;
   border-radius: 20px;
-  background: linear-gradient(160deg, #ffffff20, #ffffff0a);
-  border: 1px solid #ffffff1f;
-  box-shadow: inset 0 1px 0 #ffffff26;
+  background: var(--travel-mist);
   transition:
     left 280ms cubic-bezier(0.2, 0.8, 0.2, 1),
     width 280ms ease;
@@ -306,10 +310,10 @@ const indicatorStyle = computed(() => {
   right: 32%;
   height: 2px;
   border-radius: 2px;
-  background: #fdba74;
+  background: var(--travel-coral);
 }
 .nav-tab:focus-visible {
-  outline: 2px solid #fdba74;
+  outline: 2px solid var(--travel-coral);
   outline-offset: 1px;
   border-radius: 18px;
 }
@@ -320,19 +324,31 @@ const indicatorStyle = computed(() => {
   }
 }
 .nav-tab {
-  text-shadow: 0 1px 10px rgb(15 23 42 / 45%);
+  text-shadow: none;
 }
 
 .nav-tab--idle {
-  color: rgb(226 232 240 / 76%);
+  color: #60787a;
   mix-blend-mode: normal;
 }
 
 .nav-tab--active {
   mix-blend-mode: normal;
-  text-shadow:
-    0 1px 10px rgb(15 23 42 / 34%),
-    0 0 18px rgb(251 146 60 / 42%);
+  text-shadow: none;
+}
+.travel-page-enter-active,
+.travel-page-leave-active {
+  transition:
+    opacity 180ms ease,
+    transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.travel-page-enter-from {
+  opacity: 0;
+  transform: translateY(10px);
+}
+.travel-page-leave-to {
+  opacity: 0;
+  transform: translateY(-5px);
 }
 
 /* 滾動條優化 */
@@ -341,7 +357,7 @@ const indicatorStyle = computed(() => {
   right: 4px;
 }
 :deep(.el-scrollbar__thumb) {
-  background-color: #ff8c0080 !important;
+  background-color: #136a7080 !important;
 }
 
 /* 點擊果凍感 */
@@ -358,5 +374,11 @@ nav {
 .nav-container {
   /* 使用 cubic-bezier 增加一點點果凍感的回彈 */
   transition: all 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+@media (prefers-reduced-motion: reduce) {
+  .travel-page-enter-active,
+  .travel-page-leave-active {
+    transition: none !important;
+  }
 }
 </style>

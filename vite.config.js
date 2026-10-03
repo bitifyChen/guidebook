@@ -93,8 +93,8 @@ export default defineConfig({
         start_url: '/settings',
         scope: '/',
         display: 'standalone',
-        theme_color: '#FF8C00',
-        background_color: '#FF8C00', // 加到主畫面啟動時的背景色
+        theme_color: '#136A70',
+        background_color: '#136A70', // 加到主畫面啟動時的背景色
         icons: [
           {
             src: '/192.png',

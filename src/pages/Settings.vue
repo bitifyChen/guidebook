@@ -28,10 +28,11 @@ import { lockScroll, unlockScroll } from '@/utils/scrollLock';
 import app from '@/firebase/index.js';
 import { getAuth } from 'firebase/auth';
 import PackingList from '@/components/PackingList.vue';
+import SettingsRow from '@/components/settings/SettingsRow.vue';
+import SettingsDetailDrawer from '@/components/settings/SettingsDetailDrawer.vue';
 import {
   ShieldCheck,
   ChevronRight,
-  Settings as SettingsIcon,
   LogOut,
   User,
   Ticket,
@@ -41,7 +42,6 @@ import {
   X,
   Upload,
   RefreshCw,
-  LayoutDashboard,
   Download,
   Luggage,
   Bell,
@@ -50,7 +50,11 @@ import {
 } from 'lucide-vue-next';
 import { getFCMToken } from '@/firebase/index';
 import { hasPackingItems } from '@/utils/packingList';
-import { forceReloadApp, pwaUpdateState } from '@/services/pwaUpdate';
+import {
+  checkForAppUpdate,
+  pwaUpdateState,
+  reloadApp,
+} from '@/services/pwaUpdate';
 
 const router = useRouter();
 const userStore = useUserStore();
@@ -62,6 +66,9 @@ const expensesStore = useExpensesStore();
 const inviteCode = ref('');
 const isClaiming = ref(false);
 const isRefreshing = ref(false);
+const isCheckingVersion = ref(false);
+const versionCheckMessage = ref('');
+const activeSettingsPanel = ref('');
 const userTrips = ref([]);
 const isLoadingUserTrips = ref(false);
 const isTripPickerOpen = ref(false);
@@ -99,7 +106,6 @@ const shouldShowMyTripsSection = computed(() =>
     isLoadingUserTrips.value
   )
 );
-
 // PWA Install Logic
 const deferredPrompt = ref(null);
 const isStandalone = ref(false);
@@ -149,6 +155,7 @@ const getCurrentTripPushTokens = (participant = userStore.myParticipant) => {
 
 const notificationStatus = computed(() => {
   if (!userStore.myParticipant) return 'disabled';
+  if (notificationPermission.value === 'denied') return 'denied';
   const tripPreference =
     userStore.myParticipant.notificationPreferences?.[tripStore.currentTripId];
   if (tripPreference === 'denied') {
@@ -160,7 +167,7 @@ const notificationStatus = computed(() => {
 
 const notificationStatusLabel = computed(() => {
   if (notificationStatus.value === 'enabled') return '已啟用';
-  if (notificationStatus.value === 'denied') return '拒絕';
+  if (notificationStatus.value === 'denied') return '權限已拒絕';
   return '未啟用';
 });
 
@@ -180,7 +187,7 @@ const trackingSetupStorageKey = computed(() => {
 
 const trackingSetupStatusText = computed(() => {
   if (trackingSetupNeedsRebind.value) return '定位設定已更新，請重新綁定';
-  if (trackingSetupToken.value) return '可重新綁定 Traccar';
+  if (trackingSetupToken.value) return '已建立定位設定';
   return '尚未啟用定位設定';
 });
 
@@ -488,6 +495,7 @@ const closeTripPicker = () => {
 };
 
 onMounted(async () => {
+  checkNotificationStatus();
   if (!userStore.isAuthReady) {
     await userStore.initAuth();
   }
@@ -502,8 +510,6 @@ onMounted(async () => {
   isStandalone.value =
     window.matchMedia('(display-mode: standalone)').matches ||
     window.navigator.standalone;
-
-  checkNotificationStatus();
 });
 
 watch(
@@ -517,13 +523,31 @@ watch(
   }
 );
 
-const handleForceRefresh = async () => {
+const handleReload = () => {
   isRefreshing.value = true;
+  reloadApp();
+};
+
+const handleCheckVersion = async () => {
+  if (isCheckingVersion.value) return;
+  isCheckingVersion.value = true;
+  versionCheckMessage.value = '';
   try {
-    await forceReloadApp();
-  } catch (error) {
-    isRefreshing.value = false;
-    await appAlert(error.message || '目前無法重新載入應用程式，請稍後再試。');
+    if (!navigator.onLine) {
+      versionCheckMessage.value = '目前沒有網路連線，連線後再試一次。';
+      return;
+    }
+    const result = await checkForAppUpdate({ ignoreDismissal: true });
+    if (result?.type === 'optional' || result?.type === 'required') {
+      versionCheckMessage.value = `找到新版本 v${result.manifest.version}，請依提示更新。`;
+    } else if (result?.type === 'none') {
+      versionCheckMessage.value = `目前已是最新版本 v${pwaUpdateState.currentVersion}。`;
+    } else {
+      versionCheckMessage.value =
+        pwaUpdateState.error || '目前無法檢查新版本，請稍後再試。';
+    }
+  } finally {
+    isCheckingVersion.value = false;
   }
 };
 
@@ -561,7 +585,7 @@ const isEditModalOpen = ref(false);
 const isUploading = ref(false);
 const isSaving = ref(false);
 
-watch([isEditModalOpen, isTripPickerOpen, isGuestNameModalOpen], (values) => {
+watch([isEditModalOpen, isGuestNameModalOpen], (values) => {
   if (values.some(Boolean)) {
     lockScroll();
   } else {
@@ -937,7 +961,7 @@ const disableNotificationForCurrentTrip = async () => {
       </p>
       <p
         v-if="tripStore.currentTrip"
-        class="text-xs font-bold text-indigo-500 mt-2"
+        class="text-xs font-bold text-[var(--travel-teal)] mt-2"
       >
         目前旅程：{{ tripStore.currentTrip.title }}
       </p>
@@ -946,7 +970,7 @@ const disableNotificationForCurrentTrip = async () => {
       <button
         v-if="userStore.myParticipant"
         @click="openEditModal"
-        class="absolute top-6 right-6 w-10 h-10 bg-slate-50 text-slate-400 rounded-2xl flex items-center justify-center hover:bg-purple-50 hover:text-purple-500 transition-colors border border-slate-100"
+        class="absolute top-6 right-6 w-10 h-10 bg-[var(--travel-mist)] text-[var(--travel-teal)] rounded-2xl flex items-center justify-center hover:bg-[#d7e8e2] transition-colors border border-[#d7e8e2]"
       >
         <Pencil :size="18" />
       </button>
@@ -964,10 +988,10 @@ const disableNotificationForCurrentTrip = async () => {
         <button
           v-if="userTrips.length"
           @click="isTripPickerOpen = true"
-          class="w-full p-5 flex items-center gap-4 hover:bg-indigo-50 transition-colors border-b border-slate-50 last:border-b-0 text-left"
+          class="w-full p-5 flex items-center gap-4 hover:bg-[var(--travel-paper)] transition-colors border-b border-slate-50 last:border-b-0 text-left"
         >
           <div
-            class="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-500 flex items-center justify-center font-black"
+            class="w-10 h-10 rounded-xl bg-[var(--travel-mist)] text-[var(--travel-teal)] flex items-center justify-center font-black"
           >
             {{ tripStore.currentTrip?.title?.slice(0, 1) || userTrips.length }}
           </div>
@@ -1005,7 +1029,7 @@ const disableNotificationForCurrentTrip = async () => {
               v-model="inviteCode"
               type="text"
               placeholder="輸入 6 位代碼"
-              class="w-full bg-slate-50 border-none rounded-2xl p-4 pr-12 font-mono font-black text-slate-700 placeholder:text-slate-300 focus:ring-2 focus:ring-purple-500/20 transition-all outline-none"
+              class="settings-accent-focus w-full bg-slate-50 border-none rounded-2xl p-4 pr-12 font-mono font-black text-slate-700 placeholder:text-slate-300 transition-all outline-none"
               maxlength="6"
             />
             <div
@@ -1017,7 +1041,7 @@ const disableNotificationForCurrentTrip = async () => {
           <button
             @click="handleClaim"
             :disabled="isClaiming || !inviteCode"
-            class="w-full bg-purple-500 text-white rounded-2xl py-4 font-black flex items-center justify-center gap-2 hover:bg-purple-600 disabled:opacity-50 transition-all shadow-lg shadow-purple-100"
+            class="settings-brand-action w-full text-white rounded-2xl py-4 font-black flex items-center justify-center gap-2 disabled:opacity-50 transition-all"
           >
             <Loader2 v-if="isClaiming" class="animate-spin" :size="18" />
             {{ isClaiming ? '驗證中...' : '加入旅程' }}
@@ -1054,7 +1078,7 @@ const disableNotificationForCurrentTrip = async () => {
             v-model="inviteCode"
             type="text"
             placeholder="輸入 6 位代碼"
-            class="w-full bg-slate-50 border-none rounded-2xl p-4 pr-12 font-mono font-black text-slate-700 placeholder:text-slate-300 focus:ring-2 focus:ring-purple-500/20 transition-all outline-none"
+            class="settings-accent-focus w-full bg-slate-50 border-none rounded-2xl p-4 pr-12 font-mono font-black text-slate-700 placeholder:text-slate-300 transition-all outline-none"
             maxlength="6"
           />
           <div class="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300">
@@ -1064,7 +1088,7 @@ const disableNotificationForCurrentTrip = async () => {
         <button
           @click="handleClaim"
           :disabled="isClaiming || !inviteCode"
-          class="w-full bg-purple-500 text-white rounded-2xl py-4 font-black flex items-center justify-center gap-2 hover:bg-purple-600 disabled:opacity-50 transition-all shadow-lg shadow-purple-100"
+          class="settings-brand-action w-full text-white rounded-2xl py-4 font-black flex items-center justify-center gap-2 disabled:opacity-50 transition-all"
         >
           <Loader2 v-if="isClaiming" class="animate-spin" :size="18" />
           {{
@@ -1078,363 +1102,332 @@ const disableNotificationForCurrentTrip = async () => {
       </div>
     </section>
 
-    <!-- General Settings -->
-    <section class="space-y-3">
-      <h3
-        class="px-4 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]"
+    <section class="space-y-3" aria-labelledby="settings-device-heading">
+      <h2
+        id="settings-device-heading"
+        class="px-1 text-xs font-bold tracking-widest text-slate-500"
       >
         一般設定
-      </h3>
-      <div
-        class="bg-white rounded-[40px] border border-slate-100 overflow-hidden"
-      >
-        <!-- Admin Access (Visible only to Super Admin) -->
-        <button
+      </h2>
+      <div class="overflow-hidden rounded-3xl border border-slate-100 bg-white">
+        <SettingsRow
           v-if="
             userStore?.myParticipant?.isSuperAdmin ||
             userStore?.myParticipant?.isAdmin
           "
+          :icon="ShieldCheck"
+          title="管理後台"
+          detail="管理旅程與成員"
           @click="router.push('/admin')"
-          class="w-full p-6 flex items-center gap-4 hover:bg-indigo-50 transition-colors group border-b border-slate-50"
-        >
-          <div
-            class="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-500 group-hover:scale-110 transition-transform"
-          >
-            <ShieldCheck :size="20" />
-          </div>
-          <span class="font-bold text-slate-700 flex-1 text-left"
-            >管理後台</span
-          >
-          <ChevronRight :size="20" class="text-slate-200" />
-        </button>
-
-        <!-- Packing List Button -->
-        <button
+        />
+        <SettingsRow
           v-if="!tripStore.isPublicTrip && hasTripPackingList"
+          :icon="Luggage"
+          title="行李準備清單"
+          detail="檢查必備物品與證件"
           @click="isPackingListOpen = true"
-          class="w-full p-6 flex items-center gap-4 hover:bg-lime-50 transition-colors group border-b border-slate-50"
-        >
-          <div
-            class="w-10 h-10 bg-lime-50 rounded-xl flex items-center justify-center text-lime-600 group-hover:scale-110 transition-transform"
-          >
-            <Luggage :size="20" />
-          </div>
-          <div class="flex-1 text-left">
-            <span class="block font-bold text-slate-700">行李準備清單</span>
-            <span
-              class="block text-[10px] font-bold text-slate-400 uppercase tracking-tighter mt-0.5"
-              >檢查必備物品與證件</span
-            >
-          </div>
-          <ChevronRight :size="20" class="text-slate-200" />
-        </button>
-
-        <!-- App Update Button -->
-        <button
-          @click="handleForceRefresh"
-          :disabled="isRefreshing"
-          class="w-full p-6 flex items-center gap-4 hover:bg-blue-50 transition-colors group border-b border-slate-50 disabled:opacity-50"
-        >
-          <div
-            class="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-blue-500 group-hover:scale-110 transition-transform"
-          >
-            <RefreshCw :size="20" :class="{ 'animate-spin': isRefreshing }" />
-          </div>
-          <div class="flex-1 text-left">
-            <span class="block font-bold text-slate-700">重新載入應用程式</span>
-            <span
-              class="block text-[10px] font-bold text-slate-400 uppercase tracking-tighter mt-0.5"
-              >目前版本 v{{ pwaUpdateState.currentVersion }} ·
-              檢查更新後重新載入</span
-            >
-          </div>
-          <ChevronRight :size="20" class="text-slate-200" />
-        </button>
-
-        <!-- Install PWA Button (Only show if not in standalone mode) -->
-        <button
-          v-if="!isStandalone"
-          @click="handleInstallClick"
-          class="w-full p-6 flex items-center gap-4 hover:bg-orange-50 transition-colors group border-b border-slate-50"
-        >
-          <div
-            class="w-10 h-10 bg-orange-50 rounded-xl flex items-center justify-center text-orange-500 group-hover:scale-110 transition-transform"
-          >
-            <Download :size="20" />
-          </div>
-          <div class="flex-1 text-left">
-            <span class="block font-bold text-slate-700">安裝到手機桌面</span>
-            <span
-              class="block text-[10px] font-bold text-slate-400 uppercase tracking-tighter mt-0.5"
-              >像 App 一樣快速開啟</span
-            >
-          </div>
-          <ChevronRight :size="20" class="text-slate-200" />
-        </button>
-
-        <!-- Push Notification Settings -->
-        <div
+        />
+        <SettingsRow
           v-if="userStore.myParticipant"
-          class="w-full p-6 border-b border-slate-50"
-        >
-          <div class="flex items-center gap-4 text-left">
-            <div
-              class="w-10 h-10 bg-purple-50 rounded-xl flex items-center justify-center text-purple-500"
-            >
-              <Bell :size="20" />
-            </div>
-            <div class="flex-1 min-w-0">
-              <span class="block font-bold text-slate-700">推播通知</span>
-              <span
-                class="block text-[10px] font-bold text-slate-400 uppercase tracking-tighter mt-0.5"
-              >
-                通知狀態:
-                <span
-                  :class="{
-                    'text-green-500': notificationStatus === 'enabled',
-                    'text-red-500': notificationStatus === 'denied',
-                    'text-amber-500': notificationStatus === 'disabled',
-                  }"
-                >
-                  {{ notificationStatusLabel }}
-                </span>
-              </span>
-            </div>
-
-            <div class="flex flex-col gap-2 shrink-0">
-              <button
-                v-if="notificationStatus !== 'enabled'"
-                @click="requestNotificationPermission"
-                :disabled="isGettingToken"
-                class="bg-purple-500 text-white text-xs font-black px-4 py-2 rounded-xl hover:bg-purple-600 disabled:opacity-50 transition-colors flex items-center justify-center"
-              >
-                <Loader2
-                  v-if="isGettingToken"
-                  class="animate-spin mr-1"
-                  :size="12"
-                />
-                啟用通知
-              </button>
-              <template v-else>
-                <button
-                  @click="disableNotificationForCurrentTrip"
-                  :disabled="isGettingToken"
-                  class="bg-red-50 text-red-600 text-xs font-black px-4 py-2 rounded-xl hover:bg-red-100 disabled:opacity-50 transition-colors flex items-center justify-center"
-                >
-                  <Loader2
-                    v-if="isGettingToken"
-                    class="animate-spin mr-1"
-                    :size="12"
-                  />
-                  關閉通知
-                </button>
-                <button
-                  @click="requestNotificationPermission"
-                  :disabled="isGettingToken"
-                  class="bg-indigo-500 text-white text-xs font-black px-4 py-2 rounded-xl hover:bg-indigo-600 disabled:opacity-50 transition-colors flex items-center justify-center"
-                >
-                  <Loader2
-                    v-if="isGettingToken"
-                    class="animate-spin mr-1"
-                    :size="12"
-                  />
-                  重新綁定
-                </button>
-              </template>
-            </div>
-          </div>
-
-          <!-- iOS Standalone 警告說明 -->
-          <div
-            v-if="isIOS && !isStandalone"
-            class="mt-4 p-4 bg-amber-50 border border-amber-100 rounded-2xl text-[11px] text-amber-800 font-bold leading-relaxed text-left"
-          >
-            💡 iOS 系統限制：請先點擊 Safari
-            下方的「分享」圖示，選擇「加入主畫面」，然後從手機桌面啟動此 PWA
-            應用程式，才能啟用並接收推播通知。
-          </div>
-        </div>
-
-        <!-- Location Tracking Setup -->
-        <div
+          :icon="Bell"
+          title="推播通知"
+          detail="管理此旅程的通知"
+          :status="notificationStatusLabel"
+          :status-tone="
+            notificationStatus === 'enabled'
+              ? 'success'
+              : notificationStatus === 'denied'
+                ? 'warning'
+                : 'neutral'
+          "
+          @click="activeSettingsPanel = 'notifications'"
+        />
+        <SettingsRow
           v-if="userStore.myParticipant && !tripStore.isPublicTrip"
-          class="w-full p-6 border-b border-slate-50"
+          :icon="MapPin"
+          title="手機定位"
+          detail="分享此裝置的位置"
+          :status="
+            isTrackingSetupLoading
+              ? '讀取中'
+              : trackingSetupNeedsRebind
+                ? '需更新'
+                : trackingSetupToken
+                  ? '已設定'
+                  : '未設定'
+          "
+          :status-tone="
+            trackingSetupNeedsRebind
+              ? 'warning'
+              : trackingSetupToken
+                ? 'success'
+                : 'neutral'
+          "
+          @click="activeSettingsPanel = 'tracking'"
+        />
+        <p
+          v-if="!hasTripPackingList && !userStore.myParticipant"
+          class="px-5 py-5 text-sm text-slate-500"
         >
-          <div class="flex items-start gap-4 text-left">
-            <div
-              class="w-10 h-10 bg-orange-50 rounded-xl flex items-center justify-center text-orange-500 shrink-0"
-            >
-              <MapPin :size="20" />
-            </div>
-            <div class="flex-1 min-w-0">
-              <span class="block font-bold text-slate-700">手機定位</span>
-              <span
-                class="block text-[10px] font-bold text-slate-400 uppercase tracking-tighter mt-0.5"
-              >
-                {{ trackingSetupStatusText }}
-              </span>
-
-              <div class="mt-4 grid grid-cols-1 gap-2">
-                <button
-                  @click="openTraccarSetup"
-                  :disabled="isTrackingSetupLoading"
-                  class="h-11 rounded-xl bg-orange-500 text-white text-xs font-black flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  <Loader2
-                    v-if="isTrackingSetupLoading"
-                    class="animate-spin"
-                    :size="14"
-                  />
-                  <MapPin v-else :size="14" />
-                  {{
-                    trackingSetupNeedsRebind
-                      ? '重新綁定 Traccar'
-                      : trackingSetupToken
-                        ? '重新開啟 Traccar'
-                        : '開啟 Traccar 設定'
-                  }}
-                </button>
-                <div class="grid grid-cols-2 gap-2">
-                  <button
-                    @click="copyTrackingSetup(traccarConfigUrl, 'app')"
-                    :disabled="!traccarConfigUrl"
-                    class="h-10 rounded-xl bg-slate-100 text-slate-600 text-xs font-black flex items-center justify-center gap-1 disabled:opacity-50"
-                  >
-                    <Copy :size="13" />
-                    {{
-                      copiedTrackingSetup === 'app' ? '已複製' : '複製 App 連結'
-                    }}
-                  </button>
-                  <button
-                    @click="removeCurrentTrackingSetup"
-                    :disabled="!trackingSetupToken || isTrackingSetupLoading"
-                    class="h-10 rounded-xl bg-red-50 text-red-600 text-xs font-black flex items-center justify-center gap-1 disabled:opacity-50"
-                  >
-                    <X :size="13" />
-                    移除設定
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Logout Button -->
-        <button
-          v-if="userStore.user || userStore.myParticipant"
-          @click="handleLogout"
-          class="w-full p-6 flex items-center gap-4 hover:bg-red-50 transition-colors group"
-        >
-          <div
-            class="w-10 h-10 bg-red-50 rounded-xl flex items-center justify-center text-red-400 group-hover:scale-110 transition-transform"
-          >
-            <LogOut :size="20" />
-          </div>
-          <span class="font-bold text-red-500 flex-1 text-left">登出帳號</span>
-          <ChevronRight :size="20" class="text-red-200" />
-        </button>
-
-        <button
-          v-else-if="tripStore.currentTripId"
-          @click="leaveCurrentTrip"
-          class="w-full p-6 flex items-center gap-4 hover:bg-red-50 transition-colors group"
-        >
-          <div
-            class="w-10 h-10 bg-red-50 rounded-xl flex items-center justify-center text-red-400 group-hover:scale-110 transition-transform"
-          >
-            <LogOut :size="20" />
-          </div>
-          <span class="font-bold text-red-500 flex-1 text-left"
-            >離開目前旅程</span
-          >
-          <ChevronRight :size="20" class="text-red-200" />
-        </button>
+          加入旅程後，可在這裡管理旅途工具。
+        </p>
       </div>
     </section>
 
-    <!-- App Info -->
-    <div class="text-center pt-8">
-      <p
-        class="text-[10px] font-black text-slate-300 uppercase tracking-[0.3em]"
+    <section class="space-y-3" aria-labelledby="settings-app-heading">
+      <h2
+        id="settings-app-heading"
+        class="px-1 text-xs font-bold tracking-widest text-slate-500"
       >
-        Guidebook v1.0.0
-      </p>
-    </div>
+        應用程式
+      </h2>
+      <div class="overflow-hidden rounded-3xl border border-slate-100 bg-white">
+        <SettingsRow
+          v-if="!isStandalone"
+          :icon="Download"
+          title="安裝到手機桌面"
+          detail="從桌面快速開啟旅程"
+          @click="handleInstallClick"
+        />
+        <SettingsRow
+          :icon="RefreshCw"
+          title="檢查新版本"
+          :detail="`目前版本 v${pwaUpdateState.currentVersion}`"
+          @click="activeSettingsPanel = 'version'"
+        />
+        <SettingsRow
+          :icon="RefreshCw"
+          title="重新載入"
+          detail="重新開啟目前頁面"
+          :busy="isRefreshing"
+          @click="handleReload"
+        />
+        <SettingsRow
+          v-if="userStore.user || userStore.myParticipant"
+          :icon="LogOut"
+          title="登出帳號"
+          detail="結束目前登入狀態"
+          tone="danger"
+          @click="handleLogout"
+        />
+        <SettingsRow
+          v-else-if="tripStore.currentTripId"
+          :icon="LogOut"
+          title="離開目前旅程"
+          detail="之後可用邀請碼再次加入"
+          tone="danger"
+          @click="leaveCurrentTrip"
+        />
+      </div>
+    </section>
 
-    <Teleport to="body">
-      <div
-        v-if="isTripPickerOpen"
-        class="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-4"
+    <p class="pt-1 text-center text-xs font-medium text-slate-400">
+      Guidebook v{{ pwaUpdateState.currentVersion }}
+    </p>
+
+    <SettingsDetailDrawer
+      :model-value="activeSettingsPanel === 'notifications'"
+      title="推播通知"
+      description="接收目前旅程的重要通知。"
+      @update:model-value="activeSettingsPanel = $event ? 'notifications' : ''"
+    >
+      <div class="settings-status-box">
+        <span>目前狀態</span><strong>{{ notificationStatusLabel }}</strong>
+      </div>
+      <p
+        v-if="notificationStatus === 'denied'"
+        class="mt-3 text-xs leading-5 text-slate-500"
       >
-        <div
-          class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
-          @click="closeTripPicker"
-        ></div>
-        <div
-          class="relative w-full max-w-md bg-white rounded-[36px] shadow-2xl overflow-hidden animate-in slide-in-from-bottom duration-300"
+        此裝置曾拒絕通知。如要重新開啟，請先到系統或瀏覽器設定允許通知。
+      </p>
+      <p
+        v-if="isIOS && !isStandalone"
+        class="mt-3 rounded-2xl bg-[var(--travel-mist)] p-4 text-xs leading-5 text-[var(--travel-ink)]"
+      >
+        iPhone 或 iPad 請先將網站加入主畫面，再從桌面開啟，才能接收推播。
+      </p>
+      <button
+        v-if="notificationStatus !== 'enabled'"
+        type="button"
+        class="settings-primary-action mt-5"
+        :disabled="isGettingToken"
+        @click="requestNotificationPermission"
+      >
+        <Loader2 v-if="isGettingToken" class="animate-spin" :size="17" /><Bell
+          v-else
+          :size="17"
+        />啟用通知
+      </button>
+      <template v-else>
+        <button
+          type="button"
+          class="settings-primary-action mt-5"
+          :disabled="isGettingToken"
+          @click="requestNotificationPermission"
+        >
+          <Loader2
+            v-if="isGettingToken"
+            class="animate-spin"
+            :size="17"
+          /><RefreshCw v-else :size="17" />重新綁定此裝置
+        </button>
+        <button
+          type="button"
+          class="settings-danger-action mt-3"
+          :disabled="isGettingToken"
+          @click="disableNotificationForCurrentTrip"
+        >
+          關閉此旅程通知
+        </button>
+      </template>
+    </SettingsDetailDrawer>
+
+    <SettingsDetailDrawer
+      :model-value="activeSettingsPanel === 'tracking'"
+      title="手機定位"
+      description="使用 Traccar 分享此裝置的位置。"
+      @update:model-value="activeSettingsPanel = $event ? 'tracking' : ''"
+    >
+      <div class="settings-status-box">
+        <span>目前狀態</span
+        ><strong>{{
+          isTrackingSetupLoading ? '正在讀取設定' : trackingSetupStatusText
+        }}</strong>
+      </div>
+      <button
+        type="button"
+        class="settings-primary-action mt-5"
+        :disabled="isTrackingSetupLoading"
+        @click="openTraccarSetup"
+      >
+        <Loader2
+          v-if="isTrackingSetupLoading"
+          class="animate-spin"
+          :size="17"
+        /><MapPin v-else :size="17" />{{
+          trackingSetupNeedsRebind
+            ? '重新綁定 Traccar'
+            : trackingSetupToken
+              ? '重新開啟 Traccar'
+              : '開啟 Traccar 設定'
+        }}
+      </button>
+      <button
+        type="button"
+        class="settings-secondary-action mt-3"
+        :disabled="!traccarConfigUrl"
+        @click="copyTrackingSetup(traccarConfigUrl, 'app')"
+      >
+        <Copy :size="17" />{{
+          copiedTrackingSetup === 'app' ? '已複製連結' : '複製 App 連結'
+        }}
+      </button>
+      <button
+        v-if="trackingSetupToken"
+        type="button"
+        class="settings-danger-action mt-5"
+        :disabled="isTrackingSetupLoading"
+        @click="removeCurrentTrackingSetup"
+      >
+        移除定位設定
+      </button>
+    </SettingsDetailDrawer>
+
+    <SettingsDetailDrawer
+      :model-value="activeSettingsPanel === 'version'"
+      title="檢查新版本"
+      description="確認是否有新版 Guidebook 可用。"
+      @update:model-value="activeSettingsPanel = $event ? 'version' : ''"
+    >
+      <div class="settings-status-box">
+        <span>目前版本</span
+        ><strong>v{{ pwaUpdateState.currentVersion }}</strong>
+      </div>
+      <button
+        type="button"
+        class="settings-primary-action mt-5"
+        :disabled="isCheckingVersion || pwaUpdateState.status === 'updating'"
+        @click="handleCheckVersion"
+      >
+        <Loader2
+          v-if="isCheckingVersion"
+          class="animate-spin"
+          :size="17"
+        /><RefreshCw v-else :size="17" />{{
+          isCheckingVersion ? '正在檢查' : '檢查新版本'
+        }}
+      </button>
+      <p
+        v-if="versionCheckMessage"
+        class="mt-4 rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700"
+        role="status"
+      >
+        {{ versionCheckMessage }}
+      </p>
+      <p class="mt-4 text-xs leading-5 text-slate-500">
+        找到新版本時，畫面會顯示更新提示。重新載入是另一個獨立操作。
+      </p>
+    </SettingsDetailDrawer>
+
+    <SettingsDetailDrawer
+      :model-value="isTripPickerOpen"
+      :title="pendingTripSelection ? '選擇要綁定的旅程' : '選擇旅程'"
+      :description="
+        tripPickerHint ||
+        (pendingTripSelection
+          ? '這個旅客碼可加入多趟旅程'
+          : '切換後會重新載入本次旅程資料')
+      "
+      @update:model-value="!$event && closeTripPicker()"
+    >
+      <div class="max-h-[60dvh] space-y-2 overflow-y-auto pb-1">
+        <button
+          v-for="row in tripPickerRows"
+          :key="`${row.participant.id}-${row.trip.id}`"
+          type="button"
+          class="flex min-h-[72px] w-full items-center gap-4 rounded-2xl p-4 text-left transition-colors hover:bg-[var(--travel-mist)]"
+          :class="
+            row.trip.id === tripStore.currentTripId
+              ? 'bg-[var(--travel-mist)]'
+              : 'bg-slate-50/70'
+          "
+          :aria-current="
+            row.trip.id === tripStore.currentTripId ? 'true' : undefined
+          "
+          @click="selectTripFromPicker(row)"
         >
           <div
-            class="p-6 border-b border-slate-100 flex items-center justify-between"
+            class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl font-black"
+            :class="
+              row.trip.id === tripStore.currentTripId
+                ? 'bg-[var(--travel-teal)] text-white'
+                : 'bg-white text-slate-400'
+            "
           >
-            <div>
-              <h3 class="text-lg font-black text-slate-800">
-                {{ pendingTripSelection ? '選擇要綁定的旅程' : '選擇旅程' }}
-              </h3>
-              <p class="text-[10px] font-bold text-slate-400 mt-1">
-                {{
-                  tripPickerHint ||
-                  (pendingTripSelection
-                    ? '這個旅客碼可加入多趟旅程'
-                    : '切換後會重新載入本次旅程資料')
-                }}
-              </p>
+            {{ row.trip.title?.slice(0, 1) || '旅' }}
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="truncate font-black text-slate-800">
+              {{ row.trip.title }}
             </div>
-            <button
-              @click="closeTripPicker"
-              class="w-9 h-9 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400"
-            >
-              <X :size="18" />
-            </button>
+            <div class="mt-0.5 text-[10px] font-bold text-slate-400">
+              {{ row.trip.inviteCode }} · {{ row.participant.name }}
+            </div>
           </div>
-
-          <div class="max-h-[60vh] overflow-y-auto p-3">
-            <button
-              v-for="row in tripPickerRows"
-              :key="`${row.participant.id}-${row.trip.id}`"
-              @click="selectTripFromPicker(row)"
-              class="w-full p-4 rounded-2xl flex items-center gap-4 hover:bg-indigo-50 transition-colors text-left"
-              :class="
-                row.trip.id === tripStore.currentTripId ? 'bg-indigo-50' : ''
-              "
-            >
-              <div
-                class="w-10 h-10 rounded-xl flex items-center justify-center font-black"
-                :class="
-                  row.trip.id === tripStore.currentTripId
-                    ? 'bg-indigo-500 text-white'
-                    : 'bg-slate-50 text-slate-400'
-                "
-              >
-                {{ row.trip.title?.slice(0, 1) || '旅' }}
-              </div>
-              <div class="flex-1 min-w-0">
-                <div class="font-black text-slate-800 truncate">
-                  {{ row.trip.title }}
-                </div>
-                <div class="text-[10px] font-bold text-slate-400 mt-0.5">
-                  {{ row.trip.inviteCode }} · {{ row.participant.name }}
-                </div>
-              </div>
-              <CheckCircle2
-                v-if="row.trip.id === tripStore.currentTripId"
-                :size="18"
-                class="text-indigo-500"
-              />
-            </button>
-          </div>
-        </div>
+          <span
+            v-if="row.trip.id === tripStore.currentTripId"
+            class="shrink-0 text-xs font-bold text-[var(--travel-teal)]"
+          >
+            目前旅程
+          </span>
+          <CheckCircle2
+            v-if="row.trip.id === tripStore.currentTripId"
+            :size="18"
+            class="shrink-0 text-[var(--travel-teal)]"
+          />
+        </button>
       </div>
-    </Teleport>
+    </SettingsDetailDrawer>
 
     <Teleport to="body">
       <div
@@ -1468,7 +1461,7 @@ const disableNotificationForCurrentTrip = async () => {
             <input
               v-model="guestNameInput"
               type="text"
-              class="w-full bg-slate-50 border-none rounded-2xl p-4 font-black text-slate-700 placeholder:text-slate-300 focus:ring-2 focus:ring-purple-500/20 transition-all outline-none"
+              class="settings-accent-focus w-full bg-slate-50 border-none rounded-2xl p-4 font-black text-slate-700 placeholder:text-slate-300 transition-all outline-none"
               placeholder="輸入姓名"
               autocomplete="name"
               autofocus
@@ -1476,7 +1469,7 @@ const disableNotificationForCurrentTrip = async () => {
             <button
               type="submit"
               :disabled="!guestNameInput.trim()"
-              class="w-full bg-purple-500 text-white rounded-2xl py-4 font-black flex items-center justify-center gap-2 hover:bg-purple-600 disabled:opacity-50 transition-all shadow-lg shadow-purple-100"
+              class="settings-brand-action w-full text-white rounded-2xl py-4 font-black flex items-center justify-center gap-2 disabled:opacity-50 transition-all"
             >
               加入旅程
             </button>
@@ -1539,7 +1532,10 @@ const disableNotificationForCurrentTrip = async () => {
                   v-if="isUploading"
                   class="absolute inset-0 bg-white/80 flex items-center justify-center"
                 >
-                  <Loader2 class="animate-spin text-purple-500" :size="24" />
+                  <Loader2
+                    class="animate-spin text-[var(--travel-teal)]"
+                    :size="24"
+                  />
                 </div>
 
                 <button
@@ -1559,7 +1555,7 @@ const disableNotificationForCurrentTrip = async () => {
               <div class="flex gap-4">
                 <button
                   @click="triggerFileUpload"
-                  class="text-xs font-black text-purple-500 uppercase tracking-widest"
+                  class="text-xs font-black text-[var(--travel-teal)] uppercase tracking-widest"
                 >
                   {{ editForm.avatar ? '更換頭像' : '上傳頭像' }}
                 </button>
@@ -1583,7 +1579,7 @@ const disableNotificationForCurrentTrip = async () => {
                 v-model="editForm.name"
                 type="text"
                 placeholder="旅客姓名"
-                class="w-full bg-slate-50 border-none rounded-2xl p-4 font-bold text-slate-700 placeholder:text-slate-300 focus:ring-2 focus:ring-purple-500/20 transition-all outline-none"
+                class="settings-accent-focus w-full bg-slate-50 border-none rounded-2xl p-4 font-bold text-slate-700 placeholder:text-slate-300 transition-all outline-none"
               />
             </div>
 
@@ -1591,7 +1587,7 @@ const disableNotificationForCurrentTrip = async () => {
             <button
               @click="handleUpdateProfile"
               :disabled="isSaving || isUploading"
-              class="w-full bg-slate-800 text-white rounded-2xl py-4 font-black flex items-center justify-center gap-2 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-slate-200"
+              class="settings-brand-action w-full text-white rounded-2xl py-4 font-black flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
             >
               <Loader2 v-if="isSaving" class="animate-spin" :size="18" />
               確認儲存
@@ -1608,3 +1604,73 @@ const disableNotificationForCurrentTrip = async () => {
     name: "SettingPage",
   }
 </route>
+
+<style scoped>
+.settings-primary-action,
+.settings-secondary-action,
+.settings-danger-action {
+  display: flex;
+  min-height: 48px;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 16px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.settings-primary-action {
+  background: var(--travel-teal);
+  color: white;
+}
+
+.settings-brand-action {
+  background: var(--travel-teal);
+}
+
+.settings-brand-action:hover:not(:disabled),
+.settings-primary-action:hover:not(:disabled) {
+  background: var(--travel-ink);
+}
+
+.settings-accent-focus:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--travel-coral) 35%, transparent);
+}
+
+.settings-secondary-action {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.settings-danger-action {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.settings-primary-action:disabled,
+.settings-secondary-action:disabled,
+.settings-danger-action:disabled {
+  opacity: 0.5;
+}
+
+.settings-status-box {
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-radius: 16px;
+  background: var(--travel-mist);
+  padding: 14px 16px;
+  font-size: 14px;
+  color: #64748b;
+}
+
+.settings-status-box strong {
+  color: var(--travel-ink);
+  text-align: right;
+}
+</style>

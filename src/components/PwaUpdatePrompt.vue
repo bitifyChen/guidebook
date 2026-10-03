@@ -36,7 +36,7 @@ const update = async () => {
       >
         <div class="flex items-start gap-4">
           <div
-            class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-orange-50 text-orange-500"
+            class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--travel-mist)] text-[var(--travel-teal)]"
           >
             <RefreshCw v-if="isRequired" :size="22" />
             <Download v-else :size="22" />
@@ -84,7 +84,7 @@ const update = async () => {
           </button>
           <button
             type="button"
-            class="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-orange-500 text-sm font-black text-white disabled:opacity-60"
+            class="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--travel-teal)] text-sm font-black text-white disabled:opacity-60"
             :disabled="isUpdating"
             @click="update"
           >

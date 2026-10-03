@@ -78,6 +78,7 @@ const historyPoints = ref([]);
 const historyError = ref('');
 const isHistoryLoading = ref(false);
 const historyViewMode = ref('overview');
+const historyShowFullRoute = ref(true);
 const historyCurrentIndex = ref(0);
 const historyIsPlaying = ref(false);
 const historyPlaybackSpeed = ref('1');
@@ -91,6 +92,7 @@ const multiHistoryFocusedId = ref('');
 const multiHistoryCurrentTimestamp = ref(0);
 const multiHistoryIsPlaying = ref(false);
 const multiHistoryPlaybackMode = ref(false);
+const multiHistoryShowFullRoute = ref(true);
 const multiHistoryPlaybackSpeed = ref('1');
 const multiHistoryError = ref('');
 
@@ -359,6 +361,7 @@ const formatTrackTime = (value) => {
   return new Date(time).toLocaleTimeString('zh-TW', {
     hour: '2-digit',
     minute: '2-digit',
+    hour12: false,
   });
 };
 
@@ -562,32 +565,32 @@ const fitHistoryBounds = (latLngs) => {
     mapInstance.fitBounds(bounds, {
       animate: true,
       paddingTopLeft: [28, 72],
-      paddingBottomRight: [28, 210],
+      paddingBottomRight: [28, 160],
       maxZoom: 17,
     });
   }
 };
 
-const renderHistoryTrack = () => {
+const renderHistoryTrack = ({ fit = false } = {}) => {
   if (!mapInstance || !historyLayer || !historyPlaybackLayer) return;
   clearHistoryLayer();
   if (!historyPoints.value.length) return;
 
   const latLngs = historyPoints.value.map((point) => [point.lat, point.lng]);
-  splitTrackSegments(historyPoints.value).forEach((segment) => {
-    if (segment.length < 2) return;
-    L.polyline(
-      segment.map((point) => [point.lat, point.lng]),
-      {
-        color: historyViewMode.value === 'overview' ? '#f97316' : '#94a3b8',
-        weight: historyViewMode.value === 'overview' ? 5 : 4,
-        opacity: historyViewMode.value === 'overview' ? 0.82 : 0.72,
-        lineCap: 'round',
-        lineJoin: 'round',
-        dashArray: historyViewMode.value === 'overview' ? undefined : '2 7',
-      }
-    ).addTo(historyLayer);
-  });
+  if (historyShowFullRoute.value)
+    splitTrackSegments(historyPoints.value).forEach((segment) => {
+      if (segment.length < 2) return;
+      L.polyline(
+        segment.map((point) => [point.lat, point.lng]),
+        {
+          color: '#f97316',
+          weight: 4,
+          opacity: 0.28,
+          lineCap: 'round',
+          lineJoin: 'round',
+        }
+      ).addTo(historyLayer);
+    });
 
   historyStops.value.forEach((stop, stopIndex) => {
     const isSelected = historySelectedStopIndex.value === stopIndex;
@@ -642,7 +645,7 @@ const renderHistoryTrack = () => {
   });
 
   if (historyViewMode.value === 'playback') updateHistoryPlaybackCursor();
-  fitHistoryBounds(latLngs);
+  if (fit) fitHistoryBounds(latLngs);
 };
 
 const updateHistoryPlaybackCursor = () => {
@@ -661,7 +664,7 @@ const updateHistoryPlaybackCursor = () => {
         {
           color: '#f97316',
           weight: 5,
-          opacity: 0.92,
+          opacity: 1,
           lineCap: 'round',
           lineJoin: 'round',
         }
@@ -702,40 +705,17 @@ const seekHistory = (index, { center = true } = {}) => {
   }
 };
 
+const toggleHistoryFullRoute = () => {
+  historyShowFullRoute.value = !historyShowFullRoute.value;
+  renderHistoryTrack();
+};
+
 const jumpToHistoryStop = (stopIndex) => {
   const stop = historyStops.value[stopIndex];
   if (!stop) return;
   historySelectedStopIndex.value = stopIndex;
   renderHistoryTrack();
   seekHistory(findNearestTrackPointIndex(historyPoints.value, stop.arrivedAt));
-};
-
-const jumpHistoryStopRelative = (direction) => {
-  if (!historyStops.value.length) return;
-  const currentStopIndex = historyStops.value.reduce(
-    (nearestIndex, stop, index) => {
-      const stopPointIndex = findNearestTrackPointIndex(
-        historyPoints.value,
-        stop.arrivedAt
-      );
-      const currentDistance = Math.abs(
-        stopPointIndex - historyCurrentIndex.value
-      );
-      const nearestDistance = Math.abs(
-        findNearestTrackPointIndex(
-          historyPoints.value,
-          historyStops.value[nearestIndex]?.arrivedAt
-        ) - historyCurrentIndex.value
-      );
-      return currentDistance < nearestDistance ? index : nearestIndex;
-    },
-    0
-  );
-  const nextIndex =
-    direction === 'previous'
-      ? Math.max(0, currentStopIndex - 1)
-      : Math.min(historyStops.value.length - 1, currentStopIndex + 1);
-  jumpToHistoryStop(nextIndex);
 };
 
 const changeHistoryPlaybackSpeed = (speed) => {
@@ -770,11 +750,6 @@ const toggleHistoryPlayback = () => {
   }, HISTORY_PLAYBACK_INTERVALS[historyPlaybackSpeed.value] || 350);
 };
 
-const showHistoryOverview = () => {
-  resetHistoryPlayback();
-  renderHistoryTrack();
-};
-
 const updateMultiHistoryPlaybackCursor = () => {
   if (!historyPlaybackLayer) return;
   historyPlaybackLayer.clearLayers();
@@ -786,31 +761,29 @@ const updateMultiHistoryPlaybackCursor = () => {
       track.points,
       multiHistoryCurrentTimestamp.value
     );
-    if (!point) return;
-
-    splitTrackSegments(
-      track.points.filter(
-        (item) => item.ts <= multiHistoryCurrentTimestamp.value
-      )
-    ).forEach((segment) => {
+    const traveledPoints = track.points.filter(
+      (item) => item.ts <= multiHistoryCurrentTimestamp.value
+    );
+    if (point && traveledPoints.at(-1)?.ts < point.ts)
+      traveledPoints.push(point);
+    splitTrackSegments(traveledPoints).forEach((segment) => {
       const progressPoints = segment.map((item) => [item.lat, item.lng]);
-      if (segment[segment.length - 1]?.ts < point.ts) return;
-      progressPoints.push([point.lat, point.lng]);
       if (progressPoints.length > 1) {
         L.polyline(progressPoints, {
-          color: track.color,
+          color: '#f97316',
           weight: 5,
-          opacity: 0.92,
+          opacity: 1,
           lineCap: 'round',
           lineJoin: 'round',
         }).addTo(historyPlaybackLayer);
       }
     });
+    if (!point) return;
     L.circleMarker([point.lat, point.lng], {
       radius: 7,
       color: '#fff',
       weight: 3,
-      fillColor: track.color,
+      fillColor: '#f97316',
       fillOpacity: 1,
     })
       .bindTooltip(
@@ -829,7 +802,7 @@ const updateMultiHistoryPlaybackCursor = () => {
   });
 };
 
-const renderMultiHistoryTrack = () => {
+const renderMultiHistoryTrack = ({ fit = false } = {}) => {
   if (!mapInstance || !historyLayer || !historyPlaybackLayer) return;
   historyLayer.clearLayers();
   historyPlaybackLayer.clearLayers();
@@ -840,19 +813,20 @@ const renderMultiHistoryTrack = () => {
     const points = track.points || [];
     if (!points.length) return;
     points.forEach((point) => bounds.push([point.lat, point.lng]));
-    splitTrackSegments(points).forEach((segment) => {
-      if (segment.length < 2) return;
-      L.polyline(
-        segment.map((point) => [point.lat, point.lng]),
-        {
-          color: track.color,
-          weight: multiHistoryPlaybackMode.value ? 3 : 4,
-          opacity: multiHistoryPlaybackMode.value ? 0.3 : 0.72,
-          lineCap: 'round',
-          lineJoin: 'round',
-        }
-      ).addTo(historyLayer);
-    });
+    if (multiHistoryShowFullRoute.value)
+      splitTrackSegments(points).forEach((segment) => {
+        if (segment.length < 2) return;
+        L.polyline(
+          segment.map((point) => [point.lat, point.lng]),
+          {
+            color: track.color,
+            weight: 4,
+            opacity: 0.28,
+            lineCap: 'round',
+            lineJoin: 'round',
+          }
+        ).addTo(historyLayer);
+      });
 
     if (track.participantId !== multiHistoryFocusedId.value) return;
     track.stops.forEach((stop, stopIndex) => {
@@ -882,7 +856,12 @@ const renderMultiHistoryTrack = () => {
   });
 
   updateMultiHistoryPlaybackCursor();
-  if (!multiHistoryPlaybackMode.value) fitHistoryBounds(bounds);
+  if (fit) fitHistoryBounds(bounds);
+};
+
+const toggleMultiHistoryFullRoute = () => {
+  multiHistoryShowFullRoute.value = !multiHistoryShowFullRoute.value;
+  renderMultiHistoryTrack();
 };
 
 const loadParticipantHistory = async () => {
@@ -930,7 +909,7 @@ const loadParticipantHistory = async () => {
     const cachedTrack = historyTrackCache.get(cacheKey);
     historyPoints.value = cachedTrack.points;
     historyRejectedCount.value = cachedTrack.rejectedCount;
-    renderHistoryTrack();
+    renderHistoryTrack({ fit: true });
     isHistoryLoading.value = false;
     return;
   }
@@ -951,7 +930,7 @@ const loadParticipantHistory = async () => {
     historyTrackCache.set(cacheKey, sanitizedTrack);
     historyPoints.value = sanitizedTrack.points;
     historyRejectedCount.value = sanitizedTrack.rejectedCount;
-    renderHistoryTrack();
+    renderHistoryTrack({ fit: true });
   } catch (error) {
     if (requestId !== historyRequestSequence) return;
     historyPoints.value = [];
@@ -1082,7 +1061,7 @@ const loadMultiParticipantHistory = async () => {
   if (results.some((track) => track.error)) {
     multiHistoryError.value = '部分成員軌跡讀取失敗，仍可查看其他成員。';
   }
-  renderMultiHistoryTrack();
+  renderMultiHistoryTrack({ fit: true });
   isHistoryLoading.value = false;
 };
 
@@ -1092,6 +1071,7 @@ const applyMultiHistorySelection = async () => {
     return;
   }
   closeMultiHistoryPicker();
+  multiHistoryShowFullRoute.value = true;
   isHistoryPanelOpen.value = false;
   isHistoryStopsOpen.value = false;
   isMultiHistoryPanelOpen.value = true;
@@ -1199,11 +1179,6 @@ const changeMultiHistoryPlaybackSpeed = (speed) => {
   }
 };
 
-const showMultiHistoryOverview = () => {
-  resetMultiHistoryPlayback();
-  renderMultiHistoryTrack();
-};
-
 const closeMultiHistory = () => {
   multiHistoryRequestSequence += 1;
   isMultiHistoryPanelOpen.value = false;
@@ -1232,6 +1207,7 @@ const openParticipantHistory = async (participantId) => {
   if (!canViewMemberHistory(participantId)) return;
   if (isMultiHistoryPanelOpen.value) closeMultiHistory();
   historyParticipantId.value = participantId;
+  historyShowFullRoute.value = true;
   historyDate.value = historyDate.value || getLocalDateValue();
   historyPoints.value = [];
   historyRejectedCount.value = 0;
@@ -2010,7 +1986,14 @@ onUnmounted(() => {
     />
 
     <div
-      v-if="!tripStore.isPublicTrip && !isLoading && !isSelectingGatheringPoint"
+      v-if="
+        !tripStore.isPublicTrip &&
+        !isLoading &&
+        !isSelectingGatheringPoint &&
+        !isHistoryPanelOpen &&
+        !isMultiHistoryPanelOpen &&
+        !isMultiHistoryPickerOpen
+      "
       class="absolute inset-x-4 bottom-[calc(6.25rem+env(safe-area-inset-bottom))] z-[510] flex flex-col items-end gap-2"
     >
       <LocationActionBar
@@ -2075,15 +2058,14 @@ onUnmounted(() => {
       :is-playing="historyIsPlaying"
       :playback-speed="historyPlaybackSpeed"
       :current-time-text="historyCurrentTime"
-      :view-mode="historyViewMode"
+      :show-full-route="historyShowFullRoute"
       @close="closeParticipantHistory"
       @change-date="changeParticipantHistoryDate"
       @toggle-playback="toggleHistoryPlayback"
       @seek="seekHistory($event, { center: false })"
       @change-speed="changeHistoryPlaybackSpeed"
-      @jump-stop="jumpHistoryStopRelative"
       @open-stops="isHistoryStopsOpen = true"
-      @show-overview="showHistoryOverview"
+      @toggle-full-route="toggleHistoryFullRoute"
     />
 
     <LocationTrackStopsSheet
@@ -2104,7 +2086,7 @@ onUnmounted(() => {
       :selected-date="multiHistoryDate"
       :is-loading="isHistoryLoading"
       :is-playing="multiHistoryIsPlaying"
-      :is-playback-mode="multiHistoryPlaybackMode"
+      :show-full-route="multiHistoryShowFullRoute"
       :playback-speed="multiHistoryPlaybackSpeed"
       :timeline-start="multiHistoryTimelineStart"
       :timeline-end="multiHistoryTimelineEnd"
@@ -2117,7 +2099,7 @@ onUnmounted(() => {
       @toggle-visible="toggleMultiHistoryVisible"
       @focus-member="focusMultiHistoryMember"
       @toggle-playback="toggleMultiHistoryPlayback"
-      @show-overview="showMultiHistoryOverview"
+      @toggle-full-route="toggleMultiHistoryFullRoute"
       @seek="seekMultiHistory"
       @change-speed="changeMultiHistoryPlaybackSpeed"
     />

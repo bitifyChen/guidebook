@@ -14,6 +14,7 @@
 
 ## UIUX Skills
 
+- 前台主視覺與圖片編排依 [主視覺規範](docs/uiux/frontend-visual-direction.md)，轉場與互動動態依 [動態規範](docs/uiux/frontend-motion.md)。兩份文件是已確認方向的專案來源；參數仍須透過原型與實機驗證。
 - 修改前台頁面、前台元件、PWA 行動體驗或 `/locations` 時，使用 `$guidebook-frontend-uiux`，並以其中的手機畫布、色彩、Liquid Glass 邊界與 safe-area 規範為準。
 - 修改後台 layout、列表、搜尋、表單、Drawer 或 RWD 時，使用 `$guidebook-admin-uiux`，並以其中的旅程上下文、工作台結構與 Admin 共用元件規範為準。
 - 同一任務同時改動前台與後台時載入兩個 Skill；不要把任一側的視覺語彙直接套用到另一側。

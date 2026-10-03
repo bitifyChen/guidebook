@@ -5,7 +5,6 @@ import { useTripStore } from '@/store/tripStore';
 import {
   ArrowRightLeft,
   RefreshCw,
-  X,
   Coins,
   Delete,
   ChevronRight,
@@ -13,6 +12,7 @@ import {
   Check,
   TrendingUp,
 } from 'lucide-vue-next';
+import FrontendBottomDrawer from '@/components/FrontendBottomDrawer.vue';
 
 const loading = ref(false);
 const rates = ref({});
@@ -107,14 +107,14 @@ const currentTarget = computed(() =>
 </script>
 
 <template>
-  <div class="bg-[var(--primary-orange-light)] py-4">
+  <div class="bg-[var(--travel-paper)] py-4">
     <div class="space-y-4">
       <!-- 匯率資訊 -->
       <div
-        class="bg-white/60 backdrop-blur-sm rounded-2xl px-5 py-3 flex justify-between items-center border border-white/40 shadow-sm"
+        class="flex items-center justify-between rounded-2xl border border-[#dfe8e4] bg-white px-5 py-3 shadow-sm"
       >
         <div class="flex items-center gap-3">
-          <TrendingUp :size="14" class="text-orange-500" />
+          <TrendingUp :size="14" class="text-[var(--travel-teal)]" />
           <p
             class="text-[10px] font-black text-slate-600 uppercase tracking-widest tabular-nums"
           >
@@ -123,16 +123,18 @@ const currentTarget = computed(() =>
           </p>
         </div>
         <button
+          type="button"
+          aria-label="更新匯率"
           @click="fetchRates"
-          class="flex items-center gap-1.5"
+          class="flex min-h-11 items-center gap-1.5 rounded-xl px-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--travel-coral)]"
           :disabled="loading"
         >
           <RefreshCw
             :size="12"
             :class="{ 'animate-spin': loading }"
-            class="text-orange-400"
+            class="text-[var(--travel-teal)]"
           />
-          <span class="text-[9px] font-bold text-orange-400 uppercase"
+          <span class="text-[9px] font-bold text-[var(--travel-teal)] uppercase"
             >更新匯率</span
           >
         </button>
@@ -143,11 +145,14 @@ const currentTarget = computed(() =>
         class="rounded-[40px] overflow-hidden shadow-2xl border border-white/20 bg-white relative"
       >
         <!-- 目標金額 (輸入區) -->
-        <div class="px-4 py-4 bg-gradient-to-br from-orange-50/80 to-white">
+        <div
+          class="bg-gradient-to-br from-[var(--travel-mist)] to-white px-4 py-4"
+        >
           <div class="flex justify-between items-center mb-6">
             <button
+              type="button"
               @click="openPicker('target')"
-              class="group flex items-center gap-3 bg-white px-4 py-1.5 rounded-2xl shadow-sm border border-orange-100 active:scale-95 transition-all"
+              class="group flex min-h-11 items-center gap-3 rounded-2xl border border-[#d7e8e2] bg-white px-4 py-1.5 shadow-sm transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--travel-coral)] active:scale-95"
             >
               <span class="text-lg font-black text-slate-800">{{
                 currentTarget?.code
@@ -158,21 +163,23 @@ const currentTarget = computed(() =>
               >
               <ChevronRight
                 :size="16"
-                class="text-orange-300 group-hover:translate-x-1 transition-transform"
+                class="text-[var(--travel-teal)]/50 transition-transform group-hover:translate-x-1"
               />
             </button>
             <button
+              type="button"
+              aria-label="清除換算金額"
               @click="
                 form.targetAmount = '';
                 updateBaseAmount();
               "
-              class="w-12 h-12 flex items-center justify-center text-slate-300 active:rotate-180 transition-transform duration-500"
+              class="flex h-12 w-12 items-center justify-center rounded-xl text-slate-400 transition-transform duration-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--travel-coral)] active:rotate-180"
             >
               <RotateCcw :size="22" />
             </button>
           </div>
           <div class="flex items-baseline gap-3">
-            <span class="text-3xl font-black text-orange-500">{{
+            <span class="text-3xl font-black text-[var(--travel-teal)]">{{
               currentTarget?.symbol
             }}</span>
             <div
@@ -185,48 +192,51 @@ const currentTarget = computed(() =>
 
         <!-- 切換按鈕 -->
         <div
-          class="h-1 bg-slate-900 flex justify-center items-center overflow-visible relative z-20"
+          class="relative z-20 flex h-1 items-center justify-center overflow-visible bg-[var(--travel-ink)]"
         >
           <button
+            type="button"
+            aria-label="交換幣別"
             @click="swapCurrencies"
-            class="absolute w-14 h-14 bg-slate-900 rounded-full border-4 border-[var(--primary-orange-light)] flex items-center justify-center shadow-xl active:scale-90 active:bg-orange-600 transition-all group"
+            class="absolute flex h-14 w-14 items-center justify-center rounded-full border-4 border-[var(--travel-paper)] bg-[var(--travel-teal)] shadow-lg transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--travel-coral)] active:scale-90 active:bg-[var(--travel-ink)] group"
           >
             <ArrowRightLeft
               :size="24"
-              class="text-orange-500 rotate-90 group-active:text-white transition-colors"
+              class="rotate-90 text-white transition-colors"
             />
           </button>
         </div>
 
         <!-- 基準金額 (顯示區) -->
         <div
-          class="px-4 py-4 bg-gradient-to-br from-slate-800 to-slate-900 text-white relative overflow-hidden group"
+          class="relative overflow-hidden bg-[var(--travel-ink)] px-4 py-4 text-white group"
         >
           <div class="flex justify-between items-center mb-6 relative z-10">
             <button
+              type="button"
               @click="openPicker('base')"
-              class="group flex items-center gap-3 bg-white/10 backdrop-blur-md px-4 py-1.5 rounded-2xl border border-white/10 active:scale-95 transition-all"
+              class="group flex min-h-11 items-center gap-3 rounded-2xl border border-white/10 bg-[#285458] px-4 py-1.5 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--travel-coral)] active:scale-95"
             >
               <span class="text-lg font-black text-white">{{
                 currentBase?.code
               }}</span>
               <span
-                class="text-[10px] font-bold text-slate-400 uppercase tracking-tighter"
+                class="text-[10px] font-bold uppercase tracking-tighter text-white/70"
                 >{{ currentBase?.name }}</span
               >
               <ChevronRight
                 :size="16"
-                class="text-white/20 group-hover:translate-x-1 transition-transform"
+                class="text-white/70 transition-transform group-hover:translate-x-1"
               />
             </button>
             <p
-              class="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em]"
+              class="text-[10px] font-black uppercase tracking-[0.2em] text-white/60"
             >
               約合幣值
             </p>
           </div>
           <div class="flex items-baseline gap-3 relative z-10">
-            <span class="text-3xl font-black text-indigo-400">{{
+            <span class="text-3xl font-black text-[var(--travel-coral)]">{{
               currentBase?.symbol
             }}</span>
             <div
@@ -244,119 +254,77 @@ const currentTarget = computed(() =>
 
       <!-- 數字鍵盤 -->
       <div
-        class="bg-white/80 backdrop-blur-sm rounded-[32px] p-4 grid grid-cols-3 gap-2 border border-white/40 shadow-sm"
+        class="grid grid-cols-3 gap-2 rounded-[28px] border border-[#dfe8e4] bg-white p-4 shadow-sm"
         style="-webkit-touch-callout: none"
       >
         <button
           v-for="n in ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0']"
           :key="n"
+          type="button"
           @click="handleKeyPress(n)"
-          class="h-16 flex items-center justify-center text-3xl font-black text-slate-700 active:scale-90 active:bg-orange-500 active:text-white transition-all rounded-2xl bg-white/50 shadow-sm border border-slate-100"
+          class="flex h-16 items-center justify-center rounded-2xl border border-[#e7eeea] bg-[var(--travel-paper)] text-3xl font-black text-slate-700 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--travel-coral)] active:scale-90 active:bg-[var(--travel-teal)] active:text-white"
         >
           {{ n }}
         </button>
         <button
+          type="button"
+          aria-label="刪除最後一位數字"
           @click="handleKeyPress('delete')"
-          class="h-16 flex items-center justify-center text-red-500 active:scale-90 bg-red-50 rounded-2xl shadow-sm border border-red-100"
+          class="flex h-16 items-center justify-center rounded-2xl border border-red-100 bg-red-50 text-red-500 shadow-sm transition-transform focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--travel-coral)] active:scale-90"
         >
           <Delete :size="28" />
         </button>
       </div>
     </div>
 
-    <!-- 幣別選擇彈窗 -->
-    <Teleport to="body">
-      <Transition name="fade">
-        <div
-          v-if="showPicker"
-          class="fixed inset-0 z-[4000] bg-slate-900/60 backdrop-blur-sm flex items-end"
-          @click.self="showPicker = false"
+    <FrontendBottomDrawer
+      :model-value="showPicker"
+      title="選擇幣別"
+      :description="
+        pickingType === 'base' ? '選擇輸入金額的貨幣' : '選擇要換算成的貨幣'
+      "
+      @update:model-value="showPicker = $event"
+    >
+      <div class="grid max-h-[58dvh] grid-cols-2 gap-3 overflow-y-auto pb-1">
+        <button
+          v-for="c in COMMON_CURRENCIES"
+          :key="c.code"
+          type="button"
+          class="flex min-h-[76px] items-center justify-between gap-3 rounded-2xl border p-4 text-left transition-colors"
+          :class="
+            (pickingType === 'base'
+              ? form.baseCurrency
+              : form.targetCurrency) === c.code
+              ? 'border-[var(--travel-teal)] bg-[var(--travel-mist)]'
+              : 'border-[#e7eeea] bg-[var(--travel-paper)]'
+          "
+          :aria-pressed="
+            (pickingType === 'base'
+              ? form.baseCurrency
+              : form.targetCurrency) === c.code
+          "
+          @click="selectCurrency(c.code)"
         >
-          <div
-            class="w-full bg-white rounded-t-[40px] p-8 pb-12 space-y-6 shadow-2xl animate-slide-up"
-          >
-            <div class="flex justify-between items-center">
-              <div>
-                <h3 class="text-2xl font-black text-slate-800">選擇幣別</h3>
-                <p
-                  class="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1"
-                >
-                  Select Currency
-                </p>
-              </div>
-              <button
-                @click="showPicker = false"
-                class="p-3 bg-slate-100 rounded-full text-slate-400 active:scale-90 transition-all"
-              >
-                <X :size="24" />
-              </button>
-            </div>
-            <div class="grid grid-cols-2 gap-4">
-              <button
-                v-for="c in COMMON_CURRENCIES"
-                :key="c.code"
-                @click="selectCurrency(c.code)"
-                :class="[
-                  'flex items-center justify-between p-5 rounded-[24px] border-4 transition-all',
-                  (pickingType === 'base'
-                    ? form.baseCurrency
-                    : form.targetCurrency) === c.code
-                    ? 'border-orange-500 bg-orange-50 shadow-lg shadow-orange-100'
-                    : 'border-slate-50 bg-slate-50 text-slate-400',
-                ]"
-              >
-                <div class="text-left">
-                  <p
-                    class="text-xl font-black"
-                    :class="
-                      (pickingType === 'base'
-                        ? form.baseCurrency
-                        : form.targetCurrency) === c.code
-                        ? 'text-slate-800'
-                        : 'text-slate-500'
-                    "
-                  >
-                    {{ c.code }}
-                  </p>
-                  <p class="text-[10px] font-bold opacity-60">{{ c.name }}</p>
-                </div>
-                <div
-                  v-if="
-                    (pickingType === 'base'
-                      ? form.baseCurrency
-                      : form.targetCurrency) === c.code
-                  "
-                  class="w-6 h-6 bg-orange-500 rounded-full flex items-center justify-center text-white"
-                >
-                  <Check :size="14" stroke-width="4" />
-                </div>
-              </button>
-            </div>
+          <div class="min-w-0">
+            <p class="text-lg font-black text-[var(--travel-ink)]">
+              {{ c.code }}
+            </p>
+            <p class="truncate text-[10px] font-bold text-slate-500">
+              {{ c.name }}
+            </p>
           </div>
-        </div>
-      </Transition>
-    </Teleport>
+          <span
+            v-if="
+              (pickingType === 'base'
+                ? form.baseCurrency
+                : form.targetCurrency) === c.code
+            "
+            class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--travel-teal)] text-white"
+          >
+            <Check :size="14" stroke-width="4" />
+          </span>
+        </button>
+      </div>
+    </FrontendBottomDrawer>
   </div>
 </template>
-
-<style scoped>
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.3s;
-}
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
-@keyframes slideUp {
-  from {
-    transform: translateY(100%);
-  }
-  to {
-    transform: translateY(0);
-  }
-}
-.animate-slide-up {
-  animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-}
-</style>

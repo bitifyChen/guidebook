@@ -72,6 +72,7 @@ export const runUpdateSequence = async ({
   waitForActivation,
   reload,
   updateTimeoutMs = 6000,
+  activationTimeoutMs = 6000,
 }) => {
   try {
     if (registration?.update) {
@@ -89,8 +90,14 @@ export const runUpdateSequence = async ({
     (registration ? await waitForWaitingWorker(registration) : null);
 
   if (waitingWorker && activateWaitingWorker) {
-    await activateWaitingWorker(false);
-    await waitForActivation();
+    const activation = Promise.resolve(waitForActivation()).catch(() => null);
+    await Promise.race([
+      Promise.resolve()
+        .then(() => activateWaitingWorker(false))
+        .catch(() => null),
+      new Promise((resolve) => setTimeout(resolve, activationTimeoutMs)),
+    ]);
+    await activation;
   }
 
   reload();
