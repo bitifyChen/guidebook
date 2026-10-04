@@ -262,7 +262,7 @@ const saveTimingAdjustment = async ({ actualTime, arrivalPolicy = '' }) => {
     class="min-h-screen"
   >
     <div
-      class="itinerary-day-glass fixed top-[calc(8px_+_env(safe-area-inset-top))] left-1/2 z-30 w-[calc(100%_-_32px)] max-w-[416px] -translate-x-1/2 px-4 rounded-[20px] bg-white border border-[#dfeae5] shadow-[0_10px_30px_rgba(20,70,70,.12)]"
+      class="itinerary-day-glass fixed top-[calc(20px_+_env(safe-area-inset-top))] left-1/2 z-30 w-[calc(100%_-_32px)] max-w-[416px] -translate-x-1/2 px-4 rounded-[20px] bg-white border border-[#dfeae5] shadow-[0_10px_30px_rgba(20,70,70,.12)]"
       @touchstart.stop
       @touchend.stop
     >

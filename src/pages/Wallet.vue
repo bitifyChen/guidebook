@@ -460,7 +460,7 @@ const onClose = () => {
           {{ formError }}
         </p>
         <div
-          class="sticky bottom-0 mt-6 flex gap-3 bg-white py-3 pb-[max(12px,env(safe-area-inset-bottom))]"
+          class="mt-6 flex gap-3 border-t border-slate-100 bg-white pt-4 pb-[max(12px,env(safe-area-inset-bottom))]"
         >
           <el-button
             v-if="form.id"

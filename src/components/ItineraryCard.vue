@@ -1,10 +1,11 @@
 <script setup>
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import {
   Clock,
   X,
   FileText,
   ChevronRight,
+  ChevronLeft,
   CarFront,
   Image,
   LogIn,
@@ -13,11 +14,12 @@ import {
 } from 'lucide-vue-next';
 // 引入 Swiper Vue 元件
 import { Swiper, SwiperSlide } from 'swiper/vue';
-import { Pagination } from 'swiper/modules';
+import { Pagination, Zoom } from 'swiper/modules';
 
 // 引入 Swiper 樣式
 import 'swiper/css';
 import 'swiper/css/pagination';
+import 'swiper/css/zoom';
 import { calculateStayMinutes } from '@/utils/itineraryTiming';
 
 const props = defineProps({
@@ -62,6 +64,62 @@ const props = defineProps({
 const emit = defineEmits(['adjust-timing']);
 
 const drawerVisible = ref(false);
+const galleryVisible = ref(false);
+const galleryIndex = ref(0);
+const gallerySwiper = ref(null);
+const galleryCloseButton = ref(null);
+let galleryTrigger = null;
+let gallerySwipeStart = null;
+let gallerySwipeTimer = null;
+const openGallery = (index, event) => {
+  galleryTrigger = event.currentTarget;
+  galleryIndex.value = index;
+  galleryVisible.value = true;
+  nextTick(() => galleryCloseButton.value?.focus());
+};
+const closeGallery = () => {
+  window.clearTimeout(gallerySwipeTimer);
+  gallerySwipeStart = null;
+  galleryVisible.value = false;
+  gallerySwiper.value = null;
+  nextTick(() => galleryTrigger?.focus());
+};
+const stepGallery = (direction) => {
+  if (direction < 0) gallerySwiper.value?.slidePrev();
+  else gallerySwiper.value?.slideNext();
+};
+const startGallerySwipe = (event) => {
+  if (event.touches.length !== 1) {
+    gallerySwipeStart = null;
+    return;
+  }
+  const touch = event.touches[0];
+  gallerySwipeStart = {
+    x: touch.clientX,
+    y: touch.clientY,
+    index: gallerySwiper.value?.activeIndex,
+  };
+};
+const finishGallerySwipe = (event) => {
+  const start = gallerySwipeStart;
+  gallerySwipeStart = null;
+  if (!start || event.touches.length || gallerySwiper.value?.zoom?.scale > 1.01)
+    return;
+  const touch = event.changedTouches[0];
+  if (!touch) return;
+  const dx = touch.clientX - start.x;
+  const dy = touch.clientY - start.y;
+  if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.25) return;
+
+  // If Swiper already handled the gesture, avoid advancing a second photo.
+  gallerySwipeTimer = window.setTimeout(() => {
+    if (
+      galleryVisible.value &&
+      gallerySwiper.value?.activeIndex === start.index
+    )
+      stepGallery(dx < 0 ? 1 : -1);
+  }, 60);
+};
 const sheetExpanded = ref(false);
 const sheetDragTop = ref(null);
 const sheetDragging = ref(false);
@@ -69,54 +127,152 @@ const sheetTop = computed(() =>
   sheetDragTop.value !== null
     ? `${sheetDragTop.value}px`
     : sheetExpanded.value
-      ? '49%'
+      ? '25%'
       : 'calc(100% - 176px - env(safe-area-inset-bottom))'
 );
-let sheetPointerStartY = 0;
-let sheetStartTop = 0;
-let sheetMinTop = 0;
-let sheetMaxTop = 0;
+const detailHistoryKey = '__guidebookItineraryDetail';
+const detailHistoryToken = `${props.item?.id || 'item'}-${Math.random().toString(36).slice(2)}`;
+let ownsDetailHistory = false;
+let activeSheetGesture = null;
 let sheetHandleDragged = false;
-let sheetDragStartedExpanded = false;
 
-const startSheetDrag = (event) => {
-  const panel = event.currentTarget.closest('.detail-scroll');
-  const drawer = panel?.parentElement;
-  if (!panel || !drawer) return;
-  sheetPointerStartY = event.clientY;
-  sheetStartTop =
-    panel.getBoundingClientRect().top - drawer.getBoundingClientRect().top;
-  sheetMinTop = drawer.clientHeight * 0.49;
-  sheetMaxTop = drawer.clientHeight - 176;
-  sheetDragStartedExpanded = sheetExpanded.value;
-  sheetHandleDragged = false;
-  sheetDragging.value = true;
-  sheetDragTop.value = sheetStartTop;
-  event.currentTarget.setPointerCapture?.(event.pointerId);
-};
-const moveSheetDrag = (event) => {
-  if (!sheetDragging.value) return;
-  const distance = event.clientY - sheetPointerStartY;
-  sheetDragTop.value = Math.max(
-    sheetMinTop,
-    Math.min(sheetMaxTop, sheetStartTop + distance)
+const isGestureControl = (target) => {
+  const element = target instanceof Element ? target : target?.parentElement;
+  if (!element || element.closest('.detail-sheet-handle')) return false;
+  return Boolean(
+    element.closest(
+      'button, a, input, select, textarea, [role="button"], .gallery-swiper'
+    )
   );
-  if (Math.abs(distance) > 8) sheetHandleDragged = true;
 };
-const finishSheetDrag = (event) => {
-  if (!sheetDragging.value) return;
-  const distance = event.clientY - sheetPointerStartY;
-  if (Math.abs(distance) > 36) {
-    sheetExpanded.value = distance < 0;
-    sheetHandleDragged = true;
+const beginSheetGesture = (x, y, surface, target, kind) => {
+  if (!hasImmersiveCover.value || isGestureControl(target)) return;
+  const drawer = surface.closest('.itinerary-detail-drawer');
+  const panel = drawer?.querySelector('.detail-scroll');
+  if (!drawer || !panel) return;
+  const element = target instanceof Element ? target : target?.parentElement;
+  activeSheetGesture = {
+    kind,
+    startX: x,
+    startY: y,
+    startTop:
+      panel.getBoundingClientRect().top - drawer.getBoundingClientRect().top,
+    minTop: drawer.clientHeight * 0.25,
+    maxTop: drawer.clientHeight - 176,
+    startedExpanded: sheetExpanded.value,
+    fromPanel: Boolean(element?.closest('.detail-scroll')),
+    fromHandle: Boolean(element?.closest('.detail-sheet-handle')),
+    scrollTop: panel.scrollTop,
+    panel,
+    axis: '',
+    dragged: false,
+  };
+  sheetHandleDragged = false;
+};
+const moveSheetGesture = (x, y, event) => {
+  const gesture = activeSheetGesture;
+  if (!gesture) return;
+  const dx = x - gesture.startX;
+  const dy = y - gesture.startY;
+  if (!gesture.axis) {
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 9) return;
+    gesture.axis =
+      Math.abs(dx) > Math.abs(dy) * 1.25 ? 'horizontal' : 'vertical';
   }
+  if (gesture.axis === 'horizontal') {
+    if (dx < 0 && event.cancelable) event.preventDefault();
+    return;
+  }
+  if (
+    gesture.startedExpanded &&
+    gesture.fromPanel &&
+    (dy <= 0 || gesture.scrollTop > 0 || gesture.panel.scrollTop > 0)
+  ) {
+    return;
+  }
+  if (event.cancelable) event.preventDefault();
+  sheetDragging.value = true;
+  gesture.dragged = true;
+  sheetDragTop.value = Math.max(
+    gesture.minTop,
+    Math.min(gesture.maxTop, gesture.startTop + dy)
+  );
+  if (gesture.fromHandle) sheetHandleDragged = true;
+};
+const finishSheetGesture = (x, y) => {
+  const gesture = activeSheetGesture;
+  if (!gesture) return;
+  const dx = x - gesture.startX;
+  const dy = y - gesture.startY;
+  if (
+    gesture.axis === 'horizontal' &&
+    dx < -72 &&
+    Math.abs(dx) > Math.abs(dy) * 1.3
+  ) {
+    if (gesture.fromHandle) sheetHandleDragged = true;
+    drawerVisible.value = false;
+  } else if (gesture.dragged && Math.abs(dy) > 36) {
+    sheetExpanded.value = dy < 0;
+  }
+  activeSheetGesture = null;
   sheetDragging.value = false;
   sheetDragTop.value = null;
 };
-const cancelSheetDrag = () => {
+const cancelSheetGesture = () => {
+  activeSheetGesture = null;
   sheetDragging.value = false;
   sheetDragTop.value = null;
-  sheetHandleDragged = true;
+};
+const startSheetPointer = (event) => {
+  if (event.pointerType === 'touch' || event.button !== 0) return;
+  beginSheetGesture(
+    event.clientX,
+    event.clientY,
+    event.currentTarget,
+    event.target,
+    'pointer'
+  );
+  if (activeSheetGesture) {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  }
+};
+const moveSheetPointer = (event) => {
+  if (activeSheetGesture?.kind !== 'pointer') return;
+  moveSheetGesture(event.clientX, event.clientY, event);
+};
+const finishSheetPointer = (event) => {
+  if (activeSheetGesture?.kind !== 'pointer') return;
+  finishSheetGesture(event.clientX, event.clientY);
+};
+const cancelSheetPointer = () => {
+  if (activeSheetGesture?.kind === 'pointer') cancelSheetGesture();
+};
+const startSheetTouch = (event) => {
+  if (event.touches.length !== 1) return;
+  const touch = event.touches[0];
+  beginSheetGesture(
+    touch.clientX,
+    touch.clientY,
+    event.currentTarget,
+    event.target,
+    'touch'
+  );
+};
+const moveSheetTouch = (event) => {
+  if (activeSheetGesture?.kind !== 'touch' || event.touches.length !== 1)
+    return;
+  const touch = event.touches[0];
+  moveSheetGesture(touch.clientX, touch.clientY, event);
+};
+const finishSheetTouch = (event) => {
+  if (activeSheetGesture?.kind !== 'touch') return;
+  const touch = event.changedTouches[0];
+  if (touch) finishSheetGesture(touch.clientX, touch.clientY);
+  else cancelSheetGesture();
+};
+const cancelSheetTouch = () => {
+  if (activeSheetGesture?.kind === 'touch') cancelSheetGesture();
 };
 const toggleSheet = () => {
   if (sheetHandleDragged) {
@@ -133,14 +289,45 @@ watch(drawerVisible, (val) => {
     sheetDragTop.value = null;
     lockScroll();
   } else {
+    galleryVisible.value = false;
+    gallerySwiper.value = null;
     unlockScroll();
+    cancelSheetGesture();
+    if (ownsDetailHistory) {
+      ownsDetailHistory = false;
+      if (window.history.state?.[detailHistoryKey] === detailHistoryToken) {
+        window.history.back();
+      }
+    }
   }
 });
+const handleDetailPopstate = (event) => {
+  if (event.state?.[detailHistoryKey] === detailHistoryToken) {
+    ownsDetailHistory = true;
+    drawerVisible.value = true;
+  } else if (ownsDetailHistory) {
+    ownsDetailHistory = false;
+    drawerVisible.value = false;
+  }
+};
+onMounted(() => window.addEventListener('popstate', handleDetailPopstate));
 onUnmounted(() => {
+  window.clearTimeout(gallerySwipeTimer);
+  window.removeEventListener('popstate', handleDetailPopstate);
   if (drawerVisible.value) unlockScroll();
 });
 
 const openDetail = () => {
+  if (drawerVisible.value) return;
+  window.history.pushState(
+    {
+      ...(window.history.state || {}),
+      [detailHistoryKey]: detailHistoryToken,
+    },
+    '',
+    window.location.href
+  );
+  ownsDetailHistory = true;
   drawerVisible.value = true;
 };
 const goUrl = (url) => {
@@ -158,7 +345,7 @@ const navigationActionTop = computed(() => {
   if (
     hasImmersiveCover.value &&
     sheetDragging.value &&
-    !sheetDragStartedExpanded &&
+    !activeSheetGesture?.startedExpanded &&
     sheetDragTop.value !== null
   ) {
     return `${Math.max(0, sheetDragTop.value - 28)}px`;
@@ -199,6 +386,7 @@ const requestTimingAdjustment = (mode) => {
 };
 // 設定 Swiper 模組
 const modules = [Pagination];
+const galleryModules = [Zoom];
 </script>
 
 <template>
@@ -406,11 +594,16 @@ const modules = [Pagination];
     :with-header="false"
     :append-to-body="true"
     :lock-scroll="false"
+    :close-on-press-escape="!galleryVisible"
     class="itinerary-detail-drawer frontend-contained-drawer"
   >
     <div
       v-if="item"
       class="relative flex h-full flex-col overflow-hidden bg-[var(--travel-paper)]"
+      @touchstart="startSheetTouch"
+      @touchmove="moveSheetTouch"
+      @touchend="finishSheetTouch"
+      @touchcancel="cancelSheetTouch"
     >
       <button
         type="button"
@@ -424,6 +617,11 @@ const modules = [Pagination];
       <div
         v-if="item.cover"
         class="detail-hero w-full overflow-hidden"
+        @dragstart.prevent
+        @pointerdown="startSheetPointer"
+        @pointermove="moveSheetPointer"
+        @pointerup="finishSheetPointer"
+        @pointercancel="cancelSheetPointer"
         :class="[
           hasImmersiveCover
             ? 'absolute inset-0 bg-[#0b4552]'
@@ -473,10 +671,15 @@ const modules = [Pagination];
       <div
         class="detail-scroll overflow-x-hidden"
         :style="hasImmersiveCover ? { top: sheetTop } : undefined"
+        @pointerdown="startSheetPointer"
+        @pointermove="moveSheetPointer"
+        @pointerup="finishSheetPointer"
+        @pointercancel="cancelSheetPointer"
         :class="[
           hasImmersiveCover
             ? 'detail-scroll--immersive absolute inset-x-0 bottom-0 z-10 rounded-t-[28px] bg-white'
             : 'relative flex-1 bg-[var(--travel-paper)]',
+          hasImmersiveCover && !sheetExpanded ? 'touch-none' : 'touch-pan-y',
           sheetDragging ? 'detail-sheet-dragging' : '',
           !hasImmersiveCover || sheetExpanded
             ? 'overflow-y-auto'
@@ -498,10 +701,6 @@ const modules = [Pagination];
             class="detail-sheet-handle -mt-6 flex h-11 w-full touch-none items-start justify-center pt-3"
             :aria-expanded="sheetExpanded"
             :aria-label="sheetExpanded ? '收合行程詳情' : '展開行程詳情'"
-            @pointerdown="startSheetDrag"
-            @pointermove="moveSheetDrag"
-            @pointerup="finishSheetDrag"
-            @pointercancel="cancelSheetDrag"
             @click="toggleSheet"
           >
             <span
@@ -684,20 +883,22 @@ const modules = [Pagination];
               class="w-full !overflow-visible gallery-swiper"
             >
               <swiper-slide v-for="(img, idx) in item.images" :key="idx">
-                <div
-                  class="aspect-[4/3] rounded-[24px] overflow-hidden bg-slate-100 border border-slate-50 shadow-sm"
+                <button
+                  type="button"
+                  class="gallery-thumbnail block aspect-[4/3] w-full overflow-hidden rounded-[24px] border border-slate-50 bg-slate-100 p-0 text-left shadow-sm"
+                  :aria-label="`瀏覽第 ${idx + 1} 張照片，共 ${item.images.length} 張`"
+                  @click.stop="openGallery(idx, $event)"
                 >
-                  <el-image
-                    :src="img"
-                    :preview-src-list="item.images"
-                    :initial-index="idx"
-                    fit="cover"
-                    lazy
-                    class="w-full h-full"
-                    :preview-teleported="true"
-                    :hide-on-click-modal="true"
-                  />
-                </div>
+                  <el-image :src="img" fit="cover" lazy class="h-full w-full">
+                    <template #error>
+                      <div
+                        class="flex h-full w-full items-center justify-center text-slate-400"
+                      >
+                        <Image :size="24" aria-hidden="true" />
+                      </div>
+                    </template>
+                  </el-image>
+                </button>
               </swiper-slide>
             </swiper>
           </div>
@@ -710,9 +911,7 @@ const modules = [Pagination];
       >
         <div
           class="grid gap-2 max-w-lg mx-auto"
-          :class="
-            hasTimingActions ? 'grid-cols-2' : 'grid-cols-1'
-          "
+          :class="hasTimingActions ? 'grid-cols-2' : 'grid-cols-1'"
         >
           <div
             v-if="mapUrl"
@@ -758,6 +957,80 @@ const modules = [Pagination];
       </button>
     </div>
   </el-drawer>
+
+  <Teleport to="body">
+    <div
+      v-if="galleryVisible && item.images?.length"
+      class="gallery-viewer"
+      role="dialog"
+      aria-modal="true"
+      aria-label="景點照片預覽"
+      @keydown.esc.stop.prevent="closeGallery"
+      @keydown.left.stop.prevent="stepGallery(-1)"
+      @keydown.right.stop.prevent="stepGallery(1)"
+    >
+      <div
+        class="gallery-viewer-canvas"
+        @touchstart.capture="startGallerySwipe"
+        @touchend.capture="finishGallerySwipe"
+        @touchcancel.capture="gallerySwipeStart = null"
+      >
+        <div class="gallery-viewer-header">
+          <span class="gallery-viewer-count" aria-live="polite">
+            {{ galleryIndex + 1 }} / {{ item.images.length }}
+          </span>
+          <button
+            ref="galleryCloseButton"
+            type="button"
+            class="gallery-viewer-close"
+            aria-label="關閉照片預覽"
+            @click="closeGallery"
+          >
+            <X :size="22" aria-hidden="true" />
+          </button>
+        </div>
+
+        <swiper
+          :modules="galleryModules"
+          :initial-slide="galleryIndex"
+          :zoom="{ maxRatio: 3, minRatio: 1, toggle: true }"
+          class="gallery-viewer-swiper"
+          @swiper="gallerySwiper = $event"
+          @slide-change="galleryIndex = $event.activeIndex"
+        >
+          <swiper-slide v-for="(img, idx) in item.images" :key="idx">
+            <div class="swiper-zoom-container">
+              <img
+                :src="img"
+                :alt="`${item.location || '景點'}照片 ${idx + 1}`"
+              />
+            </div>
+          </swiper-slide>
+        </swiper>
+
+        <template v-if="item.images.length > 1">
+          <button
+            type="button"
+            class="gallery-viewer-step gallery-viewer-prev"
+            :disabled="galleryIndex === 0"
+            aria-label="上一張照片"
+            @click="stepGallery(-1)"
+          >
+            <ChevronLeft :size="22" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            class="gallery-viewer-step gallery-viewer-next"
+            :disabled="galleryIndex === item.images.length - 1"
+            aria-label="下一張照片"
+            @click="stepGallery(1)"
+          >
+            <ChevronRight :size="22" aria-hidden="true" />
+          </button>
+        </template>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped lang="scss">
@@ -860,9 +1133,11 @@ const modules = [Pagination];
 
 .detail-hero {
   animation: detail-photo-enter 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  touch-action: none;
 }
 .detail-hero :deep(.el-image__inner) {
   object-position: center;
+  -webkit-user-drag: none;
 }
 .detail-cover-copy {
   text-shadow: 0 2px 18px rgba(4, 33, 41, 0.32);
@@ -1008,6 +1283,113 @@ const modules = [Pagination];
   &:not(.swiper-slide-active) {
     transform: scale(0.95);
     opacity: 0.8;
+  }
+}
+
+.gallery-thumbnail {
+  cursor: zoom-in;
+}
+.gallery-thumbnail :deep(.el-image__inner) {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.gallery-thumbnail:focus-visible {
+  outline: 3px solid var(--travel-coral);
+  outline-offset: 3px;
+}
+
+.gallery-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  justify-content: center;
+  background: #071b20;
+  color: white;
+}
+.gallery-viewer-canvas {
+  position: relative;
+  width: min(100vw, var(--frontend-shell-max-width));
+  height: 100dvh;
+  overflow: hidden;
+  background: #071b20;
+}
+.gallery-viewer-header {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  right: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(12px + env(safe-area-inset-top)) 20px 12px;
+  pointer-events: none;
+}
+.gallery-viewer-count {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-shadow: 0 2px 10px #000;
+}
+.gallery-viewer-close,
+.gallery-viewer-step {
+  display: flex;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 50%;
+  background: rgb(7 27 32 / 65%);
+  color: white;
+  pointer-events: auto;
+}
+.gallery-viewer-close:focus-visible,
+.gallery-viewer-step:focus-visible {
+  outline: 3px solid var(--travel-coral);
+  outline-offset: 2px;
+}
+.gallery-viewer-step:disabled {
+  opacity: 0.32;
+}
+.gallery-viewer-step {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.gallery-viewer-prev {
+  left: 12px;
+}
+.gallery-viewer-next {
+  right: 12px;
+}
+.gallery-viewer-swiper {
+  width: 100%;
+  height: 100%;
+}
+.gallery-viewer-swiper .swiper-slide {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.gallery-viewer-swiper .swiper-zoom-container {
+  width: 100%;
+  height: 100%;
+}
+.gallery-viewer-swiper img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+@media (max-width: 640px) {
+  .gallery-viewer-step {
+    display: none;
   }
 }
 </style>
