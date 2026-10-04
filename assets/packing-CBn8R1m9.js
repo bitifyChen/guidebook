@@ -1,1 +1,0 @@
-import{a8 as r,a9 as t,aa as o,ab as n,ac as i,a1 as c,ad as g,ae as l}from"./index-BJ0J9-LP.js";const d=i(c),e=()=>o(d,"settings","packingCatalog"),p=async a=>{const s=t(a);return await n(e(),{list:s,updatedAt:g()},{merge:!0}),s},A=async()=>{const a=await r(e());return a.exists()&&Array.isArray(a.data().list)?t(a.data().list):p(l)};export{A as e,p as s};
