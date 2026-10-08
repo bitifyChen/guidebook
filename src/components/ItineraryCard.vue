@@ -64,6 +64,11 @@ const props = defineProps({
 const emit = defineEmits(['adjust-timing']);
 
 const drawerVisible = ref(false);
+const cardCover = ref(null);
+const detailCover = ref(null);
+const sharedCoverActive = ref(false);
+let activeCoverTransition = null;
+let coverTransitionRequest = 0;
 const galleryVisible = ref(false);
 const galleryIndex = ref(0);
 const gallerySwiper = ref(null);
@@ -210,7 +215,7 @@ const finishSheetGesture = (x, y) => {
     Math.abs(dx) > Math.abs(dy) * 1.3
   ) {
     if (gesture.fromHandle) sheetHandleDragged = true;
-    drawerVisible.value = false;
+    setDetailVisible(false);
   } else if (gesture.dragged && Math.abs(dy) > 36) {
     sheetExpanded.value = dy < 0;
   }
@@ -282,6 +287,91 @@ const toggleSheet = () => {
   sheetExpanded.value = !sheetExpanded.value;
 };
 
+const coverIsReady = (element) => {
+  const image = (element?.$el || element)?.querySelector('img');
+  return image?.complete && image.naturalWidth > 0;
+};
+const sourceCoverIsVisible = () => {
+  const cover = cardCover.value;
+  if (!coverIsReady(cover)) return false;
+  const rect = cover.getBoundingClientRect();
+  const visibleWidth =
+    Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0);
+  const visibleHeight =
+    Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0);
+  return (
+    rect.width > 0 &&
+    rect.height > 0 &&
+    visibleWidth >= rect.width * 0.5 &&
+    visibleHeight >= rect.height * 0.5
+  );
+};
+const canTransitionCover = (opening) =>
+  Boolean(
+    props.item.cover &&
+    document.startViewTransition &&
+    document.visibilityState === 'visible' &&
+    !window.matchMedia('(prefers-reduced-motion: reduce)').matches &&
+    sourceCoverIsVisible() &&
+    (opening || (!sheetExpanded.value && coverIsReady(detailCover.value)))
+  );
+const setDetailVisible = async (visible, { animate = true } = {}) => {
+  if (drawerVisible.value === visible) {
+    if (!visible && !activeCoverTransition) sharedCoverActive.value = false;
+    return;
+  }
+
+  const request = ++coverTransitionRequest;
+  activeCoverTransition?.skipTransition();
+  activeCoverTransition = null;
+  document.documentElement.classList.remove(
+    'itinerary-cover-transitioning',
+    'itinerary-cover-opening',
+    'itinerary-cover-closing'
+  );
+
+  if (!animate || !canTransitionCover(visible)) {
+    sharedCoverActive.value = false;
+    drawerVisible.value = visible;
+    return;
+  }
+
+  if (visible) {
+    sharedCoverActive.value = true;
+    await nextTick();
+    if (request !== coverTransitionRequest) return;
+  }
+
+  document.documentElement.classList.add(
+    'itinerary-cover-transitioning',
+    visible ? 'itinerary-cover-opening' : 'itinerary-cover-closing'
+  );
+  try {
+    const transition = document.startViewTransition(async () => {
+      if (request !== coverTransitionRequest) return;
+      drawerVisible.value = visible;
+      await nextTick();
+    });
+    activeCoverTransition = transition;
+    await transition.finished;
+  } catch {
+    if (request === coverTransitionRequest) {
+      sharedCoverActive.value = false;
+      drawerVisible.value = visible;
+    }
+  } finally {
+    if (request === coverTransitionRequest) {
+      activeCoverTransition = null;
+      document.documentElement.classList.remove(
+        'itinerary-cover-transitioning',
+        'itinerary-cover-opening',
+        'itinerary-cover-closing'
+      );
+      if (!visible) sharedCoverActive.value = false;
+    }
+  }
+};
+
 import { lockScroll, unlockScroll } from '@/utils/scrollLock';
 watch(drawerVisible, (val) => {
   if (val) {
@@ -304,21 +394,28 @@ watch(drawerVisible, (val) => {
 const handleDetailPopstate = (event) => {
   if (event.state?.[detailHistoryKey] === detailHistoryToken) {
     ownsDetailHistory = true;
-    drawerVisible.value = true;
+    setDetailVisible(true);
   } else if (ownsDetailHistory) {
     ownsDetailHistory = false;
-    drawerVisible.value = false;
+    setDetailVisible(false);
   }
 };
 onMounted(() => window.addEventListener('popstate', handleDetailPopstate));
 onUnmounted(() => {
+  coverTransitionRequest++;
+  activeCoverTransition?.skipTransition();
+  document.documentElement.classList.remove(
+    'itinerary-cover-transitioning',
+    'itinerary-cover-opening',
+    'itinerary-cover-closing'
+  );
   window.clearTimeout(gallerySwipeTimer);
   window.removeEventListener('popstate', handleDetailPopstate);
   if (drawerVisible.value) unlockScroll();
 });
 
 const openDetail = () => {
-  if (drawerVisible.value) return;
+  if (drawerVisible.value || ownsDetailHistory) return;
   window.history.pushState(
     {
       ...(window.history.state || {}),
@@ -328,7 +425,7 @@ const openDetail = () => {
     window.location.href
   );
   ownsDetailHistory = true;
-  drawerVisible.value = true;
+  setDetailVisible(true);
 };
 const goUrl = (url) => {
   window.open(url, '_blank');
@@ -381,7 +478,7 @@ const effectiveStayMinutes = computed(() =>
   calculateStayMinutes(props.item.startTime, props.item.endTime)
 );
 const requestTimingAdjustment = (mode) => {
-  drawerVisible.value = false;
+  setDetailVisible(false, { animate: false });
   nextTick(() => emit('adjust-timing', { item: props.item, mode }));
 };
 // 設定 Swiper 模組
@@ -472,6 +569,7 @@ const galleryModules = [Zoom];
         <!-- 封面圖片：如果是子景點，縮減高度 -->
         <div
           v-if="item.cover"
+          ref="cardCover"
           class="relative overflow-hidden bg-[var(--travel-mist)]"
           :class="
             easyMode || (timeLine && !featured)
@@ -486,6 +584,12 @@ const galleryModules = [Zoom];
             fit="cover"
             lazy
             class="w-full h-full transition-transform duration-500"
+            :style="{
+              viewTransitionName:
+                sharedCoverActive && !drawerVisible
+                  ? 'itinerary-cover'
+                  : 'none',
+            }"
           >
             <template #error
               ><div
@@ -588,7 +692,8 @@ const galleryModules = [Zoom];
   </div>
 
   <el-drawer
-    v-model="drawerVisible"
+    :model-value="drawerVisible"
+    @update:model-value="setDetailVisible"
     direction="btt"
     size="100%"
     :with-header="false"
@@ -596,6 +701,7 @@ const galleryModules = [Zoom];
     :lock-scroll="false"
     :close-on-press-escape="!galleryVisible"
     class="itinerary-detail-drawer frontend-contained-drawer"
+    :class="{ 'shared-cover-active': sharedCoverActive }"
   >
     <div
       v-if="item"
@@ -608,8 +714,14 @@ const galleryModules = [Zoom];
       <button
         type="button"
         aria-label="關閉行程詳情"
-        @click.stop="drawerVisible = false"
+        @click.stop="setDetailVisible(false)"
         class="absolute top-[calc(12px_+_env(safe-area-inset-top))] right-4 flex h-11 w-11 items-center justify-center rounded-full bg-[#102e35]/70 text-white z-30"
+        :style="{
+          viewTransitionName:
+            sharedCoverActive && drawerVisible
+              ? 'itinerary-detail-close'
+              : 'none',
+        }"
       >
         <X :size="20" />
       </button>
@@ -628,7 +740,16 @@ const galleryModules = [Zoom];
             : 'relative h-[min(42dvh,390px)] min-h-[240px] shrink-0 bg-[var(--travel-mist)]',
         ]"
       >
-        <el-image :src="item.cover" fit="cover" class="w-full h-full">
+        <el-image
+          ref="detailCover"
+          :src="item.cover"
+          fit="cover"
+          class="w-full h-full"
+          :style="{
+            viewTransitionName:
+              sharedCoverActive && drawerVisible ? 'itinerary-cover' : 'none',
+          }"
+        >
           <template #error
             ><div
               class="flex h-full w-full items-center justify-center bg-[var(--travel-mist)] text-sm font-bold text-[var(--travel-teal)]"
@@ -639,7 +760,13 @@ const galleryModules = [Zoom];
         </el-image>
         <div
           v-if="hasImmersiveCover"
-          class="absolute inset-0 bg-gradient-to-b from-transparent via-[#092f3b]/10 to-[#092f3b]/88 pointer-events-none"
+          class="detail-cover-shade absolute inset-0 bg-gradient-to-b from-transparent via-[#092f3b]/10 to-[#092f3b]/88 pointer-events-none"
+          :style="{
+            viewTransitionName:
+              sharedCoverActive && drawerVisible
+                ? 'itinerary-detail-shade'
+                : 'none',
+          }"
         ></div>
         <div
           v-if="hasImmersiveCover"
@@ -650,6 +777,10 @@ const galleryModules = [Zoom];
               sheetExpanded || sheetDragging
                 ? `calc(100% - ${sheetTop} + 24px)`
                 : 'calc(176px + env(safe-area-inset-bottom) + 24px)',
+            viewTransitionName:
+              sharedCoverActive && drawerVisible
+                ? 'itinerary-detail-copy'
+                : 'none',
           }"
         >
           <p class="text-[11px] font-bold tracking-[.2em] text-white/80">
@@ -670,7 +801,17 @@ const galleryModules = [Zoom];
       </div>
       <div
         class="detail-scroll overflow-x-hidden"
-        :style="hasImmersiveCover ? { top: sheetTop } : undefined"
+        :style="
+          hasImmersiveCover
+            ? {
+                top: sheetTop,
+                viewTransitionName:
+                  sharedCoverActive && drawerVisible
+                    ? 'itinerary-detail-sheet'
+                    : 'none',
+              }
+            : undefined
+        "
         @pointerdown="startSheetPointer"
         @pointermove="moveSheetPointer"
         @pointerup="finishSheetPointer"
@@ -948,7 +1089,13 @@ const galleryModules = [Zoom];
             : 'navigation-action-collapsed',
           sheetDragging ? 'detail-sheet-dragging' : '',
         ]"
-        :style="{ top: navigationActionTop }"
+        :style="{
+          top: navigationActionTop,
+          viewTransitionName:
+            sharedCoverActive && drawerVisible
+              ? 'itinerary-detail-navigation'
+              : 'none',
+        }"
         :aria-label="`開啟${item.location || '景點'}地圖`"
         @click.stop="goUrl(mapUrl)"
       >
@@ -1391,5 +1538,93 @@ const galleryModules = [Zoom];
   .gallery-viewer-step {
     display: none;
   }
+}
+</style>
+
+<style>
+html.itinerary-cover-transitioning::view-transition-old(root),
+html.itinerary-cover-transitioning::view-transition-new(root) {
+  animation: none;
+}
+
+html.itinerary-cover-transitioning::view-transition-group(itinerary-cover),
+html.itinerary-cover-transitioning::view-transition-old(itinerary-cover),
+html.itinerary-cover-transitioning::view-transition-new(itinerary-cover) {
+  animation-duration: 420ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+html.itinerary-cover-transitioning::view-transition-group(itinerary-cover) {
+  z-index: 1;
+}
+
+html.itinerary-cover-transitioning::view-transition-group(
+    itinerary-detail-shade
+  ) {
+  z-index: 2;
+}
+
+html.itinerary-cover-transitioning::view-transition-group(
+    itinerary-detail-sheet
+  ) {
+  z-index: 3;
+}
+
+html.itinerary-cover-transitioning::view-transition-group(
+    itinerary-detail-copy
+  ) {
+  z-index: 4;
+}
+
+html.itinerary-cover-transitioning::view-transition-group(
+    itinerary-detail-close
+  ),
+html.itinerary-cover-transitioning::view-transition-group(
+    itinerary-detail-navigation
+  ) {
+  z-index: 5;
+}
+
+html.itinerary-cover-opening::view-transition-new(itinerary-detail-shade),
+html.itinerary-cover-opening::view-transition-new(itinerary-detail-sheet),
+html.itinerary-cover-opening::view-transition-new(itinerary-detail-copy),
+html.itinerary-cover-opening::view-transition-new(itinerary-detail-close),
+html.itinerary-cover-opening::view-transition-new(itinerary-detail-navigation),
+html.itinerary-cover-closing::view-transition-old(itinerary-detail-shade),
+html.itinerary-cover-closing::view-transition-old(itinerary-detail-sheet),
+html.itinerary-cover-closing::view-transition-old(itinerary-detail-copy),
+html.itinerary-cover-closing::view-transition-old(itinerary-detail-close),
+html.itinerary-cover-closing::view-transition-old(itinerary-detail-navigation) {
+  animation: none;
+}
+
+html.itinerary-cover-closing::view-transition-old(itinerary-detail-shade),
+html.itinerary-cover-closing::view-transition-old(itinerary-detail-sheet),
+html.itinerary-cover-closing::view-transition-old(itinerary-detail-copy),
+html.itinerary-cover-closing::view-transition-old(itinerary-detail-close),
+html.itinerary-cover-closing::view-transition-old(itinerary-detail-navigation) {
+  opacity: 0;
+}
+
+html.itinerary-cover-transitioning .el-drawer-fade-enter-active,
+html.itinerary-cover-transitioning .el-drawer-fade-leave-active,
+html.itinerary-cover-transitioning .itinerary-detail-drawer {
+  transition-duration: 0ms !important;
+}
+
+html.itinerary-cover-transitioning
+  .el-drawer-fade-enter-from
+  .itinerary-detail-drawer,
+html.itinerary-cover-transitioning
+  .el-drawer-fade-leave-to
+  .itinerary-detail-drawer {
+  transform: none !important;
+}
+
+.shared-cover-active .detail-hero,
+.shared-cover-active .detail-scroll--immersive,
+.shared-cover-active .detail-info,
+.shared-cover-active .detail-actions {
+  animation: none !important;
 }
 </style>
