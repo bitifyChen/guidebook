@@ -2313,29 +2313,17 @@ onUnmounted(() => {
     transform 160ms ease;
 }
 
-.member-map-marker__shape {
+.member-map-marker .member-map-marker__shape {
   position: relative;
+  z-index: 0;
   width: 56px;
   height: 68px;
-  background: #64748b;
-  clip-path: polygon(
-    50% 0%,
-    68% 3%,
-    84% 14%,
-    94% 32%,
-    94% 50%,
-    76% 74%,
-    50% 100%,
-    24% 74%,
-    6% 50%,
-    6% 32%,
-    16% 14%,
-    32% 3%
-  );
+  flex: none;
+  fill: #64748b;
   filter: drop-shadow(0 2px 1px rgb(255 255 255 / 82%))
     drop-shadow(0 8px 10px rgb(15 23 42 / 22%));
   transition:
-    background-color 180ms ease,
+    fill 180ms ease,
     filter 180ms ease;
 }
 
@@ -2409,11 +2397,11 @@ onUnmounted(() => {
 }
 
 .member-map-marker.is-online:not(.is-tracked) .member-map-marker__shape {
-  background: #67c99a;
+  fill: #67c99a;
 }
 
 .member-map-marker.is-tracked .member-map-marker__shape {
-  background: #f59e57;
+  fill: #f59e57;
 }
 
 .member-map-marker.is-offline .member-map-marker__shape {
